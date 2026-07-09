@@ -159,6 +159,13 @@ struct TerminalScreen: View {
     }
 }
 
+/// The terminal is a read-and-scroll surface, not a text input: refusing first
+/// responder means tapping it never raises the keyboard or SwiftTerm's own
+/// accessory bar. All input goes through the single message field + quick keys.
+private final class ReadOnlyTerminalView: TerminalView {
+    override var canBecomeFirstResponder: Bool { false }
+}
+
 private struct TerminalContainer: UIViewRepresentable {
     let sessionName: String
     let serverURL: String
@@ -174,7 +181,7 @@ private struct TerminalContainer: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> TerminalView {
-        let view = TerminalView(frame: .zero)
+        let view = ReadOnlyTerminalView(frame: .zero)
         view.terminalDelegate = context.coordinator
         view.backgroundColor = .black
         view.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
