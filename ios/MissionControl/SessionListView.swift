@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 struct SessionListView: View {
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
@@ -9,6 +10,7 @@ struct SessionListView: View {
     @State private var showSettings = false
     @State private var pendingKill: TmuxSession?
     @State private var path: [String] = []
+    @EnvironmentObject private var router: AppRouter
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -58,6 +60,11 @@ struct SessionListView: View {
                         path = [name]
                     }
                 }
+                .onChange(of: router.openSession) { _, session in
+                    guard let session else { return }
+                    path = [session]
+                    router.openSession = nil
+                }
         }
     }
 
@@ -90,7 +97,7 @@ struct SessionListView: View {
         List {
             ForEach(sessions) { session in
                 NavigationLink(value: session.name) {
-                    SessionRow(session: session)
+                    SessionRow(session: session) { key in quickReply(session, key: key) }
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
@@ -114,12 +121,31 @@ struct SessionListView: View {
     private func load() async {
         guard let api else { return }
         do {
-            sessions = try await api.sessions()
+            sessions = try await api.sessions().sorted(by: triageOrder)
             loadError = nil
+            let needsInput = sessions.filter { $0.resolvedState == .needsInput }.count
+            try? await UNUserNotificationCenter.current().setBadgeCount(needsInput)
         } catch {
             loadError = error.localizedDescription
         }
         hasLoaded = true
+    }
+
+    // Sessions waiting on the human float to the top, then busy, then quiet.
+    private func triageOrder(_ a: TmuxSession, _ b: TmuxSession) -> Bool {
+        func rank(_ s: TmuxSession) -> Int {
+            switch s.resolvedState {
+            case .needsInput: return 0
+            case .working: return 1
+            case .idle: return 2
+            case .unknown: return 3
+            }
+        }
+        return rank(a) != rank(b) ? rank(a) < rank(b) : a.lastOutputAt > b.lastOutputAt
+    }
+
+    private func quickReply(_ session: TmuxSession, key: String) {
+        Task { try? await api?.sendKeys(session.name, keys: [key]) }
     }
 
     private func kill(_ session: TmuxSession) async {
@@ -135,6 +161,7 @@ struct SessionListView: View {
 
 private struct SessionRow: View {
     let session: TmuxSession
+    var onQuickReply: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -147,14 +174,38 @@ private struct SessionRow: View {
             Text("\(session.paneCommand) · \(session.lastOutputDate.formatted(.relative(presentation: .named)))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if let detail = session.detail, session.resolvedState == .needsInput {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
+            if session.resolvedState == .needsInput {
+                if let detail = session.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+                quickReplies
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private var quickReplies: some View {
+        HStack(spacing: 6) {
+            ForEach(["1", "2", "3"], id: \.self) { key in
+                Button {
+                    onQuickReply(key)
+                } label: {
+                    Text(key)
+                        .font(.caption.weight(.semibold).monospaced())
+                        .frame(width: 30, height: 26)
+                        .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 7))
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+            }
+            Text("quick reply")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 2)
     }
 
     private var stateChip: some View {

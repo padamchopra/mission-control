@@ -2,11 +2,14 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const NAME_RE = /^[A-Za-z0-9._-]+$/;
+// Must start with an alphanumeric/underscore so a name can never be read as a
+// tmux flag (leading "-") or a path segment ("."/".."/leading dot).
+const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 const FIELD_SEP = "\x1f";
+let bufferCounter = 0;
 
 export function assertValidName(name: string): void {
-  if (!NAME_RE.test(name)) throw new Error(`invalid session name: ${name}`);
+  if (name.length > 128 || !NAME_RE.test(name)) throw new Error(`invalid session name: ${name}`);
 }
 
 export interface TmuxSession {
@@ -56,8 +59,11 @@ export async function listSessions(): Promise<TmuxSession[]> {
 export async function sendText(name: string, text: string, submit: boolean): Promise<void> {
   assertValidName(name);
   if (text.length > 0) {
-    await tmuxWithStdin(["load-buffer", "-b", "mission-control", "-"], text);
-    await exec("tmux", ["paste-buffer", "-p", "-d", "-b", "mission-control", "-t", name]);
+    // Unique buffer per call so concurrent sends to different sessions can't
+    // race on a shared buffer and deliver each other's text.
+    const buffer = `mc-${process.pid}-${bufferCounter++}`;
+    await tmuxWithStdin(["load-buffer", "-b", buffer, "-"], text);
+    await exec("tmux", ["paste-buffer", "-p", "-d", "-b", buffer, "-t", name]);
   }
   if (submit) {
     await exec("tmux", ["send-keys", "-t", name, "Enter"]);
@@ -106,6 +112,9 @@ const SCROLL_X_COMMAND: Record<Exclude<ScrollAction, "bottom">, string> = {
 // in copy-mode afterwards, so the client can show/hide its jump-to-bottom button.
 export async function scroll(name: string, action: ScrollAction, lines = 1): Promise<boolean> {
   assertValidName(name);
+  if (action !== "bottom" && !(action in SCROLL_X_COMMAND)) {
+    throw new Error(`invalid scroll action: ${action}`);
+  }
   if (action === "bottom") {
     await exec("tmux", ["send-keys", "-t", name, "-X", "cancel"]).catch(() => {});
     return paneInCopyMode(name);

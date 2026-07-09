@@ -56,6 +56,10 @@ struct APIClient {
         return try JSONDecoder().decode(UploadResponse.self, from: data).path
     }
 
+    func registerDevice(token: String) async throws {
+        _ = try await request("POST", "devices", body: ["token": token])
+    }
+
     func kill(_ session: String) async throws {
         _ = try await request("DELETE", "sessions/\(session)")
     }

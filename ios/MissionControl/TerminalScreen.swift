@@ -9,6 +9,7 @@ struct TerminalScreen: View {
 
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
+    @AppStorage("terminalFontSize") private var fontSize = 13.0
     @State private var streamState: StreamState = .connecting
     @State private var inCopyMode = false
     @State private var coordinator: TerminalContainer.Coordinator?
@@ -25,8 +26,10 @@ struct TerminalScreen: View {
                     sessionName: sessionName,
                     serverURL: serverURL,
                     token: serverToken,
+                    fontSize: fontSize,
                     streamState: $streamState,
                     inCopyMode: $inCopyMode,
+                    fontSizeStore: $fontSize,
                     coordinator: $coordinator
                 )
                 .ignoresSafeArea(.container, edges: .horizontal)
@@ -160,8 +163,10 @@ private struct TerminalContainer: UIViewRepresentable {
     let sessionName: String
     let serverURL: String
     let token: String
+    let fontSize: Double
     @Binding var streamState: StreamState
     @Binding var inCopyMode: Bool
+    @Binding var fontSizeStore: Double
     @Binding var coordinator: Coordinator?
 
     func makeCoordinator() -> Coordinator {
@@ -172,12 +177,18 @@ private struct TerminalContainer: UIViewRepresentable {
         let view = TerminalView(frame: .zero)
         view.terminalDelegate = context.coordinator
         view.backgroundColor = .black
+        view.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         context.coordinator.attach(view: view)
         DispatchQueue.main.async { coordinator = context.coordinator }
         return view
     }
 
-    func updateUIView(_ uiView: TerminalView, context: Context) {}
+    func updateUIView(_ uiView: TerminalView, context: Context) {
+        let target = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        if uiView.font.pointSize != target.pointSize {
+            uiView.font = target
+        }
+    }
 
     static func dismantleUIView(_ uiView: TerminalView, coordinator: Coordinator) {
         coordinator.detach()
@@ -189,6 +200,7 @@ private struct TerminalContainer: UIViewRepresentable {
         private weak var terminalView: TerminalView?
         private var lastCols = 0
         private var lastRows = 0
+        private var connected = false
 
         // Pan-to-scroll: translate finger travel into tmux copy-mode line scrolls,
         // coalescing rapid movement into one in-flight request at a time.
@@ -196,6 +208,7 @@ private struct TerminalContainer: UIViewRepresentable {
         private var panEmittedTranslation: CGFloat = 0
         private var pendingLines = 0
         private var scrollInFlight = false
+        private var pinchBaseFontSize: CGFloat = 13
 
         init(_ parent: TerminalContainer) {
             self.parent = parent
@@ -209,13 +222,17 @@ private struct TerminalContainer: UIViewRepresentable {
             stream.onStateChange = { [weak self] state in
                 self?.parent.streamState = state
             }
+            // One finger scrolls; two-finger pinch zooms — so they never fight.
             let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan))
             pan.delegate = self
+            pan.maximumNumberOfTouches = 1
             view.addGestureRecognizer(pan)
 
-            guard let api = APIClient(urlString: parent.serverURL, token: parent.token),
-                  let url = api.webSocketURL(session: parent.sessionName, cols: 48, rows: 30) else { return }
-            stream.connect(url: url, token: parent.token)
+            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
+            pinch.delegate = self
+            view.addGestureRecognizer(pinch)
+            // Connection is deferred to the first sizeChanged, so the PTY starts
+            // at the real device dimensions instead of a hardcoded guess.
         }
 
         func retry() {
@@ -232,6 +249,24 @@ private struct TerminalContainer: UIViewRepresentable {
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
             true
+        }
+
+        @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            guard let view = terminalView else { return }
+            switch recognizer.state {
+            case .began:
+                pinchBaseFontSize = view.font.pointSize
+            case .changed, .ended:
+                let size = min(max(pinchBaseFontSize * recognizer.scale, 9), 28)
+                if abs(view.font.pointSize - size) > 0.3 {
+                    view.font = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+                }
+                if recognizer.state == .ended {
+                    parent.fontSizeStore = Double(view.font.pointSize)
+                }
+            default:
+                break
+            }
         }
 
         @objc private func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
@@ -271,7 +306,17 @@ private struct TerminalContainer: UIViewRepresentable {
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-            guard newCols != lastCols || newRows != lastRows, newCols > 0, newRows > 0 else { return }
+            guard newCols > 0, newRows > 0 else { return }
+            if !connected {
+                connected = true
+                lastCols = newCols
+                lastRows = newRows
+                guard let api = APIClient(urlString: parent.serverURL, token: parent.token),
+                      let url = api.webSocketURL(session: parent.sessionName, cols: newCols, rows: newRows) else { return }
+                stream.connect(url: url, token: parent.token)
+                return
+            }
+            guard newCols != lastCols || newRows != lastRows else { return }
             lastCols = newCols
             lastRows = newRows
             stream.resize(cols: newCols, rows: newRows)

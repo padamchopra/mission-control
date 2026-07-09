@@ -1,11 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configDir } from "./config.js";
 import { assertValidName } from "./tmux.js";
 
 export const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
 
-const uploadRoot = join(configDir, "uploads");
+// Under the OS temp dir so macOS purges old uploads on its own (periodic
+// cleanup + reboot) — no manual retention needed. Files live far longer than
+// any session, so Claude always has time to read them.
+const uploadRoot = join(tmpdir(), "mission-control-uploads");
 
 function sanitizeFilename(raw: string): string {
   const base = (raw.split(/[\\/]/).pop() ?? "").trim();

@@ -21,12 +21,11 @@ import {
 
 const MAX_BODY_BYTES = 256 * 1024;
 
+// Bearer header only — never a query param, so the token can't leak into
+// request logs (the WS upgrade carries it in the same header).
 function authorized(req: IncomingMessage): boolean {
   const header = req.headers.authorization ?? "";
-  const url = new URL(req.url ?? "/", "http://localhost");
-  const presented = header.startsWith("Bearer ")
-    ? header.slice("Bearer ".length)
-    : (url.searchParams.get("token") ?? "");
+  const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
   const a = Buffer.from(presented);
   const b = Buffer.from(config.token);
   return a.length === b.length && timingSafeEqual(a, b);
@@ -155,7 +154,9 @@ const server = createServer(async (req, res) => {
 
     json(res, 404, { error: "not found" });
   } catch (err) {
-    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    // Log the detail; return a generic message so internal paths/errors don't leak.
+    console.error("request error:", err);
+    json(res, 500, { error: "internal error" });
   }
 });
 

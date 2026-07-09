@@ -66,6 +66,23 @@ input. Drag on the terminal to scroll (finger travel maps to copy-mode lines);
 a "Jump to live" pill appears only while scrolled up, gated on tmux's actual
 `pane_in_mode` state (updated from each scroll response plus a 2s poll).
 
+## Notifications (APNs)
+
+Push is Apple-only (no Telegram). To enable it, on the mini drop
+`~/.mission-control/apns.json` next to your APNs auth key (`.p8`):
+
+```json
+{ "keyId": "ABC123DEF4", "teamId": "YOURTEAMID", "bundleId": "dev.raccoons.missioncontrol",
+  "keyFile": "/Users/you/.mission-control/AuthKey_ABC123DEF4.p8", "production": false }
+```
+
+Create the key at developer.apple.com → Keys → **+** → enable *Apple Push
+Notifications service (APNs)*. The app registers its device token on launch,
+pushes carry the needs-input badge count, tapping a push opens that session, and
+a push offers **Yes (1)** / **No (3)** actions to answer a permission prompt
+without opening the app. Until `apns.json` exists, notifications are simply not
+sent.
+
 ## Media sharing
 
 The composer accepts photos/videos three ways: **paste** an image directly into

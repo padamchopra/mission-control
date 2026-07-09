@@ -29,6 +29,10 @@ targets:
           - CFBundleURLSchemes: [missioncontrol]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+    entitlements:
+      path: MissionControl/MissionControl.entitlements
+      properties:
+        aps-environment: development
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.raccoons.missioncontrol

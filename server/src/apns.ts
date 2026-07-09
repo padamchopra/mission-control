@@ -33,7 +33,7 @@ export function registerDevice(token: string): void {
   }
 }
 
-export async function sendPush(title: string, body: string, session: string): Promise<void> {
+export async function sendPush(title: string, body: string, session: string, badge?: number): Promise<void> {
   const config = loadConfig();
   if (!config) return;
   const tokens = loadDevices();
@@ -41,10 +41,9 @@ export async function sendPush(title: string, body: string, session: string): Pr
 
   const jwt = makeJwt(config);
   const host = config.production === false ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
-  const payload = JSON.stringify({
-    aps: { alert: { title, body: body.slice(0, 500) }, sound: "default" },
-    session,
-  });
+  const aps: Record<string, unknown> = { alert: { title, body: body.slice(0, 500) }, sound: "default" };
+  if (typeof badge === "number") aps.badge = badge;
+  const payload = JSON.stringify({ aps, session });
 
   const client = connect(host);
   try {

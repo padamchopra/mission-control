@@ -1,5 +1,5 @@
 import { registry } from "./registry.js";
-import { capturePane } from "./tmux.js";
+import { listSessions } from "./tmux.js";
 import { sendNotification } from "./notify.js";
 
 export async function handleHookEvent(
@@ -23,27 +23,30 @@ export async function handleHookEvent(
     case "Notification": {
       const message = str(payload.message) ?? "needs your input";
       registry.update(session, { ...base, state: "needs_input", detail: message });
-      await notifyWithSnapshot(session, `🔶 ${session} needs input`, message);
+      await notify(session, `${session} needs input`, message);
       break;
     }
     case "Stop":
       registry.update(session, { ...base, state: "idle", detail: "turn finished" });
-      await notifyWithSnapshot(session, `✅ ${session} finished its turn`, "");
+      await notify(session, `${session} finished its turn`, "");
       break;
     default:
       registry.update(session, base);
   }
 }
 
-async function notifyWithSnapshot(session: string, title: string, message: string): Promise<void> {
-  let tail = "";
+async function notify(session: string, title: string, message: string): Promise<void> {
+  await sendNotification({ session, title, message, badge: await needsInputCount() });
+}
+
+// Badge = live sessions currently waiting on the human.
+async function needsInputCount(): Promise<number> {
   try {
-    const text = await capturePane(session, 60);
-    tail = text.split("\n").slice(-12).join("\n");
+    const sessions = await listSessions();
+    return sessions.filter((s) => registry.view(s.name)?.state === "needs_input").length;
   } catch {
-    // session pane may already be gone
+    return 0;
   }
-  await sendNotification({ session, title, message, tail });
 }
 
 function str(value: unknown): string | undefined {
