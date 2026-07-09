@@ -34,3 +34,7 @@ struct SessionsResponse: Codable {
 struct ModeResponse: Codable {
     let inCopyMode: Bool
 }
+
+struct UploadResponse: Codable {
+    let path: String
+}

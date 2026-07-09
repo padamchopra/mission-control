@@ -9,11 +9,9 @@ struct TerminalScreen: View {
 
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
-    @State private var message = ""
     @State private var streamState: StreamState = .connecting
     @State private var inCopyMode = false
     @State private var coordinator: TerminalContainer.Coordinator?
-    @FocusState private var inputFocused: Bool
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -35,7 +33,7 @@ struct TerminalScreen: View {
                 jumpToBottomButton
             }
             quickKeysRow
-            inputBar
+            MessageComposer(sessionName: sessionName)
         }
         .background(Color.black)
         .navigationTitle(sessionName)
@@ -142,37 +140,6 @@ struct TerminalScreen: View {
                 .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-    }
-
-    private var inputBar: some View {
-        HStack(spacing: 8) {
-            TextField("Message Claude…", text: $message, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...4)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .focused($inputFocused)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 18))
-            Button {
-                submitMessage()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-            }
-            .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.black)
-    }
-
-    private func submitMessage() {
-        let text = message
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        message = ""
-        Task { try? await api?.sendText(sessionName, text: text) }
     }
 
     // Backstop for the button state: the pan gesture updates inCopyMode from its

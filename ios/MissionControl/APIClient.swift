@@ -40,6 +40,22 @@ struct APIClient {
         return (try? JSONDecoder().decode(ModeResponse.self, from: data))?.inCopyMode ?? false
     }
 
+    /// Uploads media to the mini and returns its absolute path there, for the
+    /// caller to reference in a message so Claude can read it.
+    func upload(_ session: String, data: Data, filename: String, contentType: String) async throws -> String {
+        var request = URLRequest(url: baseURL.appendingPathComponent("sessions/\(session)/upload"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue(filename, forHTTPHeaderField: "X-Filename")
+        let (data, response) = try await URLSession.shared.upload(for: request, from: data)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APIError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        return try JSONDecoder().decode(UploadResponse.self, from: data).path
+    }
+
     func kill(_ session: String) async throws {
         _ = try await request("DELETE", "sessions/\(session)")
     }

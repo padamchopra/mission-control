@@ -66,6 +66,16 @@ input. Drag on the terminal to scroll (finger travel maps to copy-mode lines);
 a "Jump to live" pill appears only while scrolled up, gated on tmux's actual
 `pane_in_mode` state (updated from each scroll response plus a 2s poll).
 
+## Media sharing
+
+The composer accepts photos/videos three ways: **paste** an image directly into
+the field (like iOS Messages — a UITextView routes clipboard images to an
+attachment), the **+** button for Photo Library (images + video) or Camera, and
+removable thumbnail chips before sending. On send, each file is uploaded to the
+mini (`POST /sessions/:name/upload` → `~/.mission-control/uploads/<session>/`)
+and its absolute path is appended to the message text, so Claude Code reads it
+(images especially — that's how Claude ingests them).
+
 ## Connection resilience
 
 The terminal WebSocket auto-reconnects with exponential backoff (6 attempts),

@@ -4,6 +4,7 @@ import { WebSocketServer } from "ws";
 import { registerDevice } from "./apns.js";
 import { config } from "./config.js";
 import { handleHookEvent } from "./events.js";
+import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
 import { attachStream } from "./stream.js";
 import {
@@ -35,6 +36,24 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) });
   res.end(payload);
+}
+
+function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error("upload too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
 }
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -121,6 +140,11 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "GET" && parts[2] === "mode") {
         return json(res, 200, { inCopyMode: await paneInCopyMode(name) });
+      }
+      if (req.method === "POST" && parts[2] === "upload") {
+        const filename = String(req.headers["x-filename"] ?? "upload.bin");
+        const data = await readRawBody(req, MAX_UPLOAD_BYTES);
+        return json(res, 200, { path: saveUpload(name, filename, data) });
       }
       if (req.method === "DELETE" && parts.length === 2) {
         await killSession(name);
