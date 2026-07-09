@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct SettingsView: View {
@@ -5,12 +6,23 @@ struct SettingsView: View {
     @AppStorage("serverToken") private var serverToken = ""
     @Environment(\.dismiss) private var dismiss
     @State private var testResult: String?
+    @State private var showScanner = false
+    @State private var cameraDenied = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Button {
+                        requestScanner()
+                    } label: {
+                        Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
+                    }
+                } footer: {
+                    Text("Run the setup script on the mini and scan the QR it prints.")
+                }
                 Section("Server") {
-                    TextField("http://mini.tailnet.ts.net:8420", text: $serverURL)
+                    TextField("https://mini.tailnet.ts.net", text: $serverURL)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
@@ -33,6 +45,55 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showScanner) {
+                scannerSheet
+            }
+            .alert("Camera access needed", isPresented: $cameraDenied) {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Enable camera access in Settings to scan the pairing QR.")
+            }
+        }
+    }
+
+    private var scannerSheet: some View {
+        NavigationStack {
+            QRScannerView { value in
+                if let config = PairingConfig(fromString: value) {
+                    serverURL = config.url
+                    serverToken = config.token
+                    testResult = "✅ Paired via QR"
+                }
+                showScanner = false
+            }
+            .ignoresSafeArea()
+            .navigationTitle("Scan QR")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showScanner = false }
+                }
+            }
+        }
+    }
+
+    private func requestScanner() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            showScanner = true
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted { showScanner = true } else { cameraDenied = true }
+                }
+            }
+        default:
+            cameraDenied = true
         }
     }
 

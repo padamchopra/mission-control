@@ -11,9 +11,14 @@ MC_DIR="$HOME/.mission-control"
 PLIST_LABEL="dev.raccoons.mission-control"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
 
-for bin in node npm tmux curl; do
+for bin in node npm tmux curl tailscale; do
   command -v "$bin" >/dev/null || { echo "missing dependency: $bin"; exit 1; }
 done
+
+if ! command -v qrencode >/dev/null; then
+  echo "==> Installing qrencode (for pairing QR)"
+  brew install qrencode
+fi
 
 echo "==> Building server"
 cd "$SERVER_DIR"
@@ -73,14 +78,51 @@ else
   HEALTH="NOT RESPONDING — check ~/.mission-control/server.log"
 fi
 
+# The node server is bound to 127.0.0.1 only. `tailscale serve` (NOT funnel) is
+# the sole path in from outside — tailnet devices only, TLS-terminated. Prefer
+# HTTPS; fall back to tailnet-HTTP if the tailnet hasn't enabled HTTPS certs
+# (still WireGuard-encrypted and tailnet-only, just no TLS-on-top).
+echo "==> Exposing over the tailnet with tailscale serve"
+tailscale serve reset >/dev/null 2>&1 || true
+if tailscale serve --bg --https=443 "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
+  APP_URL="https://$TS_HOST"
+  SERVE_NOTE="HTTPS (TLS, tailnet-only)"
+elif tailscale serve --bg --http="$PORT" "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
+  APP_URL="http://$TS_HOST:$PORT"
+  SERVE_NOTE="tailnet HTTP (WireGuard-encrypted, tailnet-only). Enable HTTPS certs in the Tailscale admin console for TLS, then re-run."
+else
+  APP_URL="http://$TS_HOST:$PORT"
+  SERVE_NOTE="tailscale serve FAILED — the app cannot reach the server until this is fixed (see: tailscale serve status)."
+fi
+
+# Persist the pairing values so deploy/show-pairing.sh can reprint the QR later.
+cat > "$MC_DIR/pairing.env" <<PAIRING
+APP_URL=$APP_URL
+TOKEN=$TOKEN
+PAIRING
+chmod 600 "$MC_DIR/pairing.env"
+
+PAIR_LINK="missioncontrol://configure?url=$APP_URL&token=$TOKEN"
+
 cat <<SUMMARY
 
 ============================================================
 Mission Control server: $HEALTH
+Tailnet exposure:        $SERVE_NOTE
 
-iOS app settings:
-  Server URL : http://$TS_HOST:$PORT
+Pair the app: open Settings → "Scan pairing QR" and scan this:
+============================================================
+SUMMARY
+
+qrencode -t ANSIUTF8 -m 2 "$PAIR_LINK"
+
+cat <<SUMMARY
+============================================================
+Or enter manually:
+  Server URL : $APP_URL
   Token      : $TOKEN
+
+Reprint this QR anytime:  ./deploy/show-pairing.sh
 
 Remaining manual steps:
   1. Spawner: launch ticket sessions with TICKET_BOT=1 in the

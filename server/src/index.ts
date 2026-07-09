@@ -6,7 +6,16 @@ import { config } from "./config.js";
 import { handleHookEvent } from "./events.js";
 import { registry } from "./registry.js";
 import { attachStream } from "./stream.js";
-import { assertValidName, capturePane, killSession, listSessions, sendKeys, sendText } from "./tmux.js";
+import {
+  assertValidName,
+  capturePane,
+  killSession,
+  listSessions,
+  scroll,
+  sendKeys,
+  sendText,
+  type ScrollAction,
+} from "./tmux.js";
 
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -103,6 +112,11 @@ const server = createServer(async (req, res) => {
         await sendKeys(name, Array.isArray(body.keys) ? body.keys.map(String) : []);
         return json(res, 200, { ok: true });
       }
+      if (req.method === "POST" && parts[2] === "scroll") {
+        const body = await readJson(req);
+        await scroll(name, String(body.action ?? "") as ScrollAction);
+        return json(res, 200, { ok: true });
+      }
       if (req.method === "DELETE" && parts.length === 2) {
         await killSession(name);
         registry.remove(name);
@@ -130,6 +144,9 @@ server.on("upgrade", (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => attachStream(ws, name, url.searchParams));
 });
 
-server.listen(config.port, () => {
-  console.log(`mission-control server listening on :${config.port}`);
+// Loopback-only. External reach comes solely through `tailscale serve`, which
+// terminates TLS and restricts access to the tailnet — the process is never
+// exposed on the LAN or any public interface.
+server.listen(config.port, "127.0.0.1", () => {
+  console.log(`mission-control server listening on 127.0.0.1:${config.port}`);
 });

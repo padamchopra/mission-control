@@ -89,6 +89,30 @@ export async function sendKeys(name: string, keys: string[]): Promise<void> {
   await exec("tmux", ["send-keys", "-t", name, ...mapped]);
 }
 
+export type ScrollAction = "up" | "down" | "page-up" | "page-down" | "top" | "bottom";
+
+const SCROLL_X_COMMAND: Record<Exclude<ScrollAction, "bottom">, string> = {
+  up: "scroll-up",
+  down: "scroll-down",
+  "page-up": "page-up",
+  "page-down": "page-down",
+  top: "history-top",
+};
+
+// Scrolls the tmux pane's own history via copy-mode, driven by send-keys — the
+// only path that works here, since the attached client keeps no local scrollback.
+// "bottom" cancels copy-mode, snapping back to the live prompt.
+export async function scroll(name: string, action: ScrollAction): Promise<void> {
+  assertValidName(name);
+  if (action === "bottom") {
+    await exec("tmux", ["send-keys", "-t", name, "-X", "cancel"]).catch(() => {});
+    return;
+  }
+  // -e auto-exits copy-mode when scrolled back to the bottom.
+  await exec("tmux", ["copy-mode", "-e", "-t", name]);
+  await exec("tmux", ["send-keys", "-t", name, "-X", SCROLL_X_COMMAND[action]]);
+}
+
 export async function killSession(name: string): Promise<void> {
   assertValidName(name);
   await exec("tmux", ["kill-session", "-t", name]);

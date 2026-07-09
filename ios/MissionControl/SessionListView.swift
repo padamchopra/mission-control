@@ -51,7 +51,10 @@ struct SessionListView: View {
                     await autoRefresh()
                 }
                 .onOpenURL { url in
-                    if url.host == "session", let name = url.pathComponents.dropFirst().first {
+                    if let config = PairingConfig(from: url) {
+                        serverURL = config.url
+                        serverToken = config.token
+                    } else if url.host == "session", let name = url.pathComponents.dropFirst().first {
                         path = [name]
                     }
                 }

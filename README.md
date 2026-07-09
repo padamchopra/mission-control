@@ -39,15 +39,34 @@ server, installs it as a launchd service, registers the Claude Code hooks, and
 prints the URL + token to paste into the app. Re-run it after every `git pull`.
 
 **iOS app:** `cd ios && xcodegen generate`, open `MissionControl.xcodeproj`,
-run on your phone. In the app's settings, enter the server URL
-(`http://<mini-tailscale-name>:8420`) and the token from setup.
+run on your phone. In the app: **Settings → "Scan pairing QR"** and scan the QR
+the setup script printed (reprint anytime with `./deploy/show-pairing.sh`). No
+username or manual token entry — the QR carries the URL and token.
 
 **Spawner:** launch ticket sessions with `TICKET_BOT=1` in the environment so
 their hooks report to Mission Control; all other Claude sessions stay silent.
 
 ## Security model
 
-- Reachable only over the tailnet (WireGuard-encrypted, device identity).
-- Shared bearer token on every request/WS upgrade as a second factor.
+- The server binds to `127.0.0.1` only. The **sole** path in from outside is
+  `tailscale serve` (not funnel) — tailnet devices only, never the public
+  internet or the LAN. Prefer HTTPS (real `*.ts.net` cert); falls back to
+  tailnet-HTTP (still WireGuard-encrypted) if the tailnet hasn't enabled HTTPS
+  certs.
+- Shared bearer token on every request/WS upgrade as a second factor. Paired to
+  the app by QR, so it never has to be typed.
 - The server shells out to `tmux` only with validated session names; no
   arbitrary command execution endpoint exists.
+
+## Terminal scrolling
+
+`tmux attach` keeps no scrollback on the client, so the app scrolls via tmux's
+own copy-mode driven by `send-keys` (page up/down + jump-to-live controls). The
+same reliable path as every other input, not a fragile gesture translation.
+
+## Connection resilience
+
+The terminal WebSocket auto-reconnects with exponential backoff (6 attempts),
+showing a live "Reconnecting… (n/6)" banner, then a "Disconnected — Retry"
+banner once it gives up. Because tmux holds the session server-side, a
+reconnect just re-attaches and repaints — nothing is lost.

@@ -27,6 +27,10 @@ struct APIClient {
         _ = try await request("POST", "sessions/\(session)/keys", body: ["keys": keys])
     }
 
+    func scroll(_ session: String, action: String) async throws {
+        _ = try await request("POST", "sessions/\(session)/scroll", body: ["action": action])
+    }
+
     func kill(_ session: String) async throws {
         _ = try await request("DELETE", "sessions/\(session)")
     }

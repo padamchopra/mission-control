@@ -1,13 +1,17 @@
 import SwiftTerm
 import SwiftUI
 
+// SwiftTerm also exports a `Color`; pin the bare name to SwiftUI's in this file.
+private typealias Color = SwiftUI.Color
+
 struct TerminalScreen: View {
     let sessionName: String
 
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
     @State private var message = ""
-    @State private var connected = false
+    @State private var streamState: StreamState = .connecting
+    @State private var coordinator: TerminalContainer.Coordinator?
     @FocusState private var inputFocused: Bool
 
     private var api: APIClient? {
@@ -16,27 +20,94 @@ struct TerminalScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalContainer(
-                sessionName: sessionName,
-                serverURL: serverURL,
-                token: serverToken,
-                connected: $connected
-            )
-            .ignoresSafeArea(.container, edges: .horizontal)
+            connectionBanner
+            ZStack(alignment: .trailing) {
+                TerminalContainer(
+                    sessionName: sessionName,
+                    serverURL: serverURL,
+                    token: serverToken,
+                    streamState: $streamState,
+                    coordinator: $coordinator
+                )
+                .ignoresSafeArea(.container, edges: .horizontal)
+                scrollControls
+            }
             quickKeysRow
             inputBar
         }
         .background(Color.black)
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if !connected {
-                ToolbarItem(placement: .topBarTrailing) {
+    }
+
+    @ViewBuilder
+    private var connectionBanner: some View {
+        switch streamState {
+        case .connected:
+            EmptyView()
+        case .connecting:
+            banner(color: .blue) {
+                HStack(spacing: 8) {
+                    ProgressView().tint(.white)
+                    Text("Connecting…")
+                }
+            }
+        case .reconnecting(let attempt, let maxAttempts):
+            banner(color: .orange) {
+                HStack(spacing: 8) {
+                    ProgressView().tint(.white)
+                    Text("Reconnecting… (\(attempt)/\(maxAttempts))")
+                }
+            }
+        case .failed:
+            banner(color: .red) {
+                HStack {
                     Image(systemName: "wifi.slash")
+                    Text("Disconnected")
+                    Spacer()
+                    Button("Retry") { coordinator?.retry() }
+                        .font(.callout.weight(.semibold))
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white)
                         .foregroundStyle(.red)
                 }
             }
         }
+    }
+
+    private func banner<Content: View>(color: Color, @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .font(.callout)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(color)
+    }
+
+    private var scrollControls: some View {
+        VStack(spacing: 10) {
+            scrollButton("chevron.up", action: "page-up")
+            scrollButton("chevron.down", action: "page-down")
+            scrollButton("arrow.down.to.line", action: "bottom")
+        }
+        .padding(.trailing, 10)
+        .padding(.bottom, 12)
+        .frame(maxHeight: .infinity, alignment: .bottom)
+    }
+
+    private func scrollButton(_ systemName: String, action: String) -> some View {
+        Button {
+            Task { try? await api?.scroll(sessionName, action: action) }
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.15)))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
     }
 
     private var quickKeysRow: some View {
@@ -110,7 +181,8 @@ private struct TerminalContainer: UIViewRepresentable {
     let sessionName: String
     let serverURL: String
     let token: String
-    @Binding var connected: Bool
+    @Binding var streamState: StreamState
+    @Binding var coordinator: Coordinator?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -121,6 +193,7 @@ private struct TerminalContainer: UIViewRepresentable {
         view.terminalDelegate = context.coordinator
         view.backgroundColor = .black
         context.coordinator.attach(view: view)
+        DispatchQueue.main.async { coordinator = context.coordinator }
         return view
     }
 
@@ -146,12 +219,16 @@ private struct TerminalContainer: UIViewRepresentable {
             stream.onBytes = { [weak view] bytes in
                 view?.feed(byteArray: bytes[...])
             }
-            stream.onStateChange = { [weak self] up in
-                self?.parent.connected = up
+            stream.onStateChange = { [weak self] state in
+                self?.parent.streamState = state
             }
             guard let api = APIClient(urlString: parent.serverURL, token: parent.token),
                   let url = api.webSocketURL(session: parent.sessionName, cols: 48, rows: 30) else { return }
             stream.connect(url: url, token: parent.token)
+        }
+
+        func retry() {
+            stream.retry()
         }
 
         func detach() {
