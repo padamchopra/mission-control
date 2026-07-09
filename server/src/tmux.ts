@@ -1,0 +1,113 @@
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
+const NAME_RE = /^[A-Za-z0-9._-]+$/;
+const FIELD_SEP = "\x1f";
+
+export function assertValidName(name: string): void {
+  if (!NAME_RE.test(name)) throw new Error(`invalid session name: ${name}`);
+}
+
+export interface TmuxSession {
+  name: string;
+  createdAt: number;
+  lastOutputAt: number;
+  attachedClients: number;
+  paneCommand: string;
+  panePath: string;
+}
+
+const LIST_FORMAT = [
+  "#{session_name}",
+  "#{session_created}",
+  "#{session_activity}",
+  "#{session_attached}",
+  "#{pane_current_command}",
+  "#{pane_current_path}",
+].join(FIELD_SEP);
+
+export async function listSessions(): Promise<TmuxSession[]> {
+  let stdout: string;
+  try {
+    ({ stdout } = await exec("tmux", ["list-panes", "-a", "-F", LIST_FORMAT]));
+  } catch {
+    return []; // no tmux server running
+  }
+  const seen = new Map<string, TmuxSession>();
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    const [name, created, activity, attached, paneCommand, panePath] = line.split(FIELD_SEP);
+    if (!name || seen.has(name)) continue;
+    seen.set(name, {
+      name,
+      createdAt: Number(created),
+      lastOutputAt: Number(activity),
+      attachedClients: Number(attached),
+      paneCommand: paneCommand ?? "",
+      panePath: panePath ?? "",
+    });
+  }
+  return [...seen.values()].sort((a, b) => b.lastOutputAt - a.lastOutputAt);
+}
+
+// Bracketed paste so newlines in the text never submit early; Enter is sent
+// separately only when the caller wants submission.
+export async function sendText(name: string, text: string, submit: boolean): Promise<void> {
+  assertValidName(name);
+  if (text.length > 0) {
+    await tmuxWithStdin(["load-buffer", "-b", "mission-control", "-"], text);
+    await exec("tmux", ["paste-buffer", "-p", "-d", "-b", "mission-control", "-t", name]);
+  }
+  if (submit) {
+    await exec("tmux", ["send-keys", "-t", name, "Enter"]);
+  }
+}
+
+const KEY_MAP: Record<string, string> = {
+  enter: "Enter",
+  escape: "Escape",
+  up: "Up",
+  down: "Down",
+  left: "Left",
+  right: "Right",
+  tab: "Tab",
+  "shift-tab": "BTab",
+  backspace: "BSpace",
+  "ctrl-c": "C-c",
+};
+
+export async function sendKeys(name: string, keys: string[]): Promise<void> {
+  assertValidName(name);
+  const mapped = keys.map((k) => {
+    const named = KEY_MAP[k.toLowerCase()];
+    if (named) return named;
+    if (/^[a-zA-Z0-9]$/.test(k)) return k;
+    throw new Error(`unsupported key: ${k}`);
+  });
+  if (mapped.length === 0) return;
+  await exec("tmux", ["send-keys", "-t", name, ...mapped]);
+}
+
+export async function killSession(name: string): Promise<void> {
+  assertValidName(name);
+  await exec("tmux", ["kill-session", "-t", name]);
+}
+
+export async function capturePane(name: string, lines: number): Promise<string> {
+  assertValidName(name);
+  const n = Math.min(Math.max(Math.trunc(lines) || 120, 1), 2000);
+  const { stdout } = await exec("tmux", ["capture-pane", "-p", "-J", "-t", name, "-S", `-${n}`]);
+  return stdout.replace(/\s+$/, "");
+}
+
+function tmuxWithStdin(args: string[], input: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("tmux", args, { stdio: ["pipe", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(stderr || `tmux exited ${code}`))));
+    child.stdin.end(input);
+  });
+}
