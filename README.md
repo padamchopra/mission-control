@@ -32,6 +32,19 @@ with `tmux send-keys`, so nothing can go stale or get dropped in a sync layer.
 - **`deploy/`** — setup script for the mini: launchd service, tailscale serve,
   hook installation.
 
+## Setup
+
+**Mini (server):** clone the repo, then `./deploy/setup-mini.sh`. It builds the
+server, installs it as a launchd service, registers the Claude Code hooks, and
+prints the URL + token to paste into the app. Re-run it after every `git pull`.
+
+**iOS app:** `cd ios && xcodegen generate`, open `MissionControl.xcodeproj`,
+run on your phone. In the app's settings, enter the server URL
+(`http://<mini-tailscale-name>:8420`) and the token from setup.
+
+**Spawner:** launch ticket sessions with `TICKET_BOT=1` in the environment so
+their hooks report to Mission Control; all other Claude sessions stay silent.
+
 ## Security model
 
 - Reachable only over the tailnet (WireGuard-encrypted, device identity).
