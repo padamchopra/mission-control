@@ -141,6 +141,16 @@ export async function paneInCopyMode(name: string): Promise<boolean> {
   }
 }
 
+export async function paneCurrentPath(name: string): Promise<string | undefined> {
+  assertValidName(name);
+  try {
+    const { stdout } = await exec("tmux", ["display-message", "-p", "-t", name, "#{pane_current_path}"]);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function killSession(name: string): Promise<void> {
   assertValidName(name);
   await exec("tmux", ["kill-session", "-t", name]);

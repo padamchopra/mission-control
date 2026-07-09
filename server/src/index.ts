@@ -4,14 +4,17 @@ import { WebSocketServer } from "ws";
 import { registerDevice } from "./apns.js";
 import { config } from "./config.js";
 import { handleHookEvent } from "./events.js";
+import { removeWorktree, resolveLinks, worktreeInfo } from "./git.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
 import { attachStream } from "./stream.js";
+import { addWorkspace, listWorkspaces, openSessionInWorkspace, removeWorkspace } from "./workspaces.js";
 import {
   assertValidName,
   capturePane,
   killSession,
   listSessions,
+  paneCurrentPath,
   paneInCopyMode,
   scroll,
   sendKeys,
@@ -113,6 +116,30 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    if (url.pathname === "/workspaces" && req.method === "GET") {
+      return json(res, 200, { workspaces: listWorkspaces() });
+    }
+    if (url.pathname === "/workspaces" && req.method === "POST") {
+      const body = await readJson(req);
+      return json(res, 200, { workspace: addWorkspace(String(body.name ?? ""), String(body.path ?? "")) });
+    }
+    if (parts[0] === "workspaces" && parts[1]) {
+      const id = decodeURIComponent(parts[1]);
+      if (req.method === "DELETE" && parts.length === 2) {
+        removeWorkspace(id);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && parts[2] === "session") {
+        return json(res, 200, { name: await openSessionInWorkspace(id) });
+      }
+    }
+
+    if (req.method === "POST" && url.pathname === "/worktree/remove") {
+      const body = await readJson(req);
+      await removeWorktree(String(body.path ?? ""), body.force === true);
+      return json(res, 200, { ok: true });
+    }
+
     if (parts[0] === "sessions" && parts.length >= 2) {
       const name = decodeURIComponent(parts[1]);
       assertValidName(name);
@@ -139,6 +166,20 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "GET" && parts[2] === "mode") {
         return json(res, 200, { inCopyMode: await paneInCopyMode(name) });
+      }
+      if (req.method === "GET" && parts[2] === "links") {
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        return json(res, 200, await resolveLinks(cwd, registry.view(name)?.claudeSessionId));
+      }
+      if (req.method === "GET" && parts[2] === "worktree") {
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        return json(res, 200, await worktreeInfo(cwd));
+      }
+      if (req.method === "POST" && parts[2] === "workspace") {
+        const body = await readJson(req);
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        if (!cwd) throw new Error("could not resolve session directory");
+        return json(res, 200, { workspace: addWorkspace(String(body.name ?? name), cwd) });
       }
       if (req.method === "POST" && parts[2] === "upload") {
         const filename = String(req.headers["x-filename"] ?? "upload.bin");

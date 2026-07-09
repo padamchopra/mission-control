@@ -38,3 +38,25 @@ struct ModeResponse: Codable {
 struct UploadResponse: Codable {
     let path: String
 }
+
+struct SessionLinks: Codable {
+    let claudeUrl: String?
+    let prUrl: String?
+}
+
+struct WorktreeInfo: Codable {
+    let isWorktree: Bool
+    let path: String?
+    let branch: String?
+    let dirty: Bool?
+}
+
+struct Workspace: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let path: String
+}
+
+struct WorkspacesResponse: Codable {
+    let workspaces: [Workspace]
+}

@@ -60,6 +60,43 @@ struct APIClient {
         _ = try await request("POST", "devices", body: ["token": token])
     }
 
+    func links(_ session: String) async throws -> SessionLinks {
+        let data = try await request("GET", "sessions/\(session)/links")
+        return try JSONDecoder().decode(SessionLinks.self, from: data)
+    }
+
+    func worktree(_ session: String) async throws -> WorktreeInfo {
+        let data = try await request("GET", "sessions/\(session)/worktree")
+        return try JSONDecoder().decode(WorktreeInfo.self, from: data)
+    }
+
+    func removeWorktree(path: String, force: Bool) async throws {
+        _ = try await request("POST", "worktree/remove", body: ["path": path, "force": force])
+    }
+
+    func workspaces() async throws -> [Workspace] {
+        let data = try await request("GET", "workspaces")
+        return try JSONDecoder().decode(WorkspacesResponse.self, from: data).workspaces
+    }
+
+    func addWorkspace(name: String, path: String) async throws {
+        _ = try await request("POST", "workspaces", body: ["name": name, "path": path])
+    }
+
+    func saveWorkspace(fromSession session: String, name: String) async throws {
+        _ = try await request("POST", "sessions/\(session)/workspace", body: ["name": name])
+    }
+
+    func removeWorkspace(id: String) async throws {
+        _ = try await request("DELETE", "workspaces/\(id)")
+    }
+
+    @discardableResult
+    func openSessionInWorkspace(id: String) async throws -> String {
+        let data = try await request("POST", "workspaces/\(id)/session")
+        return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
+    }
+
     func kill(_ session: String) async throws {
         _ = try await request("DELETE", "sessions/\(session)")
     }

@@ -13,6 +13,13 @@ struct TerminalScreen: View {
     @State private var streamState: StreamState = .connecting
     @State private var inCopyMode = false
     @State private var coordinator: TerminalContainer.Coordinator?
+    @State private var links: SessionLinks?
+    @State private var showSaveWorkspace = false
+    @State private var workspaceName = ""
+    @State private var pendingCleanup: WorktreeInfo?
+    @State private var killed = false
+    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -41,7 +48,88 @@ struct TerminalScreen: View {
         .background(Color.black)
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { sessionMenu }
+        }
         .task(id: streamState) { await pollCopyMode() }
+        .task { links = try? await api?.links(sessionName) }
+        .alert("Save workspace", isPresented: $showSaveWorkspace) {
+            TextField("Name", text: $workspaceName)
+            Button("Save") {
+                let name = workspaceName
+                Task { try? await api?.saveWorkspace(fromSession: sessionName, name: name) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Save this session's current directory as a workspace on the home screen.")
+        }
+        .alert("Remove worktree?", isPresented: cleanupPresented, presenting: pendingCleanup) { info in
+            Button("Remove", role: .destructive) {
+                if let path = info.path {
+                    Task { try? await api?.removeWorktree(path: path, force: info.dirty == true) }
+                }
+                dismiss()
+            }
+            Button("Keep", role: .cancel) { dismiss() }
+        } message: { info in
+            Text(worktreeCleanupMessage(info))
+        }
+    }
+
+    private var sessionMenu: some View {
+        Menu {
+            if let claude = links?.claudeUrl.flatMap(URL.init) {
+                Button {
+                    openURL(claude)
+                } label: {
+                    Label("Open in claude.ai", systemImage: "arrow.up.forward.app")
+                }
+            }
+            if let pr = links?.prUrl.flatMap(URL.init) {
+                Button {
+                    openURL(pr)
+                } label: {
+                    Label("View pull request", systemImage: "arrow.triangle.pull")
+                }
+            }
+            Button {
+                workspaceName = sessionName
+                showSaveWorkspace = true
+            } label: {
+                Label("Save location as workspace", systemImage: "folder.badge.plus")
+            }
+            Divider()
+            Button(role: .destructive) {
+                Task { await killWithCleanup() }
+            } label: {
+                Label("Kill session", systemImage: "xmark.octagon")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+    }
+
+    private var cleanupPresented: Binding<Bool> {
+        Binding(get: { pendingCleanup != nil }, set: { if !$0 { pendingCleanup = nil } })
+    }
+
+    private func worktreeCleanupMessage(_ info: WorktreeInfo) -> String {
+        var parts = ["Killed \(sessionName)."]
+        if let branch = info.branch { parts.append("Remove its git worktree? Branch \(branch) is kept.") }
+        if info.dirty == true { parts.append("It has uncommitted changes that will be discarded.") }
+        return parts.joined(separator: " ")
+    }
+
+    private func killWithCleanup() async {
+        guard let api else { return }
+        let worktree = try? await api.worktree(sessionName)
+        try? await api.kill(sessionName)
+        killed = true
+        if let worktree, worktree.isWorktree {
+            pendingCleanup = worktree
+        } else {
+            dismiss()
+        }
     }
 
     @ViewBuilder

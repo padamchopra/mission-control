@@ -66,6 +66,23 @@ input. Drag on the terminal to scroll (finger travel maps to copy-mode lines);
 a "Jump to live" pill appears only while scrolled up, gated on tmux's actual
 `pane_in_mode` state (updated from each scroll response plus a 2s poll).
 
+## Workspaces
+
+Save a location on the mini as a workspace (from a session's `...` menu →
+"Save location as workspace"). The home screen then groups sessions by which
+workspace their current directory sits under, with anything else under "Other".
+Each workspace header has a **+** that opens a fresh shell tmux session `cd`'d
+into that path. Remove a workspace via long-press on its header.
+
+## Session menu
+
+The `...` menu in a session offers: **Open in claude.ai** (built from the Claude
+Code `session_id` the hooks capture), **View pull request** (resolved with `gh`
+from the session's directory), **Save location as workspace**, and **Kill
+session**. Killing a session that lives in a git worktree then offers to remove
+the worktree (branch kept; a force is required — and confirmed — only if there
+are uncommitted changes).
+
 ## Notifications (APNs)
 
 Push is Apple-only (no Telegram). To enable it, on the mini drop

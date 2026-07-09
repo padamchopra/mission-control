@@ -5,10 +5,12 @@ struct SessionListView: View {
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
     @State private var sessions: [TmuxSession] = []
+    @State private var workspaces: [Workspace] = []
     @State private var hasLoaded = false
     @State private var loadError: String?
     @State private var showSettings = false
     @State private var pendingKill: TmuxSession?
+    @State private var pendingCleanup: WorktreeInfo?
     @State private var path: [String] = []
     @EnvironmentObject private var router: AppRouter
 
@@ -48,6 +50,19 @@ struct SessionListView: View {
                     }
                 } message: { session in
                     Text("This kills the tmux session and everything running in it (\(session.name)).")
+                }
+                .alert("Remove worktree?", isPresented: Binding(
+                    get: { pendingCleanup != nil },
+                    set: { if !$0 { pendingCleanup = nil } }
+                ), presenting: pendingCleanup) { info in
+                    Button("Remove", role: .destructive) {
+                        if let path = info.path {
+                            Task { try? await api?.removeWorktree(path: path, force: info.dirty == true) }
+                        }
+                    }
+                    Button("Keep", role: .cancel) {}
+                } message: { info in
+                    Text(cleanupMessage(info))
                 }
                 .task(id: serverURL + serverToken) {
                     await autoRefresh()
@@ -95,20 +110,94 @@ struct SessionListView: View {
 
     private var sessionList: some View {
         List {
-            ForEach(sessions) { session in
-                NavigationLink(value: session.name) {
-                    SessionRow(session: session) { key in quickReply(session, key: key) }
+            ForEach(workspaces) { workspace in
+                Section {
+                    ForEach(sessionsFor(workspace)) { session in
+                        sessionLink(session)
+                    }
+                } header: {
+                    workspaceHeader(workspace)
                 }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        pendingKill = session
-                    } label: {
-                        Label("Kill", systemImage: "xmark.octagon")
+            }
+            let ungrouped = ungroupedSessions()
+            if !ungrouped.isEmpty {
+                Section(workspaces.isEmpty ? "" : "Other") {
+                    ForEach(ungrouped) { session in
+                        sessionLink(session)
                     }
                 }
             }
         }
         .refreshable { await load() }
+    }
+
+    private func sessionLink(_ session: TmuxSession) -> some View {
+        NavigationLink(value: session.name) {
+            SessionRow(session: session) { key in quickReply(session, key: key) }
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                pendingKill = session
+            } label: {
+                Label("Kill", systemImage: "xmark.octagon")
+            }
+        }
+    }
+
+    private func workspaceHeader(_ workspace: Workspace) -> some View {
+        HStack {
+            Text(workspace.name)
+            Spacer()
+            Button {
+                Task { await openSession(in: workspace) }
+            } label: {
+                Image(systemName: "plus.circle")
+            }
+            .buttonStyle(.plain)
+        }
+        .textCase(nil)
+        .contextMenu {
+            Button(role: .destructive) {
+                Task { try? await api?.removeWorkspace(id: workspace.id); await load() }
+            } label: {
+                Label("Remove workspace", systemImage: "trash")
+            }
+        }
+    }
+
+    private func sessionsFor(_ workspace: Workspace) -> [TmuxSession] {
+        sessions.filter { workspaceId(for: $0) == workspace.id }.sorted(by: triageOrder)
+    }
+
+    private func ungroupedSessions() -> [TmuxSession] {
+        sessions.filter { workspaceId(for: $0) == nil }.sorted(by: triageOrder)
+    }
+
+    // A session belongs to the most specific workspace whose path contains its
+    // current directory.
+    private func workspaceId(for session: TmuxSession) -> String? {
+        workspaces
+            .filter { session.panePath == $0.path || session.panePath.hasPrefix($0.path + "/") }
+            .max(by: { $0.path.count < $1.path.count })?
+            .id
+    }
+
+    private func openSession(in workspace: Workspace) async {
+        guard let api else { return }
+        do {
+            let name = try await api.openSessionInWorkspace(id: workspace.id)
+            await load()
+            if !name.isEmpty { path = [name] }
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    private func cleanupMessage(_ info: WorktreeInfo) -> String {
+        var parts = ["Session killed."]
+        if let branch = info.branch { parts.append("Remove its git worktree? Branch \(branch) is kept.") }
+        if info.dirty == true { parts.append("It has uncommitted changes that will be discarded.") }
+        return parts.joined(separator: " ")
     }
 
     private func autoRefresh() async {
@@ -121,7 +210,10 @@ struct SessionListView: View {
     private func load() async {
         guard let api else { return }
         do {
-            sessions = try await api.sessions().sorted(by: triageOrder)
+            async let sessionsCall = api.sessions()
+            async let workspacesCall = api.workspaces()
+            sessions = try await sessionsCall.sorted(by: triageOrder)
+            workspaces = (try? await workspacesCall) ?? workspaces
             loadError = nil
             let needsInput = sessions.filter { $0.resolvedState == .needsInput }.count
             try? await UNUserNotificationCenter.current().setBadgeCount(needsInput)
@@ -151,8 +243,12 @@ struct SessionListView: View {
     private func kill(_ session: TmuxSession) async {
         guard let api else { return }
         do {
+            let worktree = try? await api.worktree(session.name)
             try await api.kill(session.name)
             sessions.removeAll { $0.name == session.name }
+            if let worktree, worktree.isWorktree {
+                pendingCleanup = worktree
+            }
         } catch {
             loadError = error.localizedDescription
         }
