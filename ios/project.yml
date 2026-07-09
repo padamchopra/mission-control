@@ -1,0 +1,36 @@
+name: MissionControl
+options:
+  bundleIdPrefix: dev.raccoons
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: "1.2.0"
+targets:
+  MissionControl:
+    type: application
+    platform: iOS
+    sources:
+      - MissionControl
+    dependencies:
+      - package: SwiftTerm
+    info:
+      path: MissionControl/Info.plist
+      properties:
+        UILaunchScreen: {}
+        CFBundleDisplayName: Mission Control
+        NSAppTransportSecurity:
+          # Plain HTTP is acceptable here: the server is only reachable inside
+          # the WireGuard-encrypted tailnet. Tighten via `tailscale serve` TLS later.
+          NSAllowsArbitraryLoads: true
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [missioncontrol]
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.raccoons.missioncontrol
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
