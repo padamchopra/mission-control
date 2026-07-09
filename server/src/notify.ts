@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { sendPush } from "./apns.js";
 
 export interface NotifyEvent {
   session: string;
@@ -12,15 +13,15 @@ export interface NotifyEvent {
 const THROTTLE_MS = 30_000;
 const lastSent = new Map<string, number>();
 
-// Telegram is the day-one channel; APNs slots in here once a push key is
-// configured (~/.mission-control/apns.json) and the iOS app registers tokens.
+// Telegram is the day-one channel; APNs joins automatically once
+// ~/.mission-control/apns.json exists and the iOS app registers a token.
 export async function sendNotification(evt: NotifyEvent): Promise<void> {
   const throttleKey = `${evt.session}:${evt.title}`;
   const now = Date.now();
   if (now - (lastSent.get(throttleKey) ?? 0) < THROTTLE_MS) return;
   lastSent.set(throttleKey, now);
 
-  await sendTelegram(evt);
+  await Promise.all([sendTelegram(evt), sendPush(evt.title, evt.message, evt.session)]);
 }
 
 interface TelegramCreds {
