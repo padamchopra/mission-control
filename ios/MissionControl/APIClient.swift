@@ -27,8 +27,17 @@ struct APIClient {
         _ = try await request("POST", "sessions/\(session)/keys", body: ["keys": keys])
     }
 
-    func scroll(_ session: String, action: String) async throws {
-        _ = try await request("POST", "sessions/\(session)/scroll", body: ["action": action])
+    /// Scrolls the session and returns whether it's still in copy-mode (scrolled
+    /// up), so the caller can show/hide the jump-to-bottom control.
+    @discardableResult
+    func scroll(_ session: String, action: String, lines: Int = 1) async throws -> Bool {
+        let data = try await request("POST", "sessions/\(session)/scroll", body: ["action": action, "lines": lines])
+        return (try? JSONDecoder().decode(ModeResponse.self, from: data))?.inCopyMode ?? false
+    }
+
+    func inCopyMode(_ session: String) async throws -> Bool {
+        let data = try await request("GET", "sessions/\(session)/mode")
+        return (try? JSONDecoder().decode(ModeResponse.self, from: data))?.inCopyMode ?? false
     }
 
     func kill(_ session: String) async throws {

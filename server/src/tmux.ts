@@ -101,16 +101,35 @@ const SCROLL_X_COMMAND: Record<Exclude<ScrollAction, "bottom">, string> = {
 
 // Scrolls the tmux pane's own history via copy-mode, driven by send-keys — the
 // only path that works here, since the attached client keeps no local scrollback.
-// "bottom" cancels copy-mode, snapping back to the live prompt.
-export async function scroll(name: string, action: ScrollAction): Promise<void> {
+// "up"/"down" scroll `lines` lines (for the pan gesture); "bottom" cancels
+// copy-mode, snapping back to the live prompt. Returns whether the pane is still
+// in copy-mode afterwards, so the client can show/hide its jump-to-bottom button.
+export async function scroll(name: string, action: ScrollAction, lines = 1): Promise<boolean> {
   assertValidName(name);
   if (action === "bottom") {
     await exec("tmux", ["send-keys", "-t", name, "-X", "cancel"]).catch(() => {});
-    return;
+    return paneInCopyMode(name);
   }
   // -e auto-exits copy-mode when scrolled back to the bottom.
   await exec("tmux", ["copy-mode", "-e", "-t", name]);
-  await exec("tmux", ["send-keys", "-t", name, "-X", SCROLL_X_COMMAND[action]]);
+  const command = SCROLL_X_COMMAND[action];
+  if (action === "up" || action === "down") {
+    const n = String(Math.min(Math.max(Math.trunc(lines) || 1, 1), 500));
+    await exec("tmux", ["send-keys", "-t", name, "-N", n, "-X", command]);
+  } else {
+    await exec("tmux", ["send-keys", "-t", name, "-X", command]);
+  }
+  return paneInCopyMode(name);
+}
+
+export async function paneInCopyMode(name: string): Promise<boolean> {
+  assertValidName(name);
+  try {
+    const { stdout } = await exec("tmux", ["display-message", "-p", "-t", name, "#{pane_in_mode}"]);
+    return stdout.trim() === "1";
+  } catch {
+    return false;
+  }
 }
 
 export async function killSession(name: string): Promise<void> {

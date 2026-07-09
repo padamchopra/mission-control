@@ -11,6 +11,7 @@ import {
   capturePane,
   killSession,
   listSessions,
+  paneInCopyMode,
   scroll,
   sendKeys,
   sendText,
@@ -114,8 +115,12 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "POST" && parts[2] === "scroll") {
         const body = await readJson(req);
-        await scroll(name, String(body.action ?? "") as ScrollAction);
-        return json(res, 200, { ok: true });
+        const lines = Number(body.lines ?? 1);
+        const inCopyMode = await scroll(name, String(body.action ?? "") as ScrollAction, lines);
+        return json(res, 200, { ok: true, inCopyMode });
+      }
+      if (req.method === "GET" && parts[2] === "mode") {
+        return json(res, 200, { inCopyMode: await paneInCopyMode(name) });
       }
       if (req.method === "DELETE" && parts.length === 2) {
         await killSession(name);

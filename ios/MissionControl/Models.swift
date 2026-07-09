@@ -30,3 +30,7 @@ struct TmuxSession: Codable, Identifiable, Hashable {
 struct SessionsResponse: Codable {
     let sessions: [TmuxSession]
 }
+
+struct ModeResponse: Codable {
+    let inCopyMode: Bool
+}

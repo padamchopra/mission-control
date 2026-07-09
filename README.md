@@ -61,8 +61,10 @@ their hooks report to Mission Control; all other Claude sessions stay silent.
 ## Terminal scrolling
 
 `tmux attach` keeps no scrollback on the client, so the app scrolls via tmux's
-own copy-mode driven by `send-keys` (page up/down + jump-to-live controls). The
-same reliable path as every other input, not a fragile gesture translation.
+own copy-mode driven by `send-keys` — the same reliable path as every other
+input. Drag on the terminal to scroll (finger travel maps to copy-mode lines);
+a "Jump to live" pill appears only while scrolled up, gated on tmux's actual
+`pane_in_mode` state (updated from each scroll response plus a 2s poll).
 
 ## Connection resilience
 
