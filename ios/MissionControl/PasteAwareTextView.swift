@@ -25,6 +25,15 @@ struct PasteAwareTextView: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: 7, left: 6, bottom: 7, right: 6)
         view.isScrollEnabled = true
         view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // No autocorrect/autocapitalize/spellcheck/smart-punctuation/predictions —
+        // this field carries commands and paths, where any of those would corrupt input.
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.spellCheckingType = .no
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.smartInsertDeleteType = .no
+        view.inlinePredictionType = .no
         return view
     }
 
