@@ -1,12 +1,11 @@
 #!/bin/bash
 # Claude Code hook → Mission Control event forwarder.
-# Fires only inside spawner-launched tmux sessions (TICKET_BOT=1); interactive
-# sessions on any machine stay silent. Always exits 0 so a forwarding failure
-# can never block the Claude session itself.
+# Reports every Claude Code session running inside tmux (non-tmux sessions have
+# no pane to attach to, so they're skipped). Always exits 0 so a forwarding
+# failure can never block the Claude session itself.
 
 EVENT="$1"
 [ -n "$EVENT" ] || exit 0
-[ "${TICKET_BOT:-0}" = "1" ] || exit 0
 [ -n "${TMUX_PANE:-}" ] || exit 0
 
 SESSION="$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null | tr -cd 'A-Za-z0-9._-')"

@@ -28,7 +28,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 │   SwiftTerm) │                           │    ├─ tmux ls / send-keys   │
 └──────────────┘                           │    ├─ PTY ↔ WS streaming    │
       ▲                                    │    ├─ event registry        │
-      │ APNs push                          │    └─ APNs notifier          │
+      │ ntfy push                          │    └─ ntfy notifier          │
       └────────────────────────────────────│  hooks/ (Claude Code hooks) │
                                            └─────────────────────────────┘
 ```
@@ -37,10 +37,10 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   status, streams panes over a PTY-backed WebSocket (feeds SwiftTerm), injects
   input and copy-mode scrolls via `tmux send-keys`, kills sessions, resolves
   per-session links (claude.ai / GitHub PR) and git worktrees, manages
-  workspaces, stores uploaded media, and sends push notifications.
+  workspaces, stores uploaded media, and sends notifications via ntfy.
 - **`server/hooks/mc-hook.sh`** — Claude Code hooks (SessionStart /
-  UserPromptSubmit / Notification / Stop) that report a session's state to the
-  server. Gated on an env flag so only the sessions you want reporting do.
+  UserPromptSubmit / Notification / Stop) that report each session's state to the
+  server. Every Claude Code session running inside tmux reports automatically.
 - **`ios/`** — the SwiftUI app (built with [XcodeGen](https://github.com/yonaskolb/XcodeGen)).
 - **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
 
@@ -70,8 +70,9 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   "view PR" action).
 - [Tailscale](https://tailscale.com) installed and logged in on both the Mac and
   your iPhone (same tailnet).
-- Xcode 16+ and an Apple Developer account (a paid one is required for push
-  notifications).
+- Xcode 16+ (a free Apple ID is enough to build on your own device — no paid
+  Developer Program needed).
+- The free [ntfy](https://ntfy.sh) app on your iPhone, for notifications.
 
 ## Setup
 
@@ -94,19 +95,7 @@ Re-run it after every `git pull`. Reprint the QR anytime with
 > admin console before running; otherwise it falls back to tailnet HTTP (still
 > WireGuard-encrypted).
 
-### 2. Reporting sessions
-
-Hooks are gated on `TICKET_BOT=1` so they only fire for sessions you launch with
-that flag — every other Claude Code session stays silent:
-
-```sh
-tmux new-session -d -s my-session "TICKET_BOT=1 claude"
-```
-
-Set it in whatever spawns your sessions. (Rename the flag in
-`server/hooks/mc-hook.sh` if you prefer.)
-
-### 3. iOS app
+### 2. iOS app
 
 ```sh
 cd ios
@@ -119,27 +108,19 @@ select your team, and run on your iPhone. Then open **Settings → "Scan pairing
 QR"** and scan the QR the setup script printed — that fills in the server URL and
 token. (No username or manual token entry.)
 
-### 4. Push notifications (optional but recommended)
+### 3. Notifications (ntfy)
 
-Push is Apple-only. Create an APNs auth key at
-[developer.apple.com](https://developer.apple.com) → Keys → **+** → *Apple Push
-Notifications service (APNs)*, download the `.p8`, and drop a config next to it
-on the Mac at `~/.mission-control/apns.json`:
+Notifications go through [ntfy](https://ntfy.sh) — free, open-source, and no
+Apple Developer Program required. The setup script generates a random, private
+topic and prints it. On your phone: install the **ntfy** app, add the server
+(`https://ntfy.sh` by default), and subscribe to that topic. Done — when a
+session needs input or finishes a turn, you get a push, and tapping it opens
+that session in Mission Control (via the `missioncontrol://` deep link).
 
-```json
-{
-  "keyId": "ABC123DEF4",
-  "teamId": "YOURTEAMID",
-  "bundleId": "com.example.missioncontrol",
-  "keyFile": "/Users/you/.mission-control/AuthKey_ABC123DEF4.p8",
-  "production": false
-}
-```
-
-Use your own `bundleId` and paths. Until `apns.json` exists, notifications are
-simply not sent. The app registers its device token on launch, pushes carry the
-needs-input badge count, tapping a push opens that session, and a push offers
-**Yes (1) / No (3)** actions to answer a permission prompt without opening the app.
+Keep messages in mind for privacy: with the hosted `ntfy.sh`, notification text
+transits their server, so it's kept terse (session name + short reason). For a
+fully private setup, self-host ntfy and set `ntfyServer` in
+`~/.mission-control/config.json` to your own server.
 
 ## Security
 

@@ -30,7 +30,7 @@ mkdir -p "$MC_DIR"
 cp "$SERVER_DIR/hooks/mc-hook.sh" "$MC_DIR/mc-hook.sh"
 chmod +x "$MC_DIR/mc-hook.sh"
 
-echo "==> Registering Claude Code hooks (gated on TICKET_BOT=1)"
+echo "==> Registering Claude Code hooks (every tmux Claude session reports)"
 node - <<'EOF'
 const fs = require("fs");
 const path = require("path");
@@ -71,6 +71,8 @@ sleep 2
 TOKEN="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).token' 2>/dev/null || echo "<server did not start — check ~/.mission-control/server.log>")"
 PORT="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).port' 2>/dev/null || echo 8420)"
 TS_HOST="$(tailscale status --json 2>/dev/null | node -p 'try { JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"") } catch { "<tailscale hostname>" }' 2>/dev/null || echo "<tailscale hostname>")"
+NTFY_SERVER="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).ntfyServer' 2>/dev/null || echo "https://ntfy.sh")"
+NTFY_TOPIC="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).ntfyTopic' 2>/dev/null || echo "<ntfy topic>")"
 
 if curl -s -m 3 -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/health" | grep -q '"ok":true'; then
   HEALTH="healthy"
@@ -124,12 +126,12 @@ Or enter manually:
 
 Reprint this QR anytime:  ./deploy/show-pairing.sh
 
-Remaining manual steps:
-  1. Spawner: launch ticket sessions with TICKET_BOT=1 in the
-     environment, e.g.
-       tmux new-session -d -s "\$TICKET" "TICKET_BOT=1 claude ..."
-     (hooks stay silent in every other session)
-  2. Turn off remote control in the spawner's claude settings
-     (remoteControlAtStartup: false) once the app is on your phone.
+Notifications (ntfy) — install the "ntfy" app on your phone, add
+server $NTFY_SERVER, and subscribe to topic:
+  $NTFY_TOPIC
+Notifications tap through to the session in Mission Control.
+
+Once the app is on your phone, turn off Claude Code remote control
+(remoteControlAtStartup: false) — Mission Control replaces it.
 ============================================================
 SUMMARY

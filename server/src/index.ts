@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
-import { registerDevice } from "./apns.js";
 import { config } from "./config.js";
 import { handleHookEvent } from "./events.js";
 import { removeWorktree, resolveLinks, worktreeInfo } from "./git.js";
@@ -100,12 +99,6 @@ const server = createServer(async (req, res) => {
       return json(res, 200, {
         sessions: sessions.map((s) => ({ ...s, ...(registry.view(s.name) ?? { state: "unknown" }) })),
       });
-    }
-
-    if (req.method === "POST" && url.pathname === "/devices") {
-      const body = await readJson(req);
-      registerDevice(String(body.token ?? ""));
-      return json(res, 200, { ok: true });
     }
 
     if (req.method === "POST" && url.pathname === "/events") {

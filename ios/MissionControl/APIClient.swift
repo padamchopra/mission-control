@@ -56,10 +56,6 @@ struct APIClient {
         return try JSONDecoder().decode(UploadResponse.self, from: data).path
     }
 
-    func registerDevice(token: String) async throws {
-        _ = try await request("POST", "devices", body: ["token": token])
-    }
-
     func links(_ session: String) async throws -> SessionLinks {
         let data = try await request("GET", "sessions/\(session)/links")
         return try JSONDecoder().decode(SessionLinks.self, from: data)

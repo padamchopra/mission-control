@@ -1,5 +1,4 @@
 import SwiftUI
-import UserNotifications
 
 struct SessionListView: View {
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
@@ -215,8 +214,6 @@ struct SessionListView: View {
             sessions = try await sessionsCall.sorted(by: triageOrder)
             workspaces = (try? await workspacesCall) ?? workspaces
             loadError = nil
-            let needsInput = sessions.filter { $0.resolvedState == .needsInput }.count
-            try? await UNUserNotificationCenter.current().setBadgeCount(needsInput)
         } catch {
             loadError = error.localizedDescription
         }

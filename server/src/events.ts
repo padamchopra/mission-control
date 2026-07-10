@@ -1,5 +1,4 @@
 import { registry } from "./registry.js";
-import { listSessions } from "./tmux.js";
 import { sendNotification } from "./notify.js";
 
 export async function handleHookEvent(
@@ -23,29 +22,15 @@ export async function handleHookEvent(
     case "Notification": {
       const message = str(payload.message) ?? "needs your input";
       registry.update(session, { ...base, state: "needs_input", detail: message });
-      await notify(session, `${session} needs input`, message);
+      await sendNotification({ session, title: `${session} needs input`, message, highPriority: true });
       break;
     }
     case "Stop":
       registry.update(session, { ...base, state: "idle", detail: "turn finished" });
-      await notify(session, `${session} finished its turn`, "");
+      await sendNotification({ session, title: `${session} finished its turn`, message: "", highPriority: false });
       break;
     default:
       registry.update(session, base);
-  }
-}
-
-async function notify(session: string, title: string, message: string): Promise<void> {
-  await sendNotification({ session, title, message, badge: await needsInputCount() });
-}
-
-// Badge = live sessions currently waiting on the human.
-async function needsInputCount(): Promise<number> {
-  try {
-    const sessions = await listSessions();
-    return sessions.filter((s) => registry.view(s.name)?.state === "needs_input").length;
-  } catch {
-    return 0;
   }
 }
 

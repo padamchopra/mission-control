@@ -31,7 +31,6 @@ security-relevant even though it's only meant to be reachable by its owner.
 - **Uploads** save under `$TMPDIR/mission-control-uploads/<session>/`; filenames
   are reduced to their basename, stripped to `[A-Za-z0-9._-]` with leading dots
   removed (no traversal), and capped at 64 MB. `$TMPDIR` is auto-purged by macOS.
-- **Device tokens** must be hex (`[a-f0-9]{16,}`).
 - **Bodies** are size-capped (256 KB JSON, 64 MB upload).
 - **Errors** return a generic message; details are logged server-side only.
 
@@ -41,5 +40,6 @@ security-relevant even though it's only meant to be reachable by its owner.
   service.
 - **Terminal input reaches the pane's program.** Inherent to any terminal
   remote — you are typing into your own shell.
-- **Device-token list isn't pruned** on APNs 410 responses (grows slowly; no
-  security impact).
+- **Notification text transits ntfy** (unless self-hosted). Kept terse (session
+  name + short reason); the topic is random and unguessable. Self-host ntfy to
+  keep it entirely on your own infrastructure.
