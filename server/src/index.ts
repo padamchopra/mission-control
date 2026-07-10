@@ -21,6 +21,14 @@ import {
   type ScrollAction,
 } from "./tmux.js";
 
+// tmux only preserves the non-printable field separator we use in `-F` formats
+// under a UTF-8 locale. launchd runs with a stripped environment (no LANG), so
+// without this tmux would mangle the separator and every session's fields would
+// collapse into one. Force a UTF-8 locale unless one is already set.
+if (!process.env.LANG && !process.env.LC_ALL && !process.env.LC_CTYPE) {
+  process.env.LANG = "en_US.UTF-8";
+}
+
 const MAX_BODY_BYTES = 256 * 1024;
 
 // Bearer header only — never a query param, so the token can't leak into
