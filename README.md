@@ -1,118 +1,157 @@
 # Mission Control
 
-Native iOS remote for the Claude Code session fleet running in tmux on the Mac mini.
-Replaces Claude remote control with a stack where the source of truth never leaves
-the mini: the terminal is streamed straight from tmux, and input is injected locally
-with `tmux send-keys`, so nothing can go stale or get dropped in a sync layer.
+A native iOS remote for a fleet of [Claude Code](https://claude.com/claude-code)
+sessions running in `tmux` on your Mac. Check what every session is doing, get a
+push when one needs you, tap a number to answer a permission prompt, drop into a
+live terminal, and send a message (or a photo) — all over your private
+[Tailscale](https://tailscale.com) network.
+
+It replaces Claude Code's built-in remote control for people who run many
+long-lived sessions on one always-on machine. The design principle: **the source
+of truth never leaves the Mac.** The terminal is streamed straight from
+`tmux attach`, and input is injected locally with `tmux send-keys` — so there's
+no mirrored state to go stale and no keystrokes to drop in a sync layer.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/home.png" width="320" alt="Session list grouped by workspace, with status chips and quick replies"></td>
+    <td><img src="docs/screenshots/session.png" width="320" alt="Live terminal with quick-key row and message composer"></td>
+  </tr>
+</table>
+
+## How it works
 
 ```
 ┌──────────────┐   Tailscale (WireGuard)   ┌─────────────────────────────┐
-│  iOS app     │ ◄──────────────────────►  │  Mac mini                   │
+│  iOS app     │ ◄──────────────────────►  │  Mac                        │
 │  (SwiftUI +  │   REST + WebSocket        │  server/ (Node, launchd)    │
 │   SwiftTerm) │                           │    ├─ tmux ls / send-keys   │
 └──────────────┘                           │    ├─ PTY ↔ WS streaming    │
       ▲                                    │    ├─ event registry        │
-      │ APNs / Telegram pings              │    └─ notifier              │
+      │ APNs push                          │    └─ APNs notifier          │
       └────────────────────────────────────│  hooks/ (Claude Code hooks) │
                                            └─────────────────────────────┘
 ```
 
-## Components
+- **`server/`** — a small Node/TypeScript daemon. Lists tmux sessions with
+  status, streams panes over a PTY-backed WebSocket (feeds SwiftTerm), injects
+  input and copy-mode scrolls via `tmux send-keys`, kills sessions, resolves
+  per-session links (claude.ai / GitHub PR) and git worktrees, manages
+  workspaces, stores uploaded media, and sends push notifications.
+- **`server/hooks/mc-hook.sh`** — Claude Code hooks (SessionStart /
+  UserPromptSubmit / Notification / Stop) that report a session's state to the
+  server. Gated on an env flag so only the sessions you want reporting do.
+- **`ios/`** — the SwiftUI app (built with [XcodeGen](https://github.com/yonaskolb/XcodeGen)).
+- **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
 
-- **`server/`** — Node/TypeScript daemon on the mini. Lists tmux sessions with
-  status, streams panes over WebSocket (PTY-backed, feeds SwiftTerm), injects
-  input via `tmux send-keys`, kills sessions, receives Claude Code hook events,
-  and sends notifications (Telegram now, APNs when configured).
-- **`server/hooks/`** — Claude Code hook scripts (SessionStart / Notification /
-  Stop) that POST events to the server. Gated on `TICKET_BOT=1` so only
-  spawner-launched sessions report; interactive sessions stay silent.
-- **`ios/`** — SwiftUI app. Session list with status chips and swipe-to-kill;
-  terminal view rendered by SwiftTerm with a native input bar and quick keys
-  (Esc, arrows, digits, Ctrl+C); push notifications deep-link into a session.
-- **`deploy/`** — setup script for the mini: launchd service, tailscale serve,
-  hook installation.
+## Features
+
+- **Fleet view** — every session with a status chip (working / needs input /
+  idle), sessions waiting on you sorted to the top, and an app-icon badge count.
+- **Workspaces** — group sessions by the project directory they run in; tap **+**
+  to open a fresh shell there.
+- **Live terminal** — real `tmux attach` rendered by SwiftTerm, with a native
+  input bar, a quick-key row (Esc / Tab / arrows / digits / Ctrl-C),
+  pinch-to-zoom, and drag-to-scroll through tmux history.
+- **Quick replies** — answer a permission prompt (`1`/`2`/`3`) from the list or
+  straight from a push notification.
+- **Media** — paste an image into the field or pick a photo/video; it uploads to
+  the Mac and its path is sent so Claude can read it.
+- **Per-session actions** — open the conversation in claude.ai, view its GitHub
+  PR, save its directory as a workspace, or kill it (with an offer to clean up
+  the git worktree).
+- **Resilient** — the terminal auto-reconnects with backoff; because tmux holds
+  the session, reconnecting just re-attaches.
+
+## Prerequisites
+
+- A Mac that stays on, with [Homebrew](https://brew.sh), Node 20+, `tmux`, `git`,
+  and the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — for the
+  "view PR" action).
+- [Tailscale](https://tailscale.com) installed and logged in on both the Mac and
+  your iPhone (same tailnet).
+- Xcode 16+ and an Apple Developer account (a paid one is required for push
+  notifications).
 
 ## Setup
 
-**Mini (server):** clone the repo, then `./deploy/setup-mini.sh`. It builds the
-server, installs it as a launchd service, registers the Claude Code hooks, and
-prints the URL + token to paste into the app. Re-run it after every `git pull`.
+### 1. Server (on the Mac)
 
-**iOS app:** `cd ios && xcodegen generate`, open `MissionControl.xcodeproj`,
-run on your phone. In the app: **Settings → "Scan pairing QR"** and scan the QR
-the setup script printed (reprint anytime with `./deploy/show-pairing.sh`). No
-username or manual token entry — the QR carries the URL and token.
-
-**Spawner:** launch ticket sessions with `TICKET_BOT=1` in the environment so
-their hooks report to Mission Control; all other Claude sessions stay silent.
-
-## Security model
-
-- The server binds to `127.0.0.1` only. The **sole** path in from outside is
-  `tailscale serve` (not funnel) — tailnet devices only, never the public
-  internet or the LAN. Prefer HTTPS (real `*.ts.net` cert); falls back to
-  tailnet-HTTP (still WireGuard-encrypted) if the tailnet hasn't enabled HTTPS
-  certs.
-- Shared bearer token on every request/WS upgrade as a second factor. Paired to
-  the app by QR, so it never has to be typed.
-- The server shells out to `tmux` only with validated session names; no
-  arbitrary command execution endpoint exists.
-
-## Terminal scrolling
-
-`tmux attach` keeps no scrollback on the client, so the app scrolls via tmux's
-own copy-mode driven by `send-keys` — the same reliable path as every other
-input. Drag on the terminal to scroll (finger travel maps to copy-mode lines);
-a "Jump to live" pill appears only while scrolled up, gated on tmux's actual
-`pane_in_mode` state (updated from each scroll response plus a 2s poll).
-
-## Workspaces
-
-Save a location on the mini as a workspace (from a session's `...` menu →
-"Save location as workspace"). The home screen then groups sessions by which
-workspace their current directory sits under, with anything else under "Other".
-Each workspace header has a **+** that opens a fresh shell tmux session `cd`'d
-into that path. Remove a workspace via long-press on its header.
-
-## Session menu
-
-The `...` menu in a session offers: **Open in claude.ai** (built from the Claude
-Code `session_id` the hooks capture), **View pull request** (resolved with `gh`
-from the session's directory), **Save location as workspace**, and **Kill
-session**. Killing a session that lives in a git worktree then offers to remove
-the worktree (branch kept; a force is required — and confirmed — only if there
-are uncommitted changes).
-
-## Notifications (APNs)
-
-Push is Apple-only (no Telegram). To enable it, on the mini drop
-`~/.mission-control/apns.json` next to your APNs auth key (`.p8`):
-
-```json
-{ "keyId": "ABC123DEF4", "teamId": "YOURTEAMID", "bundleId": "dev.raccoons.missioncontrol",
-  "keyFile": "/Users/you/.mission-control/AuthKey_ABC123DEF4.p8", "production": false }
+```sh
+git clone <this-repo> ~/mission-control
+cd ~/mission-control
+./deploy/setup-mini.sh
 ```
 
-Create the key at developer.apple.com → Keys → **+** → enable *Apple Push
-Notifications service (APNs)*. The app registers its device token on launch,
-pushes carry the needs-input badge count, tapping a push opens that session, and
-a push offers **Yes (1)** / **No (3)** actions to answer a permission prompt
-without opening the app. Until `apns.json` exists, notifications are simply not
-sent.
+The script builds the server, installs it as a launchd service (auto-starts on
+login), registers the Claude Code hooks, exposes the server on your tailnet with
+`tailscale serve`, and prints a **pairing QR** plus the server URL and token.
+Re-run it after every `git pull`. Reprint the QR anytime with
+`./deploy/show-pairing.sh`.
 
-## Media sharing
+> The server binds to `127.0.0.1` only — the sole way in is `tailscale serve`
+> (tailnet devices only). For TLS, enable HTTPS certificates in the Tailscale
+> admin console before running; otherwise it falls back to tailnet HTTP (still
+> WireGuard-encrypted).
 
-The composer accepts photos/videos three ways: **paste** an image directly into
-the field (like iOS Messages — a UITextView routes clipboard images to an
-attachment), the **+** button for Photo Library (images + video) or Camera, and
-removable thumbnail chips before sending. On send, each file is uploaded to the
-mini (`POST /sessions/:name/upload` → `~/.mission-control/uploads/<session>/`)
-and its absolute path is appended to the message text, so Claude Code reads it
-(images especially — that's how Claude ingests them).
+### 2. Reporting sessions
 
-## Connection resilience
+Hooks are gated on `TICKET_BOT=1` so they only fire for sessions you launch with
+that flag — every other Claude Code session stays silent:
 
-The terminal WebSocket auto-reconnects with exponential backoff (6 attempts),
-showing a live "Reconnecting… (n/6)" banner, then a "Disconnected — Retry"
-banner once it gives up. Because tmux holds the session server-side, a
-reconnect just re-attaches and repaints — nothing is lost.
+```sh
+tmux new-session -d -s my-session "TICKET_BOT=1 claude"
+```
+
+Set it in whatever spawns your sessions. (Rename the flag in
+`server/hooks/mc-hook.sh` if you prefer.)
+
+### 3. iOS app
+
+```sh
+cd ios
+xcodegen generate
+open MissionControl.xcodeproj
+```
+
+Set `PRODUCT_BUNDLE_IDENTIFIER` (in `ios/project.yml`) to an App ID you own,
+select your team, and run on your iPhone. Then open **Settings → "Scan pairing
+QR"** and scan the QR the setup script printed — that fills in the server URL and
+token. (No username or manual token entry.)
+
+### 4. Push notifications (optional but recommended)
+
+Push is Apple-only. Create an APNs auth key at
+[developer.apple.com](https://developer.apple.com) → Keys → **+** → *Apple Push
+Notifications service (APNs)*, download the `.p8`, and drop a config next to it
+on the Mac at `~/.mission-control/apns.json`:
+
+```json
+{
+  "keyId": "ABC123DEF4",
+  "teamId": "YOURTEAMID",
+  "bundleId": "com.example.missioncontrol",
+  "keyFile": "/Users/you/.mission-control/AuthKey_ABC123DEF4.p8",
+  "production": false
+}
+```
+
+Use your own `bundleId` and paths. Until `apns.json` exists, notifications are
+simply not sent. The app registers its device token on launch, pushes carry the
+needs-input badge count, tapping a push opens that session, and a push offers
+**Yes (1) / No (3)** actions to answer a permission prompt without opening the app.
+
+## Security
+
+The server shells out to `tmux`/`git`/`gh` only via `execFile` with argument
+arrays (never a shell), validates session names, whitelists keys, and is reachable
+only over your tailnet behind a bearer token. See [SECURITY.md](SECURITY.md) for
+the full threat model and input-handling notes.
+
+## Notes
+
+- **Open in claude.ai** only works for sessions bridged to the cloud (remote
+  control / teammate sessions); it reads the bridge id Claude Code records in
+  `~/.claude/sessions/`. Local-only sessions have no web URL and the item is hidden.
+- **Uploaded media** lives under the OS temp directory, which macOS purges on its
+  own — no manual cleanup.

@@ -26,9 +26,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             )
         ])
 
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            guard granted else { return }
-            DispatchQueue.main.async { application.registerForRemoteNotifications() }
+        // MC_NO_PUSH_PROMPT skips the authorization prompt; MC_OPEN=<session>
+        // auto-navigates on launch — both are for screenshots/UI testing only.
+        let args = ProcessInfo.processInfo.arguments
+        if !args.contains("MC_NO_PUSH_PROMPT") {
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                guard granted else { return }
+                DispatchQueue.main.async { application.registerForRemoteNotifications() }
+            }
+        }
+        if let open = args.first(where: { $0.hasPrefix("MC_OPEN=") })?.dropFirst("MC_OPEN=".count) {
+            DispatchQueue.main.async { AppRouter.shared.openSession = String(open) }
         }
         return true
     }

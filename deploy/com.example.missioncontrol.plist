@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>dev.raccoons.mission-control</string>
+    <string>com.example.missioncontrol</string>
     <key>ProgramArguments</key>
     <array>
         <string>__NODE__</string>

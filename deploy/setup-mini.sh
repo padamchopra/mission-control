@@ -8,7 +8,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER_DIR="$REPO_DIR/server"
 MC_DIR="$HOME/.mission-control"
-PLIST_LABEL="dev.raccoons.mission-control"
+PLIST_LABEL="com.example.missioncontrol"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
 
 for bin in node npm tmux curl tailscale; do

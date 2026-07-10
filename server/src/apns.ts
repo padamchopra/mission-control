@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { configDir } from "./config.js";
 
 // Activated by dropping ~/.mission-control/apns.json next to the .p8 key:
-//   { "keyId": "ABC123", "teamId": "DEF456", "bundleId": "dev.raccoons.missioncontrol",
+//   { "keyId": "ABC123", "teamId": "DEF456", "bundleId": "com.example.missioncontrol",
 //     "keyFile": "/Users/me/.mission-control/AuthKey_ABC123.p8", "production": true }
 // Until that file exists every call here is a silent no-op.
 

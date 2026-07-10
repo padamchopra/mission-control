@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { configDir } from "./config.js";
@@ -33,10 +33,13 @@ export function listWorkspaces(): Workspace[] {
   return load();
 }
 
-export function addWorkspace(name: string, path: string): Workspace {
+export function addWorkspace(name: string, rawPath: string): Workspace {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("workspace name required");
-  if (!existsSync(path) || !statSync(path).isDirectory()) throw new Error("path is not a directory");
+  if (!existsSync(rawPath) || !statSync(rawPath).isDirectory()) throw new Error("path is not a directory");
+  // Canonicalize (resolve symlinks) so it matches tmux's pane_current_path,
+  // which is already resolved — e.g. /tmp vs /private/tmp on macOS.
+  const path = realpathSync(rawPath);
   const workspaces = load();
   const existing = workspaces.find((w) => w.path === path);
   if (existing) {

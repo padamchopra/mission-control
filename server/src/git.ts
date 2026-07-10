@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -10,9 +13,33 @@ export interface SessionLinks {
 
 export async function resolveLinks(cwd: string | undefined, claudeSessionId: string | undefined): Promise<SessionLinks> {
   return {
-    claudeUrl: claudeSessionId ? `https://claude.ai/code/${encodeURIComponent(claudeSessionId)}` : null,
+    claudeUrl: claudeWebUrl(claudeSessionId),
     prUrl: await prForCwd(cwd),
   };
+}
+
+// Claude Code records each session's cloud "bridge" id in ~/.claude/sessions/<pid>.json,
+// keyed by the local sessionId. That bridge id — not the local UUID — is what
+// claude.ai/code addresses. Sessions that aren't bridged have no web URL.
+function claudeWebUrl(localSessionId: string | undefined): string | null {
+  if (!localSessionId) return null;
+  const dir = join(homedir(), ".claude", "sessions");
+  try {
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const meta = JSON.parse(readFileSync(join(dir, file), "utf8"));
+        if (meta.sessionId === localSessionId && typeof meta.bridgeSessionId === "string" && meta.bridgeSessionId) {
+          return `https://claude.ai/code/${meta.bridgeSessionId}`;
+        }
+      } catch {
+        // skip unreadable/partial session file
+      }
+    }
+  } catch {
+    // no sessions dir
+  }
+  return null;
 }
 
 async function prForCwd(cwd: string | undefined): Promise<string | null> {

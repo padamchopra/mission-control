@@ -1,7 +1,8 @@
 # Security model & review
 
-Mission Control drives a fleet of Claude Code sessions on a machine that also
-holds a crypto-wallet codebase, so the server is treated as sensitive.
+Mission Control drives a fleet of Claude Code sessions on a personal machine
+that may hold sensitive source and credentials, so the server is treated as
+security-relevant even though it's only meant to be reachable by its owner.
 
 ## Threat model
 
