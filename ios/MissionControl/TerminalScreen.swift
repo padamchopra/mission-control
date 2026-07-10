@@ -326,6 +326,12 @@ private struct TerminalContainer: UIViewRepresentable {
             let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
             pinch.delegate = self
             view.addGestureRecognizer(pinch)
+
+            // Tapping the (read-only) terminal dismisses the message keyboard.
+            let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+            dismissTap.delegate = self
+            dismissTap.cancelsTouchesInView = false
+            view.addGestureRecognizer(dismissTap)
             // Connection is deferred to the first sizeChanged, so the PTY starts
             // at the real device dimensions instead of a hardcoded guess.
         }
@@ -344,6 +350,10 @@ private struct TerminalContainer: UIViewRepresentable {
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
         ) -> Bool {
             true
+        }
+
+        @objc private func dismissKeyboard() {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
 
         @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {

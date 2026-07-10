@@ -34,6 +34,21 @@ struct PasteAwareTextView: UIViewRepresentable {
         view.smartDashesType = .no
         view.smartInsertDeleteType = .no
         view.inlinePredictionType = .no
+
+        // A "Done" button above the keyboard — the field is multi-line, so there's
+        // no Return key to dismiss it.
+        let bar = UIToolbar()
+        bar.sizeToFit()
+        bar.items = [
+            UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+            UIBarButtonItem(
+                image: UIImage(systemName: "keyboard.chevron.compact.down"),
+                style: .plain,
+                target: view,
+                action: #selector(PasteTextView.dismissKeyboard)
+            ),
+        ]
+        view.inputAccessoryView = bar
         return view
     }
 
@@ -69,6 +84,10 @@ struct PasteAwareTextView: UIViewRepresentable {
 
 final class PasteTextView: UITextView {
     var onPasteImages: (([UIImage]) -> Void)?
+
+    @objc func dismissKeyboard() {
+        resignFirstResponder()
+    }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)) {
