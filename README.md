@@ -46,6 +46,8 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 
 ## Features
 
+- **Multiple servers** — connect to more than one Mac (e.g. a desktop and a
+  laptop) and switch between them from the top bar.
 - **Fleet view** — every session with a status chip (working / needs input /
   idle), and sessions waiting on you sorted to the top.
 - **Workspaces** — group sessions by the project directory they run in; tap **+**
@@ -81,7 +83,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 ```sh
 git clone <this-repo> ~/mission-control
 cd ~/mission-control
-./deploy/setup-mini.sh
+./deploy/setup.sh
 ```
 
 The script builds the server, installs it as a launchd service (auto-starts on
@@ -104,9 +106,10 @@ open MissionControl.xcodeproj
 ```
 
 Set `PRODUCT_BUNDLE_IDENTIFIER` (in `ios/project.yml`) to an App ID you own,
-select your team, and run on your iPhone. Then open **Settings → "Scan pairing
-QR"** and scan the QR the setup script printed — that fills in the server URL and
-token. (No username or manual token entry.)
+select your team, and run on your iPhone. Then tap the **gear → +  → Scan
+pairing QR** and scan the QR the setup script printed — that adds the server (no
+username or manual token entry). Repeat on another Mac to add a second server;
+switch between them from the menu in the top-left.
 
 ### 3. Notifications (ntfy)
 

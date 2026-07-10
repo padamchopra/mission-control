@@ -24,7 +24,7 @@ targets:
           # Plain HTTP is acceptable here: the server is only reachable inside
           # the WireGuard-encrypted tailnet. Tighten via `tailscale serve` TLS later.
           NSAllowsArbitraryLoads: true
-        NSCameraUsageDescription: Scan the pairing QR code shown by the mini's setup script.
+        NSCameraUsageDescription: Scan the pairing QR code shown by the setup script.
         CFBundleURLTypes:
           - CFBundleURLSchemes: [missioncontrol]
         UISupportedInterfaceOrientations:

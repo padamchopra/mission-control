@@ -40,7 +40,7 @@ struct APIClient {
         return (try? JSONDecoder().decode(ModeResponse.self, from: data))?.inCopyMode ?? false
     }
 
-    /// Uploads media to the mini and returns its absolute path there, for the
+    /// Uploads media to the server and returns its absolute path there, for the
     /// caller to reference in a message so Claude can read it.
     func upload(_ session: String, data: Data, filename: String, contentType: String) async throws -> String {
         var request = URLRequest(url: baseURL.appendingPathComponent("sessions/\(session)/upload"))

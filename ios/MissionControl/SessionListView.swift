@@ -7,11 +7,12 @@ struct SessionListView: View {
     @State private var workspaces: [Workspace] = []
     @State private var hasLoaded = false
     @State private var loadError: String?
-    @State private var showSettings = false
+    @State private var showServers = false
     @State private var pendingKill: TmuxSession?
     @State private var pendingCleanup: WorktreeInfo?
     @State private var path: [String] = []
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var store: ServerStore
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -22,9 +23,12 @@ struct SessionListView: View {
             content
                 .navigationTitle("Mission Control")
                 .toolbar {
+                    if store.servers.count > 1 || store.active != nil {
+                        ToolbarItem(placement: .topBarLeading) { serverSwitcher }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            showSettings = true
+                            showServers = true
                         } label: {
                             Image(systemName: "gearshape")
                         }
@@ -33,8 +37,8 @@ struct SessionListView: View {
                 .navigationDestination(for: String.self) { name in
                     TerminalScreen(sessionName: name)
                 }
-                .sheet(isPresented: $showSettings) {
-                    SettingsView()
+                .sheet(isPresented: $showServers) {
+                    ServersView()
                 }
                 .confirmationDialog(
                     "Kill session?",
@@ -68,8 +72,7 @@ struct SessionListView: View {
                 }
                 .onOpenURL { url in
                     if let config = PairingConfig(from: url) {
-                        serverURL = config.url
-                        serverToken = config.token
+                        store.addOrUpdate(url: config.url, token: config.token)
                     } else if url.host == "session", let name = url.pathComponents.dropFirst().first {
                         path = [name]
                     }
@@ -82,14 +85,41 @@ struct SessionListView: View {
         }
     }
 
+    private var serverSwitcher: some View {
+        Menu {
+            ForEach(store.servers) { server in
+                Button {
+                    store.activeID = server.id
+                } label: {
+                    Label(server.name, systemImage: server.id == store.activeID ? "checkmark" : "server.rack")
+                }
+            }
+            Divider()
+            Button {
+                showServers = true
+            } label: {
+                Label("Manage servers", systemImage: "gearshape")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(store.active?.name ?? "Servers")
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
-        if api == nil {
-            ContentUnavailableView(
-                "No server configured",
-                systemImage: "gearshape",
-                description: Text("Set the mini's address and token in settings.")
-            )
+        if store.servers.isEmpty {
+            ContentUnavailableView {
+                Label("No servers", systemImage: "server.rack")
+            } description: {
+                Text("Add a server by scanning the pairing QR your Mac's setup script prints.")
+            } actions: {
+                Button("Add server") { showServers = true }
+                    .buttonStyle(.borderedProminent)
+            }
         } else if let loadError, sessions.isEmpty {
             ContentUnavailableView(
                 "Can't reach server",
@@ -100,7 +130,7 @@ struct SessionListView: View {
             ContentUnavailableView(
                 "No active sessions",
                 systemImage: "moon.zzz",
-                description: Text("Nothing is running in tmux on the mini right now.")
+                description: Text("Nothing is running in tmux on this server right now.")
             )
         } else {
             sessionList

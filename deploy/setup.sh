@@ -1,8 +1,8 @@
 #!/bin/bash
-# One-shot setup for the Mac mini. Idempotent — safe to re-run after git pull.
+# One-shot setup for the Mac (server side). Idempotent — safe to re-run after git pull.
 #
 #   git clone <repo> ~/Documents/Projects/mission-control   (or pull)
-#   cd ~/Documents/Projects/mission-control && ./deploy/setup-mini.sh
+#   cd ~/mission-control && ./deploy/setup.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
