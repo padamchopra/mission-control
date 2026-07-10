@@ -47,14 +47,14 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 ## Features
 
 - **Fleet view** — every session with a status chip (working / needs input /
-  idle), sessions waiting on you sorted to the top, and an app-icon badge count.
+  idle), and sessions waiting on you sorted to the top.
 - **Workspaces** — group sessions by the project directory they run in; tap **+**
   to open a fresh shell there.
 - **Live terminal** — real `tmux attach` rendered by SwiftTerm, with a native
   input bar, a quick-key row (Esc / Tab / arrows / digits / Ctrl-C),
   pinch-to-zoom, and drag-to-scroll through tmux history.
-- **Quick replies** — answer a permission prompt (`1`/`2`/`3`) from the list or
-  straight from a push notification.
+- **Quick replies** — answer a permission prompt with the `1`/`2`/`3` pills on a
+  needs-input row in the list, without opening the session.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
   the Mac and its path is sent so Claude can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
