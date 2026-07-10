@@ -11,9 +11,17 @@ MC_DIR="$HOME/.mission-control"
 PLIST_LABEL="com.example.missioncontrol"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
 
-for bin in node npm tmux curl tailscale; do
+for bin in node npm tmux curl; do
   command -v "$bin" >/dev/null || { echo "missing dependency: $bin"; exit 1; }
 done
+
+# The macOS Tailscale GUI app doesn't put its CLI on PATH — find it.
+TAILSCALE="$(command -v tailscale || true)"
+for candidate in /Applications/Tailscale.app/Contents/MacOS/Tailscale "$HOME/Applications/Tailscale.app/Contents/MacOS/Tailscale"; do
+  [ -n "$TAILSCALE" ] && break
+  [ -x "$candidate" ] && TAILSCALE="$candidate"
+done
+[ -n "$TAILSCALE" ] || { echo "Tailscale not found — install it and sign in first."; exit 1; }
 
 if ! command -v qrencode >/dev/null; then
   echo "==> Installing qrencode (for pairing QR)"
@@ -70,7 +78,7 @@ launchctl kickstart -k "gui/$(id -u)/$PLIST_LABEL"
 sleep 2
 TOKEN="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).token' 2>/dev/null || echo "<server did not start — check ~/.mission-control/server.log>")"
 PORT="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).port' 2>/dev/null || echo 8420)"
-TS_HOST="$(tailscale status --json 2>/dev/null | node -p 'try { JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"") } catch { "<tailscale hostname>" }' 2>/dev/null || echo "<tailscale hostname>")"
+TS_HOST="$("$TAILSCALE" status --json 2>/dev/null | node -p 'try { JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"") } catch { "<tailscale hostname>" }' 2>/dev/null || echo "<tailscale hostname>")"
 NTFY_SERVER="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).ntfyServer' 2>/dev/null || echo "https://ntfy.sh")"
 NTFY_TOPIC="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).ntfyTopic' 2>/dev/null || echo "<ntfy topic>")"
 
@@ -85,11 +93,11 @@ fi
 # HTTPS; fall back to tailnet-HTTP if the tailnet hasn't enabled HTTPS certs
 # (still WireGuard-encrypted and tailnet-only, just no TLS-on-top).
 echo "==> Exposing over the tailnet with tailscale serve"
-tailscale serve reset >/dev/null 2>&1 || true
-if tailscale serve --bg --https=443 "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
+"$TAILSCALE" serve reset >/dev/null 2>&1 || true
+if "$TAILSCALE" serve --bg --https=443 "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
   APP_URL="https://$TS_HOST"
   SERVE_NOTE="HTTPS (TLS, tailnet-only)"
-elif tailscale serve --bg --http="$PORT" "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
+elif "$TAILSCALE" serve --bg --http="$PORT" "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
   APP_URL="http://$TS_HOST:$PORT"
   SERVE_NOTE="tailnet HTTP (WireGuard-encrypted, tailnet-only). Enable HTTPS certs in the Tailscale admin console for TLS, then re-run."
 else
