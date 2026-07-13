@@ -79,8 +79,19 @@ struct APIClient {
         _ = try await request("POST", "workspaces", body: ["name": name, "path": path])
     }
 
-    func saveWorkspace(fromSession session: String, name: String) async throws {
-        _ = try await request("POST", "sessions/\(session)/workspace", body: ["name": name])
+    func saveWorkspace(fromSession session: String, name: String, path: String) async throws {
+        _ = try await request("POST", "sessions/\(session)/workspace", body: ["name": name, "path": path])
+    }
+
+    /// The session's current directory on the server, for prefilling the
+    /// save-as-workspace path field.
+    func cwd(_ session: String) async throws -> String {
+        let data = try await request("GET", "sessions/\(session)/cwd")
+        return (try? JSONDecoder().decode(PathResponse.self, from: data))?.path ?? ""
+    }
+
+    func rename(_ session: String, to newName: String) async throws {
+        _ = try await request("POST", "sessions/\(session)/rename", body: ["name": newName])
     }
 
     func removeWorkspace(id: String) async throws {

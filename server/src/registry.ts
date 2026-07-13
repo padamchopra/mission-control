@@ -43,6 +43,14 @@ class Registry {
     if (this.entries.delete(name)) this.persist();
   }
 
+  rename(from: string, to: string): void {
+    const entry = this.entries.get(from);
+    if (!entry) return;
+    this.entries.delete(from);
+    this.entries.set(to, entry);
+    this.persist();
+  }
+
   private persist(): void {
     writeFileSync(stateFile, JSON.stringify(Object.fromEntries(this.entries), null, 2) + "\n");
   }

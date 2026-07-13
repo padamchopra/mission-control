@@ -39,6 +39,10 @@ struct UploadResponse: Codable {
     let path: String
 }
 
+struct PathResponse: Codable {
+    let path: String?
+}
+
 struct SessionLinks: Codable {
     let claudeUrl: String?
     let prUrl: String?

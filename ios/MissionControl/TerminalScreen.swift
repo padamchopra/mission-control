@@ -10,14 +10,21 @@ struct TerminalScreen: View {
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
     @AppStorage("terminalFontSize") private var fontSize = 13.0
+    @AppStorage("linkRefreshSeconds") private var linkRefreshSeconds = 60
     @State private var streamState: StreamState = .connecting
     @State private var inCopyMode = false
     @State private var coordinator: TerminalContainer.Coordinator?
     @State private var links: SessionLinks?
     @State private var showSaveWorkspace = false
     @State private var workspaceName = ""
+    @State private var workspacePath = ""
+    @State private var showRename = false
+    @State private var renameText = ""
+    @State private var isKilling = false
     @State private var pendingCleanup: WorktreeInfo?
     @State private var killed = false
+    @State private var actionError: String?
+    @EnvironmentObject private var router: AppRouter
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
@@ -49,19 +56,48 @@ struct TerminalScreen: View {
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { sessionMenu }
+            ToolbarItem(placement: .topBarTrailing) {
+                if isKilling {
+                    ProgressView()
+                } else {
+                    sessionMenu
+                }
+            }
         }
         .task(id: streamState) { await pollCopyMode() }
-        .task { links = try? await api?.links(sessionName) }
+        .task { await pollLinks() }
         .alert("Save workspace", isPresented: $showSaveWorkspace) {
             TextField("Name", text: $workspaceName)
+                .textInputAutocapitalization(.never)
+            TextField("Path", text: $workspacePath)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
             Button("Save") {
                 let name = workspaceName
-                Task { try? await api?.saveWorkspace(fromSession: sessionName, name: name) }
+                let path = workspacePath
+                Task {
+                    do {
+                        try await api?.saveWorkspace(fromSession: sessionName, name: name, path: path)
+                    } catch {
+                        actionError = "Couldn't save workspace. Check that the path exists on the server."
+                    }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Save this session's current directory as a workspace on the home screen.")
+            Text("Saves this directory as a workspace on the home screen.")
+        }
+        .alert("Rename session", isPresented: $showRename) {
+            TextField("Name", text: $renameText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Rename") { rename() }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Something went wrong", isPresented: errorPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(actionError ?? "")
         }
         .alert("Remove worktree?", isPresented: cleanupPresented, presenting: pendingCleanup) { info in
             Button("Remove", role: .destructive) {
@@ -93,8 +129,18 @@ struct TerminalScreen: View {
                 }
             }
             Button {
+                renameText = sessionName
+                showRename = true
+            } label: {
+                Label("Rename session", systemImage: "pencil")
+            }
+            Button {
                 workspaceName = sessionName
-                showSaveWorkspace = true
+                workspacePath = ""
+                Task {
+                    workspacePath = (try? await api?.cwd(sessionName)) ?? ""
+                    showSaveWorkspace = true
+                }
             } label: {
                 Label("Save location as workspace", systemImage: "folder.badge.plus")
             }
@@ -113,6 +159,25 @@ struct TerminalScreen: View {
         Binding(get: { pendingCleanup != nil }, set: { if !$0 { pendingCleanup = nil } })
     }
 
+    private var errorPresented: Binding<Bool> {
+        Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
+    }
+
+    // Renaming invalidates everything bound to the old name (stream, API calls),
+    // so route to a fresh screen for the new name instead of patching in place.
+    private func rename() {
+        let newName = renameText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: " ", with: "-")
+        guard !newName.isEmpty, newName != sessionName, let api else { return }
+        Task {
+            do {
+                try await api.rename(sessionName, to: newName)
+                router.openSession = newName
+            } catch {
+                actionError = "Couldn't rename. Use letters, digits, dashes or underscores."
+            }
+        }
+    }
+
     private func worktreeCleanupMessage(_ info: WorktreeInfo) -> String {
         var parts = ["Killed \(sessionName)."]
         if let branch = info.branch { parts.append("Remove its git worktree? Branch \(branch) is kept.") }
@@ -122,6 +187,7 @@ struct TerminalScreen: View {
 
     private func killWithCleanup() async {
         guard let api else { return }
+        isKilling = true
         let worktree = try? await api.worktree(sessionName)
         try? await api.kill(sessionName)
         killed = true
@@ -231,6 +297,21 @@ struct TerminalScreen: View {
                 .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+    }
+
+    // A PR is usually opened mid-session, after this screen already loaded —
+    // keep refreshing so the menu picks it up. The interval is a user setting;
+    // 0 means fetch once. The server caches PR lookups, so this doesn't turn
+    // into one GitHub API call per tick.
+    private func pollLinks() async {
+        while !Task.isCancelled {
+            if let fresh = try? await api?.links(sessionName) {
+                links = fresh
+            }
+            let interval = linkRefreshSeconds
+            if interval <= 0 { return }
+            try? await Task.sleep(for: .seconds(interval))
+        }
     }
 
     // Backstop for the button state: the pan gesture updates inCopyMode from its

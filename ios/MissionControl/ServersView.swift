@@ -4,6 +4,7 @@ import SwiftUI
 struct ServersView: View {
     @EnvironmentObject private var store: ServerStore
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("linkRefreshSeconds") private var linkRefreshSeconds = 60
     @State private var showScanner = false
     @State private var showManualAdd = false
     @State private var cameraDenied = false
@@ -41,6 +42,18 @@ struct ServersView: View {
                         }
                         .tint(.gray)
                     }
+                }
+                Section {
+                    Picker("PR link refresh", selection: $linkRefreshSeconds) {
+                        Text("Off").tag(0)
+                        Text("1 min").tag(60)
+                        Text("5 min").tag(300)
+                        Text("15 min").tag(900)
+                    }
+                } header: {
+                    Text("Settings")
+                } footer: {
+                    Text("How often an open session re-checks for its pull request link. Off checks once when the session opens.")
                 }
             }
             .navigationTitle("Servers")

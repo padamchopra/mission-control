@@ -10,6 +10,10 @@ struct SessionListView: View {
     @State private var showServers = false
     @State private var pendingKill: TmuxSession?
     @State private var pendingCleanup: WorktreeInfo?
+    @State private var killing: Set<String> = []
+    @State private var renameTarget: TmuxSession?
+    @State private var renameText = ""
+    @State private var actionError: String?
     @State private var path: [String] = []
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var store: ServerStore
@@ -18,55 +22,11 @@ struct SessionListView: View {
         APIClient(urlString: serverURL, token: serverToken)
     }
 
+    // body is split into layers (chrome → dialogs → lifecycle) because one flat
+    // modifier chain exceeds the type-checker's budget.
     var body: some View {
         NavigationStack(path: $path) {
-            content
-                .navigationTitle("Mission Control")
-                .toolbar {
-                    if store.servers.count > 1 || store.active != nil {
-                        ToolbarItem(placement: .topBarLeading) { serverSwitcher }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showServers = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                        }
-                    }
-                }
-                .navigationDestination(for: String.self) { name in
-                    TerminalScreen(sessionName: name)
-                }
-                .sheet(isPresented: $showServers) {
-                    ServersView()
-                }
-                .confirmationDialog(
-                    "Kill session?",
-                    isPresented: Binding(
-                        get: { pendingKill != nil },
-                        set: { if !$0 { pendingKill = nil } }
-                    ),
-                    presenting: pendingKill
-                ) { session in
-                    Button("Kill \(session.name)", role: .destructive) {
-                        Task { await kill(session) }
-                    }
-                } message: { session in
-                    Text("This kills the tmux session and everything running in it (\(session.name)).")
-                }
-                .alert("Remove worktree?", isPresented: Binding(
-                    get: { pendingCleanup != nil },
-                    set: { if !$0 { pendingCleanup = nil } }
-                ), presenting: pendingCleanup) { info in
-                    Button("Remove", role: .destructive) {
-                        if let path = info.path {
-                            Task { try? await api?.removeWorktree(path: path, force: info.dirty == true) }
-                        }
-                    }
-                    Button("Keep", role: .cancel) {}
-                } message: { info in
-                    Text(cleanupMessage(info))
-                }
+            dialogsLayer
                 .task(id: serverURL + serverToken) {
                     await autoRefresh()
                 }
@@ -83,6 +43,84 @@ struct SessionListView: View {
                     router.openSession = nil
                 }
         }
+    }
+
+    private var chromeLayer: some View {
+        content
+            .navigationTitle("Mission Control")
+            .toolbar {
+                if store.servers.count > 1 || store.active != nil {
+                    ToolbarItem(placement: .topBarLeading) { serverSwitcher }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showServers = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
+            .navigationDestination(for: String.self) { name in
+                TerminalScreen(sessionName: name)
+            }
+            .sheet(isPresented: $showServers) {
+                ServersView()
+            }
+    }
+
+    private var dialogsLayer: some View {
+        chromeLayer
+            .confirmationDialog(
+                "Kill session?",
+                isPresented: killPresented,
+                presenting: pendingKill
+            ) { session in
+                Button("Kill \(session.name)", role: .destructive) {
+                    Task { await kill(session) }
+                }
+            } message: { session in
+                Text("This kills the tmux session and everything running in it (\(session.name)).")
+            }
+            .alert("Rename session", isPresented: renamePresented, presenting: renameTarget) { session in
+                TextField("Name", text: $renameText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Rename") {
+                    Task { await rename(session, to: renameText) }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .alert("Something went wrong", isPresented: errorPresented) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(actionError ?? "")
+            }
+            .alert("Remove worktree?", isPresented: cleanupPresented, presenting: pendingCleanup) { info in
+                Button("Remove", role: .destructive) {
+                    if let path = info.path {
+                        Task { try? await api?.removeWorktree(path: path, force: info.dirty == true) }
+                    }
+                }
+                Button("Keep", role: .cancel) {}
+            } message: { info in
+                Text(cleanupMessage(info))
+            }
+    }
+
+    private var killPresented: Binding<Bool> {
+        Binding(get: { pendingKill != nil }, set: { if !$0 { pendingKill = nil } })
+    }
+
+    private var renamePresented: Binding<Bool> {
+        Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } })
+    }
+
+    private var errorPresented: Binding<Bool> {
+        Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
+    }
+
+    private var cleanupPresented: Binding<Bool> {
+        Binding(get: { pendingCleanup != nil }, set: { if !$0 { pendingCleanup = nil } })
     }
 
     private var serverSwitcher: some View {
@@ -162,13 +200,22 @@ struct SessionListView: View {
 
     private func sessionLink(_ session: TmuxSession) -> some View {
         NavigationLink(value: session.name) {
-            SessionRow(session: session) { key in quickReply(session, key: key) }
+            SessionRow(session: session, isKilling: killing.contains(session.name)) { key in
+                quickReply(session, key: key)
+            }
         }
-        .swipeActions(edge: .trailing) {
+        .disabled(killing.contains(session.name))
+        .contextMenu {
+            Button {
+                renameText = session.name
+                renameTarget = session
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
             Button(role: .destructive) {
                 pendingKill = session
             } label: {
-                Label("Kill", systemImage: "xmark.octagon")
+                Label("Kill session", systemImage: "xmark.octagon")
             }
         }
     }
@@ -269,6 +316,8 @@ struct SessionListView: View {
 
     private func kill(_ session: TmuxSession) async {
         guard let api else { return }
+        killing.insert(session.name)
+        defer { killing.remove(session.name) }
         do {
             let worktree = try? await api.worktree(session.name)
             try await api.kill(session.name)
@@ -277,13 +326,26 @@ struct SessionListView: View {
                 pendingCleanup = worktree
             }
         } catch {
-            loadError = error.localizedDescription
+            actionError = "Couldn't kill \(session.name): \(error.localizedDescription)"
+        }
+    }
+
+    private func rename(_ session: TmuxSession, to newName: String) async {
+        guard let api else { return }
+        let trimmed = newName.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: " ", with: "-")
+        guard !trimmed.isEmpty, trimmed != session.name else { return }
+        do {
+            try await api.rename(session.name, to: trimmed)
+            await load()
+        } catch {
+            actionError = "Couldn't rename. Use letters, digits, dashes or underscores."
         }
     }
 }
 
 private struct SessionRow: View {
     let session: TmuxSession
+    var isKilling = false
     var onQuickReply: (String) -> Void
 
     var body: some View {
@@ -292,7 +354,12 @@ private struct SessionRow: View {
                 Text(session.name)
                     .font(.headline)
                 Spacer()
-                stateChip
+                if isKilling {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    stateChip
+                }
             }
             Text("\(session.paneCommand) · \(session.lastOutputDate.formatted(.relative(presentation: .named)))")
                 .font(.caption)

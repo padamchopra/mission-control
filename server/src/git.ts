@@ -42,13 +42,33 @@ function claudeWebUrl(localSessionId: string | undefined): string | null {
   return null;
 }
 
+// Each lookup is a GitHub API call under the user's token; clients poll for
+// the link, so cache per directory to bound the API rate regardless of how
+// many screens are open or how fast they refresh.
+const PR_CACHE_TTL_MS = 60_000;
+const prCache = new Map<string, { url: string | null; at: number }>();
+
 async function prForCwd(cwd: string | undefined): Promise<string | null> {
   if (!cwd) return null;
+  const cached = prCache.get(cwd);
+  if (cached && Date.now() - cached.at < PR_CACHE_TTL_MS) return cached.url;
+  const url = await fetchPrUrl(cwd);
+  prCache.set(cwd, { url, at: Date.now() });
+  return url;
+}
+
+async function fetchPrUrl(cwd: string): Promise<string | null> {
   try {
     const { stdout } = await exec("gh", ["pr", "view", "--json", "url", "-q", ".url"], { cwd });
     return stdout.trim() || null;
-  } catch {
-    return null; // no PR for this branch, or not a gh repo
+  } catch (err) {
+    // "No PR for this branch" is the normal case; anything else (gh missing,
+    // not authenticated) would otherwise fail invisibly — surface it in the log.
+    const detail = String((err as { stderr?: unknown })?.stderr ?? err ?? "").trim();
+    if (detail && !/no pull requests found|not a git repository/i.test(detail)) {
+      console.error(`pr lookup failed in ${cwd}:`, detail);
+    }
+    return null;
   }
 }
 

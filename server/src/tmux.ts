@@ -119,6 +119,18 @@ export async function scroll(name: string, action: ScrollAction, lines = 1): Pro
     await exec("tmux", ["send-keys", "-t", name, "-X", "cancel"]).catch(() => {});
     return paneInCopyMode(name);
   }
+  // Entering copy-mode when there's nothing to scroll just freezes the pane at
+  // [0/0]: alternate-screen TUIs (vim, less) have no tmux scrollback, and a
+  // fresh pane has no history yet. Skip instead of trapping the view there.
+  const { stdout: state } = await exec("tmux", [
+    "display-message", "-p", "-t", name,
+    ["#{pane_in_mode}", "#{alternate_on}", "#{history_size}"].join(FIELD_SEP),
+  ]);
+  const [inMode, altOn, histSize] = state.trim().split(FIELD_SEP);
+  if (inMode !== "1") {
+    if (altOn === "1" || Number(histSize) === 0) return false;
+    if (action === "down" || action === "page-down") return false; // already at the live prompt
+  }
   // -e auto-exits copy-mode when scrolled back to the bottom.
   await exec("tmux", ["copy-mode", "-e", "-t", name]);
   const command = SCROLL_X_COMMAND[action];
@@ -154,6 +166,12 @@ export async function paneCurrentPath(name: string): Promise<string | undefined>
 export async function killSession(name: string): Promise<void> {
   assertValidName(name);
   await exec("tmux", ["kill-session", "-t", name]);
+}
+
+export async function renameSession(name: string, newName: string): Promise<void> {
+  assertValidName(name);
+  assertValidName(newName);
+  await exec("tmux", ["rename-session", "-t", name, newName]);
 }
 
 export async function capturePane(name: string, lines: number): Promise<string> {

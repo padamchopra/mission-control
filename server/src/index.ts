@@ -15,6 +15,7 @@ import {
   listSessions,
   paneCurrentPath,
   paneInCopyMode,
+  renameSession,
   scroll,
   sendKeys,
   sendText,
@@ -176,9 +177,23 @@ const server = createServer(async (req, res) => {
         const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
         return json(res, 200, await worktreeInfo(cwd));
       }
+      if (req.method === "GET" && parts[2] === "cwd") {
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd ?? null;
+        return json(res, 200, { path: cwd });
+      }
+      if (req.method === "POST" && parts[2] === "rename") {
+        const body = await readJson(req);
+        const newName = String(body.name ?? "").trim();
+        await renameSession(name, newName);
+        registry.rename(name, newName);
+        return json(res, 200, { ok: true });
+      }
       if (req.method === "POST" && parts[2] === "workspace") {
         const body = await readJson(req);
-        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        // The client sends the (possibly edited) path it showed the user;
+        // fall back to resolving the session's cwd for older clients.
+        const requested = typeof body.path === "string" && body.path.trim() ? body.path.trim() : undefined;
+        const cwd = requested ?? (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
         if (!cwd) throw new Error("could not resolve session directory");
         return json(res, 200, { workspace: addWorkspace(String(body.name ?? name), cwd) });
       }
