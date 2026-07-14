@@ -119,6 +119,13 @@ struct APIClient {
         return components?.url
     }
 
+    func notifyWebSocketURL() -> URL? {
+        let streamURL = baseURL.appendingPathComponent("notify/stream")
+        var components = URLComponents(url: streamURL, resolvingAgainstBaseURL: false)
+        components?.scheme = baseURL.scheme == "https" ? "wss" : "ws"
+        return components?.url
+    }
+
     private func request(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> Data {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = method

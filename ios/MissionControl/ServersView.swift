@@ -8,6 +8,7 @@ struct ServersView: View {
     @State private var showScanner = false
     @State private var showManualAdd = false
     @State private var cameraDenied = false
+    @State private var pasteFailed = false
     @State private var renaming: Server?
     @State private var renameText = ""
 
@@ -61,10 +62,19 @@ struct ServersView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        // Scanning a QR shown on this same machine makes no
+                        // sense on the Mac — there, paste the pairing link.
+                        #if !targetEnvironment(macCatalyst)
                         Button {
                             requestScanner()
                         } label: {
                             Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
+                        }
+                        #endif
+                        Button {
+                            pastePairingLink()
+                        } label: {
+                            Label("Paste pairing link", systemImage: "doc.on.clipboard")
                         }
                         Button {
                             showManualAdd = true
@@ -100,6 +110,11 @@ struct ServersView: View {
             } message: {
                 Text("Enable camera access in Settings to scan the pairing QR.")
             }
+            .alert("No pairing link found", isPresented: $pasteFailed) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Copy the missioncontrol://configure link printed by the setup script, then try again.")
+            }
         }
     }
 
@@ -119,6 +134,15 @@ struct ServersView: View {
                     Button("Cancel") { showScanner = false }
                 }
             }
+        }
+    }
+
+    private func pastePairingLink() {
+        let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let config = PairingConfig(fromString: text) {
+            store.addOrUpdate(url: config.url, token: config.token)
+        } else {
+            pasteFailed = true
         }
     }
 

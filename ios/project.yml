@@ -29,10 +29,19 @@ targets:
           - CFBundleURLSchemes: [missioncontrol]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.missioncontrol
         SWIFT_VERSION: "5.0"
-        TARGETED_DEVICE_FAMILY: "1"
+        # 1,2 (iPhone + iPad) is required for Mac Catalyst — the Mac app is the
+        # iPad layout running natively on macOS, same codebase and target.
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: YES
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

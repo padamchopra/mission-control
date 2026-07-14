@@ -132,6 +132,9 @@ Or enter manually:
   Server URL : $APP_URL
   Token      : $TOKEN
 
+On a Mac, copy this link and use "Paste pairing link" in the app:
+  $PAIR_LINK
+
 Reprint this QR anytime:  ./deploy/show-pairing.sh
 
 Notifications (ntfy) — install the "ntfy" app on your phone, add

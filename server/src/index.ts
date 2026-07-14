@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { config } from "./config.js";
 import { handleHookEvent } from "./events.js";
+import { attachNotifyStream } from "./notify.js";
 import { removeWorktree, resolveLinks, worktreeInfo } from "./git.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
@@ -223,8 +224,13 @@ server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   const parts = url.pathname.split("/").filter(Boolean);
   const isStream = parts.length === 3 && parts[0] === "sessions" && parts[2] === "stream";
-  if (!isStream || !authorized(req)) {
+  const isNotify = parts.length === 2 && parts[0] === "notify" && parts[1] === "stream";
+  if ((!isStream && !isNotify) || !authorized(req)) {
     socket.destroy();
+    return;
+  }
+  if (isNotify) {
+    wss.handleUpgrade(req, socket, head, (ws) => attachNotifyStream(ws));
     return;
   }
   const name = decodeURIComponent(parts[1]);

@@ -60,8 +60,13 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
   the Mac and its path is sent so Claude can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
-  PR, save its directory as a workspace, or kill it (with an offer to clean up
-  the git worktree).
+  PR, rename the session, save its directory as a workspace, or kill it (with an
+  offer to clean up the git worktree).
+- **Mac app** — the same target builds for macOS via Mac Catalyst: one codebase,
+  and workspaces/sessions are served by the server so every device sees the same
+  thing. While the Mac app is running (even in the background) notifications
+  arrive as native macOS banners and the phone stays quiet; quit it and pushes
+  fall back to the phone automatically.
 - **Resilient** — the terminal auto-reconnects with backoff; because tmux holds
   the session, reconnecting just re-attaches.
 
@@ -111,6 +116,12 @@ pairing QR** and scan the QR the setup script printed — that adds the server (
 username or manual token entry). Repeat on another Mac to add a second server;
 switch between them from the menu in the top-left.
 
+For the **Mac app**, pick the "My Mac (Mac Catalyst)" run destination instead —
+same target, no extra setup. To pair on the Mac, copy the
+`missioncontrol://configure` link the setup script prints and use
+**gear → + → Paste pairing link** (scanning a QR with the Mac's own camera
+would be silly).
+
 ### 3. Notifications (ntfy)
 
 Notifications go through [ntfy](https://ntfy.sh) — free, open-source, and no
@@ -124,6 +135,11 @@ Keep messages in mind for privacy: with the hosted `ntfy.sh`, notification text
 transits their server, so it's kept terse (session name + short reason). For a
 fully private setup, self-host ntfy and set `ntfyServer` in
 `~/.mission-control/config.json` to your own server.
+
+If the Mac app is running, it holds a WebSocket to each paired server and the
+server delivers notifications there instead of ntfy — native banners on the Mac,
+nothing on the phone. Quit the Mac app (or let the connection drop) and
+notifications fall back to ntfy within about 30 seconds.
 
 ## Security
 
