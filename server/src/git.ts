@@ -11,10 +11,15 @@ export interface SessionLinks {
   prUrl: string | null;
 }
 
-export async function resolveLinks(cwd: string | undefined, claudeSessionId: string | undefined): Promise<SessionLinks> {
+export async function resolveLinks(
+  cwd: string | undefined,
+  claudeSessionId: string | undefined,
+  refreshPr = false,
+  includePullRequest = true,
+): Promise<SessionLinks> {
   return {
     claudeUrl: claudeWebUrl(claudeSessionId),
-    prUrl: await prForCwd(cwd),
+    prUrl: includePullRequest ? await prForCwd(cwd, refreshPr) : null,
   };
 }
 
@@ -48,10 +53,10 @@ function claudeWebUrl(localSessionId: string | undefined): string | null {
 const PR_CACHE_TTL_MS = 60_000;
 const prCache = new Map<string, { url: string | null; at: number }>();
 
-async function prForCwd(cwd: string | undefined): Promise<string | null> {
+async function prForCwd(cwd: string | undefined, refresh = false): Promise<string | null> {
   if (!cwd) return null;
   const cached = prCache.get(cwd);
-  if (cached && Date.now() - cached.at < PR_CACHE_TTL_MS) return cached.url;
+  if (!refresh && cached && Date.now() - cached.at < PR_CACHE_TTL_MS) return cached.url;
   const url = await fetchPrUrl(cwd);
   prCache.set(cwd, { url, at: Date.now() });
   return url;

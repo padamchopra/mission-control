@@ -29,8 +29,28 @@ final class ServerStore: ObservableObject {
 
     private init() {
         let defaults = UserDefaults.standard
-        servers = (defaults.data(forKey: serversKey)).flatMap { try? JSONDecoder().decode([Server].self, from: $0) } ?? []
+        let savedServers = (defaults.data(forKey: serversKey))
+            .flatMap { try? JSONDecoder().decode([Server].self, from: $0) } ?? []
+        // ServerStore replaced the original single-server settings. Preserve
+        // existing installations by importing those values before syncActive
+        // has a chance to clear them for an empty server list.
+        if savedServers.isEmpty,
+           let url = defaults.string(forKey: "serverURL"), !url.isEmpty,
+           let token = defaults.string(forKey: "serverToken"), !token.isEmpty {
+            servers = [Server(
+                id: UUID().uuidString,
+                name: Server.defaultName(for: url),
+                url: url,
+                token: token
+            )]
+        } else {
+            servers = savedServers
+        }
         activeID = defaults.string(forKey: activeKey) ?? servers.first?.id
+        if activeID == nil || !servers.contains(where: { $0.id == activeID }) {
+            activeID = servers.first?.id
+        }
+        persist()
         syncActive()
     }
 

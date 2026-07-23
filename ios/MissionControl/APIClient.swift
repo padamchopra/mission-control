@@ -27,6 +27,39 @@ struct APIClient {
         _ = try await request("POST", "sessions/\(session)/keys", body: ["keys": keys])
     }
 
+    func snapshot(_ session: String, lines: Int = 1_200) async throws -> String {
+        let data = try await request(
+            "GET",
+            "sessions/\(session)/snapshot",
+            query: [URLQueryItem(name: "lines", value: String(lines))]
+        )
+        return try JSONDecoder().decode(TerminalSnapshot.self, from: data).text
+    }
+
+    func activity(_ session: String) async throws -> [SessionActivity] {
+        let data = try await request("GET", "sessions/\(session)/activity")
+        return try JSONDecoder().decode(SessionActivityResponse.self, from: data).activity
+    }
+
+    func setNotificationsMuted(_ session: String, muted: Bool) async throws {
+        _ = try await request("POST", "sessions/\(session)/notifications", body: ["muted": muted])
+    }
+
+    func notificationsMuted(_ session: String) async throws -> Bool {
+        let data = try await request("GET", "sessions/\(session)/notifications")
+        return (try? JSONDecoder().decode(NotificationSettings.self, from: data))?.muted ?? false
+    }
+
+    func startServerUpdate() async throws -> ServerUpdateStatus {
+        let data = try await request("POST", "server/update")
+        return try JSONDecoder().decode(ServerUpdateStatus.self, from: data)
+    }
+
+    func serverUpdateStatus() async throws -> ServerUpdateStatus {
+        let data = try await request("GET", "server/update")
+        return try JSONDecoder().decode(ServerUpdateStatus.self, from: data)
+    }
+
     /// Scrolls the session and returns whether it's still in copy-mode (scrolled
     /// up), so the caller can show/hide the jump-to-bottom control.
     @discardableResult
@@ -56,8 +89,19 @@ struct APIClient {
         return try JSONDecoder().decode(UploadResponse.self, from: data).path
     }
 
-    func links(_ session: String) async throws -> SessionLinks {
-        let data = try await request("GET", "sessions/\(session)/links")
+    func links(
+        _ session: String,
+        refresh: Bool = false,
+        includePullRequest: Bool = true
+    ) async throws -> SessionLinks {
+        var query: [URLQueryItem] = []
+        if refresh { query.append(URLQueryItem(name: "refresh", value: "1")) }
+        if !includePullRequest { query.append(URLQueryItem(name: "pr", value: "0")) }
+        let data = try await request(
+            "GET",
+            "sessions/\(session)/links",
+            query: query
+        )
         return try JSONDecoder().decode(SessionLinks.self, from: data)
     }
 
@@ -88,6 +132,24 @@ struct APIClient {
     func cwd(_ session: String) async throws -> String {
         let data = try await request("GET", "sessions/\(session)/cwd")
         return (try? JSONDecoder().decode(PathResponse.self, from: data))?.path ?? ""
+    }
+
+    func files(_ session: String, matching query: String) async throws -> [FileSuggestion] {
+        let data = try await request(
+            "GET",
+            "sessions/\(session)/files",
+            query: [URLQueryItem(name: "q", value: query)]
+        )
+        return try JSONDecoder().decode(FileSuggestionsResponse.self, from: data).files
+    }
+
+    func skills(_ session: String, matching query: String) async throws -> [SkillSuggestion] {
+        let data = try await request(
+            "GET",
+            "sessions/\(session)/skills",
+            query: [URLQueryItem(name: "q", value: query)]
+        )
+        return try JSONDecoder().decode(SkillSuggestionsResponse.self, from: data).skills
     }
 
     func rename(_ session: String, to newName: String) async throws {
@@ -126,8 +188,19 @@ struct APIClient {
         return components?.url
     }
 
-    private func request(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> Data {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+    private func request(
+        _ method: String,
+        _ path: String,
+        query: [URLQueryItem] = [],
+        body: [String: Any]? = nil
+    ) async throws -> Data {
+        var url = baseURL.appendingPathComponent(path)
+        if !query.isEmpty {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = query
+            url = components?.url ?? url
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 10
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

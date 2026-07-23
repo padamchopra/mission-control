@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { config } from "./config.js";
+import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream } from "./notify.js";
 import { removeWorktree, resolveLinks, worktreeInfo } from "./git.js";
@@ -9,6 +10,7 @@ import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
 import { attachStream } from "./stream.js";
 import { addWorkspace, listWorkspaces, openSessionInWorkspace, removeWorkspace } from "./workspaces.js";
+import { startServerUpdate, updateStatus } from "./update.js";
 import {
   assertValidName,
   capturePane,
@@ -104,10 +106,23 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    if (url.pathname === "/server/update" && req.method === "GET") {
+      return json(res, 200, updateStatus());
+    }
+    if (url.pathname === "/server/update" && req.method === "POST") {
+      return json(res, 202, startServerUpdate());
+    }
+
     if (req.method === "GET" && url.pathname === "/sessions") {
       const sessions = await listSessions();
       return json(res, 200, {
-        sessions: sessions.map((s) => ({ ...s, ...(registry.view(s.name) ?? { state: "unknown" }) })),
+        sessions: await Promise.all(sessions.map(async (s) => ({
+          ...s,
+          ...(registry.view(s.name) ?? { state: "unknown" }),
+          // A short pane capture gives the fleet view useful context without
+          // streaming every terminal or retaining output anywhere else.
+          preview: (await capturePane(s.name, 1).catch(() => "")).trim(),
+        }))),
       });
     }
 
@@ -151,6 +166,18 @@ const server = createServer(async (req, res) => {
         const lines = Number(url.searchParams.get("lines") ?? 120);
         return json(res, 200, { text: await capturePane(name, lines) });
       }
+      if (req.method === "GET" && parts[2] === "activity") {
+        return json(res, 200, { activity: registry.view(name)?.activity ?? [] });
+      }
+      if (req.method === "GET" && parts[2] === "notifications") {
+        return json(res, 200, { muted: registry.view(name)?.notificationsMuted === true });
+      }
+      if (req.method === "POST" && parts[2] === "notifications") {
+        const body = await readJson(req);
+        const muted = body.muted === true;
+        registry.setNotificationsMuted(name, muted);
+        return json(res, 200, { muted });
+      }
       if (req.method === "POST" && parts[2] === "text") {
         const body = await readJson(req);
         await sendText(name, String(body.text ?? ""), body.submit !== false);
@@ -172,7 +199,16 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "GET" && parts[2] === "links") {
         const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
-        return json(res, 200, await resolveLinks(cwd, registry.view(name)?.claudeSessionId));
+        return json(
+          res,
+          200,
+          await resolveLinks(
+            cwd,
+            registry.view(name)?.claudeSessionId,
+            url.searchParams.get("refresh") === "1",
+            url.searchParams.get("pr") !== "0",
+          ),
+        );
       }
       if (req.method === "GET" && parts[2] === "worktree") {
         const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
@@ -181,6 +217,16 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && parts[2] === "cwd") {
         const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd ?? null;
         return json(res, 200, { path: cwd });
+      }
+      if (req.method === "GET" && parts[2] === "files") {
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        if (!cwd) throw new Error("could not resolve session directory");
+        return json(res, 200, { files: await findProjectFiles(cwd, url.searchParams.get("q") ?? "") });
+      }
+      if (req.method === "GET" && parts[2] === "skills") {
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        if (!cwd) throw new Error("could not resolve session directory");
+        return json(res, 200, { skills: await findSkills(cwd, url.searchParams.get("q") ?? "") });
       }
       if (req.method === "POST" && parts[2] === "rename") {
         const body = await readJson(req);

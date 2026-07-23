@@ -2,8 +2,8 @@
 
 A native iOS remote for a fleet of [Claude Code](https://claude.com/claude-code)
 sessions running in `tmux` on your Mac. Check what every session is doing, get a
-push when one needs you, tap a number to answer a permission prompt, drop into a
-live terminal, and send a message (or a photo) — all over your private
+push when one needs you, drop into a live terminal, and send a message (or a
+photo) — all over your private
 [Tailscale](https://tailscale.com) network.
 
 It replaces Claude Code's built-in remote control for people who run many
@@ -14,7 +14,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/home.png" width="320" alt="Session list grouped by workspace, with status chips and quick replies"></td>
+    <td><img src="docs/screenshots/home.png" width="320" alt="Session list grouped by workspace, with status chips"></td>
     <td><img src="docs/screenshots/session.png" width="320" alt="Live terminal with quick-key row and message composer"></td>
   </tr>
 </table>
@@ -49,24 +49,33 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 - **Multiple servers** — connect to more than one Mac (e.g. a desktop and a
   laptop) and switch between them from the top bar.
 - **Fleet view** — every session with a status chip (working / needs input /
-  idle), and sessions waiting on you sorted to the top.
+  idle), a live output preview, and sessions waiting on you sorted to the top.
 - **Workspaces** — group sessions by the project directory they run in; tap **+**
   to open a fresh shell there.
 - **Live terminal** — real `tmux attach` rendered by SwiftTerm, with a native
   input bar, a quick-key row (Esc / Tab / arrows / digits / Ctrl-C),
-  pinch-to-zoom, and drag-to-scroll through tmux history.
-- **Quick replies** — answer a permission prompt with the `1`/`2`/`3` pills on a
-  needs-input row in the list, without opening the session.
+  pinch-to-zoom, and touch or trackpad scrolling through tmux history.
+- **Agent-style composer** — type `@` to tag a project file or `/` to find an
+  installed skill; suggestions follow the editor cursor rather than only the
+  end of the message.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
   the Mac and its path is sent so Claude can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
-  PR, rename the session, save its directory as a workspace, or kill it (with an
+  PR, search terminal history, review activity, mute or resume notifications,
+  rename the session, save its directory as a workspace, or kill it (with an
   offer to clean up the git worktree).
 - **Mac app** — the same target builds for macOS via Mac Catalyst: one codebase,
   and workspaces/sessions are served by the server so every device sees the same
   thing. While the Mac app is running (even in the background) notifications
   arrive as native macOS banners and the phone stays quiet; quit it and pushes
-  fall back to the phone automatically.
+  fall back to the phone automatically. The Mac uses a two-pane layout, supports
+  Command-Return to send, Command-[ / Command-] to navigate history,
+  Command-K to jump directly to a session, and Command-Option-S to toggle the
+  sidebar. The terminal toolbar explicitly checks the current branch for an
+  open PR, then changes to a distinct green **Open PR** control when one exists.
+- **Action feedback** — success, information, and error toasts make connection,
+  PR, terminal-scroll, and server-update outcomes visible without interrupting
+  the terminal.
 - **Resilient** — the terminal auto-reconnects with backoff; because tmux holds
   the session, reconnecting just re-attaches.
 
@@ -94,8 +103,17 @@ cd ~/mission-control
 The script builds the server, installs it as a launchd service (auto-starts on
 login), registers the Claude Code hooks, exposes the server on your tailnet with
 `tailscale serve`, and prints a **pairing QR** plus the server URL and token.
-Re-run it after every `git pull`. Reprint the QR anytime with
-`./deploy/show-pairing.sh`.
+Reprint the QR anytime with `./deploy/show-pairing.sh`.
+
+After this version is installed, future server updates can be started from the
+app on either iPhone or Mac: **Settings → Server maintenance → Update server**.
+It performs a fast-forward `git pull`, `npm ci`, a server build, and a launchd
+restart. Status is shown in the app; detailed output is saved to
+`~/.mission-control/update.log` on the server Mac.
+
+> The first update to a server running an older version still needs a manual
+> `git pull`, `npm ci`, `npm run build`, and launchd restart, because that older
+> server does not yet expose the authenticated update endpoint.
 
 > The server binds to `127.0.0.1` only — the sole way in is `tailscale serve`
 > (tailnet devices only). For TLS, enable HTTPS certificates in the Tailscale
@@ -110,8 +128,10 @@ xcodegen generate
 open MissionControl.xcodeproj
 ```
 
-Set `PRODUCT_BUNDLE_IDENTIFIER` (in `ios/project.yml`) to an App ID you own,
-select your team, and run on your iPhone. Then tap the **gear → +  → Scan
+Copy `ios/Config/Signing.local.xcconfig.example` to
+`ios/Config/Signing.local.xcconfig` and set your bundle ID and team there.
+That local file is ignored by Git and survives `xcodegen generate`. Then select
+your iPhone run destination and build. Tap the **gear → +  → Scan
 pairing QR** and scan the QR the setup script printed — that adds the server (no
 username or manual token entry). Repeat on another Mac to add a second server;
 switch between them from the menu in the top-left.
@@ -130,6 +150,11 @@ topic and prints it. On your phone: install the **ntfy** app, add the server
 (`https://ntfy.sh` by default), and subscribe to that topic. Done — when a
 session needs input or finishes a turn, you get a push, and tapping it opens
 that session in Mission Control (via the `missioncontrol://` deep link).
+
+Mission Control suppresses repeated copies of the same hook event. To silence a
+noisy session everywhere, use **Unsubscribe from notifications** in its context
+menu (or the session's `…` menu); use **Subscribe to notifications** there to
+turn them back on.
 
 Keep messages in mind for privacy: with the hosted `ntfy.sh`, notification text
 transits their server, so it's kept terse (session name + short reason). For a

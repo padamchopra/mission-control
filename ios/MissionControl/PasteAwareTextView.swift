@@ -6,8 +6,10 @@ import UIKit
 /// added as an attachment rather than dropped into the text.
 struct PasteAwareTextView: UIViewRepresentable {
     @Binding var text: String
+    @Binding var selection: NSRange
     @Binding var height: CGFloat
     var onPasteImages: ([UIImage]) -> Void
+    var onCommandEnter: () -> Void
 
     private let minHeight: CGFloat = 34
     private let maxHeight: CGFloat = 120
@@ -20,6 +22,7 @@ struct PasteAwareTextView: UIViewRepresentable {
         let view = PasteTextView()
         view.delegate = context.coordinator
         view.onPasteImages = onPasteImages
+        view.onCommandEnter = onCommandEnter
         view.font = .preferredFont(forTextStyle: .body)
         view.backgroundColor = .clear
         view.textContainerInset = UIEdgeInsets(top: 7, left: 6, bottom: 7, right: 6)
@@ -56,7 +59,16 @@ struct PasteAwareTextView: UIViewRepresentable {
         if uiView.text != text {
             uiView.text = text
         }
+        let textLength = (uiView.text as NSString).length
+        let safeSelection = NSRange(
+            location: min(selection.location, textLength),
+            length: min(selection.length, textLength - min(selection.location, textLength))
+        )
+        if uiView.selectedRange != safeSelection {
+            uiView.selectedRange = safeSelection
+        }
         uiView.onPasteImages = onPasteImages
+        uiView.onCommandEnter = onCommandEnter
         recalcHeight(uiView)
     }
 
@@ -76,17 +88,42 @@ struct PasteAwareTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            parent.selection = textView.selectedRange
             parent.text = textView.text
             parent.recalcHeight(textView)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            parent.selection = textView.selectedRange
         }
     }
 }
 
 final class PasteTextView: UITextView {
     var onPasteImages: (([UIImage]) -> Void)?
+    var onCommandEnter: (() -> Void)?
 
     @objc func dismissKeyboard() {
         resignFirstResponder()
+    }
+
+    // SwiftUI button shortcuts do not reliably win while this UIKit text view
+    // owns first responder. Register the command on that responder as well so
+    // Command-Return sends on a Mac keyboard without sacrificing plain Return
+    // for multi-line messages.
+    override var keyCommands: [UIKeyCommand]? {
+        [
+            UIKeyCommand(
+                input: "\r",
+                modifierFlags: .command,
+                action: #selector(sendWithCommandReturn),
+                discoverabilityTitle: "Send message"
+            )
+        ]
+    }
+
+    @objc private func sendWithCommandReturn() {
+        onCommandEnter?()
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

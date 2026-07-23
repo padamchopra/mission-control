@@ -3,90 +3,44 @@ import SwiftUI
 
 struct ServersView: View {
     @EnvironmentObject private var store: ServerStore
+    @EnvironmentObject private var toasts: ToastCenter
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("linkRefreshSeconds") private var linkRefreshSeconds = 60
+    @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
+    @AppStorage("serverToken") private var serverToken = ""
     @State private var showScanner = false
     @State private var showManualAdd = false
     @State private var cameraDenied = false
     @State private var pasteFailed = false
     @State private var renaming: Server?
     @State private var renameText = ""
+    @State private var showUpdateConfirmation = false
+    @State private var isUpdatingServer = false
+
+    private var api: APIClient? {
+        APIClient(urlString: serverURL, token: serverToken)
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                if store.servers.isEmpty {
-                    Text("No servers yet. Add one by scanning the pairing QR your Mac's setup script prints.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(store.servers) { server in
-                    Button {
-                        store.activeID = server.id
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(server.name).foregroundStyle(.primary)
-                                Text(server.url).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if server.id == store.activeID {
-                                Image(systemName: "checkmark").foregroundStyle(.tint)
-                            }
-                        }
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) { store.remove(server.id) } label: {
-                            Label("Remove", systemImage: "trash")
-                        }
-                        Button { renaming = server; renameText = server.name } label: {
-                            Label("Rename", systemImage: "pencil")
-                        }
-                        .tint(.gray)
-                    }
-                }
-                Section {
-                    Picker("PR link refresh", selection: $linkRefreshSeconds) {
-                        Text("Off").tag(0)
-                        Text("1 min").tag(60)
-                        Text("5 min").tag(300)
-                        Text("15 min").tag(900)
-                    }
-                } header: {
-                    Text("Settings")
-                } footer: {
-                    Text("How often an open session re-checks for its pull request link. Off checks once when the session opens.")
-                }
+                serverListContent
+                maintenanceSection
             }
             .navigationTitle("Servers")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Separate toolbar items prevent Catalyst from putting both
+                // individually glassed controls inside one outer group.
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        // Scanning a QR shown on this same machine makes no
-                        // sense on the Mac — there, paste the pairing link.
-                        #if !targetEnvironment(macCatalyst)
-                        Button {
-                            requestScanner()
-                        } label: {
-                            Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
-                        }
-                        #endif
-                        Button {
-                            pastePairingLink()
-                        } label: {
-                            Label("Paste pairing link", systemImage: "doc.on.clipboard")
-                        }
-                        Button {
-                            showManualAdd = true
-                        } label: {
-                            Label("Enter manually", systemImage: "keyboard")
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
+                    addServerMenu
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .liquidGlass(in: Capsule())
+                        .buttonStyle(.plain)
                 }
             }
             .sheet(isPresented: $showScanner) {
@@ -115,6 +69,103 @@ struct ServersView: View {
             } message: {
                 Text("Copy the missioncontrol://configure link printed by the setup script, then try again.")
             }
+            .confirmationDialog("Update server?", isPresented: $showUpdateConfirmation) {
+                Button("Pull and install update") {
+                    Task { await updateServer() }
+                }
+            } message: {
+                Text("This pulls the server's current branch, installs dependencies, builds it, and restarts the service.")
+            }
+        }
+    }
+
+    private var addServerMenu: some View {
+        Menu {
+            // Scanning a QR shown on this same machine makes no sense on the
+            // Mac — there, paste the pairing link.
+            #if !targetEnvironment(macCatalyst)
+            Button {
+                requestScanner()
+            } label: {
+                Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
+            }
+            #endif
+            Button {
+                pastePairingLink()
+            } label: {
+                Label("Paste pairing link", systemImage: "doc.on.clipboard")
+            }
+            Button {
+                showManualAdd = true
+            } label: {
+                Label("Enter manually", systemImage: "keyboard")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.body.weight(.semibold))
+                .frame(width: 36, height: 36)
+                .liquidGlass(in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add server")
+    }
+
+    @ViewBuilder
+    private var serverListContent: some View {
+        if store.servers.isEmpty {
+            Text("No servers yet. Add one by scanning the pairing QR your Mac's setup script prints.")
+                .foregroundStyle(.secondary)
+        }
+        ForEach(store.servers) { server in
+            serverRow(server)
+        }
+    }
+
+    private var maintenanceSection: some View {
+        Section {
+            Button {
+                showUpdateConfirmation = true
+            } label: {
+                HStack {
+                    Label("Update server", systemImage: "arrow.triangle.2.circlepath")
+                    Spacer()
+                    if isUpdatingServer { ProgressView().controlSize(.small) }
+                }
+            }
+            .disabled(api == nil || isUpdatingServer)
+        } header: {
+            Text("Server maintenance")
+        } footer: {
+            Text("Pulls the server's current git branch, installs dependencies, builds, then restarts the server. Running sessions are preserved by tmux.")
+        }
+    }
+
+    private func serverRow(_ server: Server) -> some View {
+        Button {
+            store.activeID = server.id
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(server.name).foregroundStyle(.primary)
+                    Text(server.url).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if server.id == store.activeID {
+                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                }
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) { store.remove(server.id) } label: {
+                Label("Remove", systemImage: "trash")
+            }
+            Button {
+                renaming = server
+                renameText = server.name
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            .tint(.gray)
         }
     }
 
@@ -156,6 +207,33 @@ struct ServersView: View {
             }
         default:
             cameraDenied = true
+        }
+    }
+
+    private func updateServer() async {
+        guard let api else { return }
+        isUpdatingServer = true
+        defer { isUpdatingServer = false }
+        do {
+            let started = try await api.startServerUpdate()
+            toasts.show(.info, started.message)
+            for _ in 0..<45 {
+                try? await Task.sleep(for: .seconds(2))
+                guard let status = try? await api.serverUpdateStatus() else { continue }
+                switch status.state {
+                case "succeeded":
+                    toasts.show(.success, status.message)
+                    return
+                case "failed":
+                    toasts.show(.error, status.message)
+                    return
+                default:
+                    continue
+                }
+            }
+            toasts.show(.info, "Update is still running. Check server settings again shortly.")
+        } catch {
+            toasts.show(.error, "Couldn't start the server update: \(error.localizedDescription)")
         }
     }
 }

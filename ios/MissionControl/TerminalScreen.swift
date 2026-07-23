@@ -1,5 +1,6 @@
 import SwiftTerm
 import SwiftUI
+import UIKit
 
 // SwiftTerm also exports a `Color`; pin the bare name to SwiftUI's in this file.
 private typealias Color = SwiftUI.Color
@@ -10,23 +11,25 @@ struct TerminalScreen: View {
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
     @AppStorage("terminalFontSize") private var fontSize = 13.0
-    @AppStorage("linkRefreshSeconds") private var linkRefreshSeconds = 60
     @State private var streamState: StreamState = .connecting
     @State private var inCopyMode = false
     @State private var coordinator: TerminalContainer.Coordinator?
     @State private var links: SessionLinks?
+    @State private var isCheckingPullRequest = false
     @State private var showSaveWorkspace = false
     @State private var workspaceName = ""
     @State private var workspacePath = ""
     @State private var showRename = false
     @State private var renameText = ""
     @State private var isKilling = false
-    @State private var pendingCleanup: WorktreeInfo?
-    @State private var killed = false
+    @State private var showKillConfirmation = false
     @State private var actionError: String?
+    @State private var notificationsMuted = false
+    @State private var showActivity = false
+    @State private var showSearch = false
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var toasts: ToastCenter
     @Environment(\.openURL) private var openURL
-    @Environment(\.dismiss) private var dismiss
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -44,9 +47,16 @@ struct TerminalScreen: View {
                     streamState: $streamState,
                     inCopyMode: $inCopyMode,
                     fontSizeStore: $fontSize,
-                    coordinator: $coordinator
+                    coordinator: $coordinator,
+                    openURL: openURL,
+                    onToast: { kind, message in toasts.show(kind, message) }
                 )
+                // On Mac Catalyst, this screen is the detail column of a
+                // split view. Respect that column's bounds rather than
+                // expanding back through the sidebar's horizontal safe area.
+                #if !targetEnvironment(macCatalyst)
                 .ignoresSafeArea(.container, edges: .horizontal)
+                #endif
                 jumpToBottomButton
             }
             quickKeysRow
@@ -56,7 +66,8 @@ struct TerminalScreen: View {
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                pullRequestButton
                 if isKilling {
                     ProgressView()
                 } else {
@@ -65,7 +76,18 @@ struct TerminalScreen: View {
             }
         }
         .task(id: streamState) { await pollCopyMode() }
-        .task { await pollLinks() }
+        .task { await loadClaudeLink() }
+        .task { await loadNotificationPreference() }
+        .task { presentRequestedSearchIfNeeded() }
+        .onChange(of: router.terminalSearchSession) { _, _ in
+            presentRequestedSearchIfNeeded()
+        }
+        .sheet(isPresented: $showActivity) {
+            SessionActivitySheet(sessionName: sessionName, serverURL: serverURL, token: serverToken)
+        }
+        .sheet(isPresented: $showSearch) {
+            TerminalSearchSheet(sessionName: sessionName, serverURL: serverURL, token: serverToken)
+        }
         .alert("Save workspace", isPresented: $showSaveWorkspace) {
             TextField("Name", text: $workspaceName)
                 .textInputAutocapitalization(.never)
@@ -99,16 +121,12 @@ struct TerminalScreen: View {
         } message: {
             Text(actionError ?? "")
         }
-        .alert("Remove worktree?", isPresented: cleanupPresented, presenting: pendingCleanup) { info in
-            Button("Remove", role: .destructive) {
-                if let path = info.path {
-                    Task { try? await api?.removeWorktree(path: path, force: info.dirty == true) }
-                }
-                dismiss()
+        .confirmationDialog("Kill session?", isPresented: $showKillConfirmation) {
+            Button("Kill \(sessionName)", role: .destructive) {
+                Task { await killWithCleanup() }
             }
-            Button("Keep", role: .cancel) { dismiss() }
-        } message: { info in
-            Text(worktreeCleanupMessage(info))
+        } message: {
+            Text("This kills the tmux session and everything running in it (\(sessionName)).")
         }
     }
 
@@ -119,13 +137,6 @@ struct TerminalScreen: View {
                     openURL(claude)
                 } label: {
                     Label("Open in claude.ai", systemImage: "arrow.up.forward.app")
-                }
-            }
-            if let pr = links?.prUrl.flatMap(URL.init) {
-                Button {
-                    openURL(pr)
-                } label: {
-                    Label("View pull request", systemImage: "arrow.triangle.pull")
                 }
             }
             Button {
@@ -144,9 +155,28 @@ struct TerminalScreen: View {
             } label: {
                 Label("Save location as workspace", systemImage: "folder.badge.plus")
             }
+            Button {
+                Task { await toggleNotifications() }
+            } label: {
+                Label(
+                    notificationsMuted ? "Subscribe to notifications" : "Unsubscribe from notifications",
+                    systemImage: notificationsMuted ? "bell" : "bell.slash"
+                )
+            }
+            Button {
+                showActivity = true
+            } label: {
+                Label("View activity", systemImage: "clock.arrow.circlepath")
+            }
+            Button {
+                showSearch = true
+            } label: {
+                Label("Find in terminal", systemImage: "magnifyingglass")
+            }
+            .keyboardShortcut("f", modifiers: .command)
             Divider()
             Button(role: .destructive) {
-                Task { await killWithCleanup() }
+                showKillConfirmation = true
             } label: {
                 Label("Kill session", systemImage: "xmark.octagon")
             }
@@ -155,8 +185,39 @@ struct TerminalScreen: View {
         }
     }
 
-    private var cleanupPresented: Binding<Bool> {
-        Binding(get: { pendingCleanup != nil }, set: { if !$0 { pendingCleanup = nil } })
+    private var pullRequestButton: some View {
+        Button {
+            if let url = links?.prUrl.flatMap(URL.init) {
+                toasts.show(.success, "Opening pull request")
+                openURL(url)
+            } else {
+                Task { await checkPullRequest() }
+            }
+        } label: {
+            if isCheckingPullRequest {
+                ProgressView()
+                    .frame(minWidth: 84)
+            } else if links?.prUrl != nil {
+                Label("Open PR", systemImage: "arrow.triangle.pull")
+                    .foregroundStyle(.white)
+            } else {
+                Label("Check PR", systemImage: "magnifyingglass")
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            links?.prUrl != nil ? Color.green : Color.white.opacity(0.1),
+            in: Capsule()
+        )
+        .overlay {
+            Capsule()
+                .stroke(links?.prUrl != nil ? Color.green : Color.white.opacity(0.18), lineWidth: 1)
+        }
+        .disabled(isCheckingPullRequest)
+        .accessibilityLabel(links?.prUrl != nil ? "Open pull request" : "Check for pull request")
+        .help(links?.prUrl != nil ? "Open pull request" : "Check this branch for an open pull request")
     }
 
     private var errorPresented: Binding<Bool> {
@@ -178,23 +239,55 @@ struct TerminalScreen: View {
         }
     }
 
-    private func worktreeCleanupMessage(_ info: WorktreeInfo) -> String {
-        var parts = ["Killed \(sessionName)."]
-        if let branch = info.branch { parts.append("Remove its git worktree? Branch \(branch) is kept.") }
-        if info.dirty == true { parts.append("It has uncommitted changes that will be discarded.") }
-        return parts.joined(separator: " ")
+    private func loadNotificationPreference() async {
+        notificationsMuted = (try? await api?.notificationsMuted(sessionName)) ?? false
+    }
+
+    private func toggleNotifications() async {
+        let next = !notificationsMuted
+        do {
+            try await api?.setNotificationsMuted(sessionName, muted: next)
+            notificationsMuted = next
+        } catch {
+            actionError = "Couldn't update notification preferences."
+        }
+    }
+
+    private func checkPullRequest() async {
+        guard let api else { return }
+        isCheckingPullRequest = true
+        defer { isCheckingPullRequest = false }
+        do {
+            let fresh = try await api.links(sessionName, refresh: true, includePullRequest: true)
+            links = fresh
+            if let url = fresh.prUrl.flatMap(URL.init) {
+                toasts.show(.success, "Opening pull request")
+                openURL(url)
+            } else {
+                toasts.show(.info, "No open pull request for this branch")
+            }
+        } catch {
+            toasts.show(.error, "Pull request check failed")
+            actionError = "Couldn't check for a pull request."
+        }
+    }
+
+    private func presentRequestedSearchIfNeeded() {
+        guard router.terminalSearchSession == sessionName else { return }
+        showSearch = true
+        router.terminalSearchSession = nil
     }
 
     private func killWithCleanup() async {
         guard let api else { return }
         isKilling = true
+        defer { isKilling = false }
         let worktree = try? await api.worktree(sessionName)
-        try? await api.kill(sessionName)
-        killed = true
-        if let worktree, worktree.isWorktree {
-            pendingCleanup = worktree
-        } else {
-            dismiss()
+        do {
+            try await api.kill(sessionName)
+            router.sessionDidDelete(sessionName, worktree: worktree)
+        } catch {
+            actionError = "Couldn't kill \(sessionName): \(error.localizedDescription)"
         }
     }
 
@@ -299,19 +392,10 @@ struct TerminalScreen: View {
         .buttonStyle(.plain)
     }
 
-    // A PR is usually opened mid-session, after this screen already loaded —
-    // keep refreshing so the menu picks it up. The interval is a user setting;
-    // 0 means fetch once. The server caches PR lookups, so this doesn't turn
-    // into one GitHub API call per tick.
-    private func pollLinks() async {
-        while !Task.isCancelled {
-            if let fresh = try? await api?.links(sessionName) {
-                links = fresh
-            }
-            let interval = linkRefreshSeconds
-            if interval <= 0 { return }
-            try? await Task.sleep(for: .seconds(interval))
-        }
+    // claude.ai is independent of PR discovery, so fetch only that passive link
+    // once. PR lookup remains an explicit user action from the toolbar.
+    private func loadClaudeLink() async {
+        links = try? await api?.links(sessionName, includePullRequest: false)
     }
 
     // Backstop for the button state: the pan gesture updates inCopyMode from its
@@ -332,7 +416,21 @@ struct TerminalScreen: View {
 /// responder means tapping it never raises the keyboard or SwiftTerm's own
 /// accessory bar. All input goes through the single message field + quick keys.
 private final class ReadOnlyTerminalView: TerminalView {
+    var onUserScroll: ((CGFloat) -> Void)?
+
     override var canBecomeFirstResponder: Bool { false }
+
+    // Catalyst's trackpad scroll is ultimately applied by UIScrollView as an
+    // offset change. Observing that concrete effect is more reliable than a
+    // second gesture recognizer competing with SwiftTerm's built-in one.
+    override var contentOffset: CGPoint {
+        didSet {
+            let state = panGestureRecognizer.state
+            guard state == .began || state == .changed,
+                  abs(contentOffset.y - oldValue.y) > 0.01 else { return }
+            onUserScroll?(contentOffset.y - oldValue.y)
+        }
+    }
 }
 
 private struct TerminalContainer: UIViewRepresentable {
@@ -344,6 +442,8 @@ private struct TerminalContainer: UIViewRepresentable {
     @Binding var inCopyMode: Bool
     @Binding var fontSizeStore: Double
     @Binding var coordinator: Coordinator?
+    let openURL: OpenURLAction
+    let onToast: (ToastCenter.Kind, String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -381,9 +481,11 @@ private struct TerminalContainer: UIViewRepresentable {
         // Pan-to-scroll: translate finger travel into tmux copy-mode line scrolls,
         // coalescing rapid movement into one in-flight request at a time.
         private let lineHeight: CGFloat = 16
-        private var panEmittedTranslation: CGFloat = 0
+        private var unconsumedNativeScroll: CGFloat = 0
         private var pendingLines = 0
         private var scrollInFlight = false
+        private var reportedScrollGesture = false
+        private var reportedNoHistory = false
         private var pinchBaseFontSize: CGFloat = 13
 
         init(_ parent: TerminalContainer) {
@@ -398,11 +500,20 @@ private struct TerminalContainer: UIViewRepresentable {
             stream.onStateChange = { [weak self] state in
                 self?.parent.streamState = state
             }
-            // One finger scrolls; two-finger pinch zooms — so they never fight.
-            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan))
-            pan.delegate = self
-            pan.maximumNumberOfTouches = 1
-            view.addGestureRecognizer(pan)
+            // TerminalView is a UIScrollView. Configure its native recognizer
+            // for pointer input, then observe its user-driven content offset.
+            let pan = view.panGestureRecognizer
+            pan.maximumNumberOfTouches = 2
+            pan.allowedScrollTypesMask = [.continuous, .discrete]
+            pan.allowedTouchTypes = [
+                NSNumber(value: UITouch.TouchType.direct.rawValue),
+                NSNumber(value: UITouch.TouchType.indirectPointer.rawValue),
+            ]
+            view.alwaysBounceVertical = true
+            view.allowMouseReporting = false
+            (view as? ReadOnlyTerminalView)?.onUserScroll = { [weak self] delta in
+                self?.handleNativeScroll(delta)
+            }
 
             let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
             pinch.delegate = self
@@ -422,6 +533,7 @@ private struct TerminalContainer: UIViewRepresentable {
         }
 
         func detach() {
+            (terminalView as? ReadOnlyTerminalView)?.onUserScroll = nil
             stream.disconnect()
         }
 
@@ -455,24 +567,19 @@ private struct TerminalContainer: UIViewRepresentable {
             }
         }
 
-        @objc private func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
-            switch recognizer.state {
-            case .began:
-                panEmittedTranslation = 0
-            case .changed:
-                let translationY = recognizer.translation(in: recognizer.view).y
-                let unemitted = translationY - panEmittedTranslation
-                let lines = Int(unemitted / lineHeight)
-                guard lines != 0 else { return }
-                panEmittedTranslation += CGFloat(lines) * lineHeight
-                // Finger moving down (positive) reveals older content → scroll up.
-                pendingLines += lines
-                flushScroll()
-            case .ended, .cancelled, .failed:
-                panEmittedTranslation = 0
-            default:
-                break
+        private func handleNativeScroll(_ offsetDelta: CGFloat) {
+            if !reportedScrollGesture {
+                reportedScrollGesture = true
+                parent.onToast(.info, "Trackpad scroll offset received")
             }
+            // Increasing UIScrollView's offset moves toward newer output.
+            // Invert it for tmux's copy-mode directions.
+            unconsumedNativeScroll -= offsetDelta
+            let lines = Int(unconsumedNativeScroll / lineHeight)
+            guard lines != 0 else { return }
+            unconsumedNativeScroll -= CGFloat(lines) * lineHeight
+            pendingLines += lines
+            flushScroll()
         }
 
         private func flushScroll() {
@@ -484,8 +591,18 @@ private struct TerminalContainer: UIViewRepresentable {
             let action = net > 0 ? "up" : "down"
             let count = abs(net)
             Task { @MainActor in
-                let mode = (try? await api.scroll(parent.sessionName, action: action, lines: count)) ?? false
-                withAnimation(.easeInOut(duration: 0.15)) { parent.inCopyMode = mode }
+                do {
+                    let mode = try await api.scroll(parent.sessionName, action: action, lines: count)
+                    if mode && !parent.inCopyMode {
+                        parent.onToast(.success, "Terminal scrollback active")
+                    } else if !mode && !reportedNoHistory {
+                        reportedNoHistory = true
+                        parent.onToast(.info, "No additional terminal history")
+                    }
+                    withAnimation(.easeInOut(duration: 0.15)) { parent.inCopyMode = mode }
+                } catch {
+                    parent.onToast(.error, "Terminal scroll failed: \(error.localizedDescription)")
+                }
                 scrollInFlight = false
                 flushScroll()
             }
@@ -515,8 +632,14 @@ private struct TerminalContainer: UIViewRepresentable {
         func setTerminalTitle(source: TerminalView, title: String) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         func scrolled(source: TerminalView, position: Double) {}
-        func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
-        func clipboardCopy(source: TerminalView, content: Data) {}
+        func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+            guard let url = URL(string: link) else { return }
+            DispatchQueue.main.async { self.parent.openURL(url) }
+        }
+
+        func clipboardCopy(source: TerminalView, content: Data) {
+            UIPasteboard.general.setData(content, forPasteboardType: "public.utf8-plain-text")
+        }
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         func bell(source: TerminalView) {}
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}

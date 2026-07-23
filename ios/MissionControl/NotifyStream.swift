@@ -12,6 +12,7 @@ final class NotifyStreamManager: NSObject {
 
     private var streams: [String: Task<Void, Never>] = [:]
     private var serversSubscription: AnyCancellable?
+    private var recentlyPosted: [String: Date] = [:]
 
     func activate() {
         guard serversSubscription == nil else { return }
@@ -64,6 +65,14 @@ final class NotifyStreamManager: NSObject {
     }
 
     private func post(_ event: NotifyEvent) async {
+        let key = "\(event.session)|\(event.title)|\(event.message)|\(event.highPriority)"
+        let now = Date()
+        if let previous = recentlyPosted[key], now.timeIntervalSince(previous) < 30 {
+            return
+        }
+        recentlyPosted[key] = now
+        recentlyPosted = recentlyPosted.filter { now.timeIntervalSince($0.value) < 5 * 60 }
+
         let content = UNMutableNotificationContent()
         content.title = event.title
         content.body = event.message

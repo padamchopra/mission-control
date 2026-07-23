@@ -7,3 +7,4 @@ dist/
 DerivedData/
 .build/
 ios/build/
+ios/Config/Signing.local.xcconfig

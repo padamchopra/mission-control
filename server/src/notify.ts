@@ -8,7 +8,7 @@ export interface NotifyEvent {
   highPriority: boolean;
 }
 
-const THROTTLE_MS = 30_000;
+const THROTTLE_MS = 5 * 60_000;
 const lastSent = new Map<string, number>();
 
 // Desktop apps hold a WebSocket to /notify/stream while running. If any is
@@ -43,7 +43,9 @@ setInterval(() => {
 }, 30_000).unref();
 
 export async function sendNotification(evt: NotifyEvent): Promise<void> {
-  const throttleKey = `${evt.session}:${evt.title}`;
+  // A title alone is too broad: a new question should still surface, but the
+  // exact same event must never reappear because a hook/client retried it.
+  const throttleKey = `${evt.session}:${evt.highPriority}:${evt.message}:${evt.title}`;
   const now = Date.now();
   if (now - (lastSent.get(throttleKey) ?? 0) < THROTTLE_MS) return;
   lastSent.set(throttleKey, now);

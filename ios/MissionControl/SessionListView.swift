@@ -13,10 +13,26 @@ struct SessionListView: View {
     @State private var killing: Set<String> = []
     @State private var renameTarget: TmuxSession?
     @State private var renameText = ""
+    @State private var workspaceTarget: TmuxSession?
+    @State private var workspaceName = ""
+    @State private var workspacePath = ""
+    @State private var activityTarget: TmuxSession?
     @State private var actionError: String?
     @State private var path: [String] = []
+    // NavigationStack exposes the current path but not browser-like history.
+    // Keep snapshots so Command-[ / Command-] can traverse where the user has
+    // actually been, including sessions opened from notifications and links.
+    @State private var navigationHistory: [[String]] = [[]]
+    @State private var historyIndex = 0
+    @State private var restoringHistory = false
+    #if targetEnvironment(macCatalyst)
+    // A Mac is an operational surface, not a compact navigation flow. Keep the
+    // queue visible beside the terminal unless the user explicitly hides it.
+    @State private var desktopColumnVisibility: NavigationSplitViewVisibility = .all
+    #endif
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var store: ServerStore
+    @Environment(\.openURL) private var openURL
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -25,23 +41,245 @@ struct SessionListView: View {
     // body is split into layers (chrome → dialogs → lifecycle) because one flat
     // modifier chain exceeds the type-checker's budget.
     var body: some View {
-        NavigationStack(path: $path) {
-            dialogsLayer
-                .task(id: serverURL + serverToken) {
-                    await autoRefresh()
+        Group {
+            #if targetEnvironment(macCatalyst)
+            desktopNavigation
+            #else
+            NavigationStack(path: $path) { dialogsLayer }
+            #endif
+        }
+        .task(id: serverURL + serverToken) {
+            await autoRefresh()
+        }
+        .onOpenURL { url in
+            if let config = PairingConfig(from: url) {
+                store.addOrUpdate(url: config.url, token: config.token)
+            } else if url.host == "session", let name = url.pathComponents.dropFirst().first {
+                path = [name]
+            }
+        }
+        .onChange(of: router.openSession) { _, session in
+            guard let session else { return }
+            path = [session]
+            router.openSession = nil
+        }
+        .onChange(of: router.sessionDeletion) { _, deletion in
+            guard let deletion else { return }
+            removeSessionAndAdvance(from: sessions, removing: deletion.name)
+            if let worktree = deletion.worktree, worktree.isWorktree {
+                pendingCleanup = worktree
+            }
+            router.clearSessionDeletion()
+        }
+        .onChange(of: router.historyRequest) { _, request in
+            guard let request else { return }
+            switch request.action {
+            case .back:
+                restoreHistory(at: historyIndex - 1)
+            case .forward:
+                restoreHistory(at: historyIndex + 1)
+            }
+        }
+        #if targetEnvironment(macCatalyst)
+        .onChange(of: router.sidebarToggleRequest) { _, _ in
+            toggleDesktopSidebar()
+        }
+        #endif
+        .onChange(of: path) { _, newPath in
+            recordNavigation(newPath)
+        }
+        .sheet(isPresented: $router.isCommandPalettePresented) {
+            SessionCommandPalette(
+                sessions: sessions,
+                onOpen: { name in
+                    path = [name]
+                    router.isCommandPalettePresented = false
+                },
+                onManageServers: {
+                    router.isCommandPalettePresented = false
+                    showServers = true
                 }
-                .onOpenURL { url in
-                    if let config = PairingConfig(from: url) {
-                        store.addOrUpdate(url: config.url, token: config.token)
-                    } else if url.host == "session", let name = url.pathComponents.dropFirst().first {
-                        path = [name]
+            )
+        }
+        .overlay(alignment: .bottomTrailing) {
+            ToastOverlay()
+                .padding(20)
+        }
+        .sheet(item: $activityTarget) { session in
+            SessionActivitySheet(sessionName: session.name, serverURL: serverURL, token: serverToken)
+        }
+    }
+
+    #if targetEnvironment(macCatalyst)
+    private var desktopNavigation: some View {
+        NavigationSplitView(columnVisibility: $desktopColumnVisibility) {
+            desktopSidebar
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 420)
+        } detail: {
+            if let name = path.last {
+                TerminalScreen(sessionName: name)
+                    // The detail screen supplies its own navigation title on
+                    // compact devices. On Catalyst, keep one app-level title
+                    // in the principal toolbar position so it is centred in
+                    // the window rather than in whichever column is active.
+                    .navigationTitle("")
+                    // TerminalContainer owns a WebSocket coordinator. Give a
+                    // selected session a new identity so changing rows tears
+                    // down the old stream and attaches the new terminal.
+                    .id(name)
+            } else {
+                ContentUnavailableView(
+                    "Select a session",
+                    systemImage: "rectangle.and.text.magnifyingglass",
+                    description: Text("Choose a session from the sidebar or press Command-K.")
+                )
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        // `ToolbarItem(placement: .principal)` is centred in Catalyst's detail
+        // region, not the window. Draw this title across the full split view
+        // and lift it into the title-bar row after hiding the native title.
+        .overlay(alignment: .top) {
+            Text("Mission Control")
+                .font(.headline.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                // NavigationSplitView begins below Catalyst's title-bar row.
+                // Raise the title into that row, while retaining enough inset
+                // that it does not visually collide with the window border.
+                .offset(y: -24)
+                .accessibilityAddTraits(.isHeader)
+                .allowsHitTesting(false)
+        }
+        .sheet(isPresented: $showServers) { ServersView() }
+    }
+
+    private func toggleDesktopSidebar() {
+        withAnimation {
+            desktopColumnVisibility = desktopColumnVisibility == .detailOnly ? .all : .detailOnly
+        }
+    }
+
+    private var desktopSidebarToggle: some View {
+        Button(action: toggleDesktopSidebar) {
+            Image(systemName: "sidebar.leading")
+                .font(.body.weight(.medium))
+                .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Hide sidebar")
+        .help("Hide sidebar")
+    }
+
+    @ViewBuilder
+    private var desktopSidebar: some View {
+        VStack(spacing: 0) {
+            desktopSidebarHeader
+            if store.servers.isEmpty {
+                VStack(spacing: 18) {
+                    ContentUnavailableView {
+                        Label("No servers", systemImage: "server.rack")
+                    } description: {
+                        Text("Add a connection to view and control your sessions.")
+                    }
+
+                    Button {
+                        showServers = true
+                    } label: {
+                        Label("Add connection", systemImage: "plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 24)
+                }
+                .frame(maxHeight: .infinity)
+            } else {
+                desktopSessionList
+            }
+        }
+    }
+
+    private var desktopSidebarHeader: some View {
+        HStack(alignment: .center, spacing: 10) {
+            desktopSidebarToggle
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Mission Control")
+                    .font(.title2.weight(.bold))
+                if store.servers.count > 1 || store.active != nil {
+                    serverSwitcher
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button { showServers = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .liquidGlass(in: Circle())
+            .accessibilityLabel("Server settings")
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+    }
+
+    private var desktopSessionList: some View {
+        List {
+            ForEach(workspaces) { workspace in
+                Section {
+                    ForEach(sessionsFor(workspace)) { session in
+                        desktopSessionRow(session)
+                    }
+                } header: {
+                    workspaceHeader(workspace)
+                }
+            }
+            let ungrouped = ungroupedSessions()
+            if !ungrouped.isEmpty {
+                Section(workspaces.isEmpty ? "" : "Other") {
+                    ForEach(ungrouped) { session in
+                        desktopSessionRow(session)
                     }
                 }
-                .onChange(of: router.openSession) { _, session in
-                    guard let session else { return }
-                    path = [session]
-                    router.openSession = nil
-                }
+            }
+        }
+        .listStyle(.sidebar)
+    }
+
+    private func desktopSessionRow(_ session: TmuxSession) -> some View {
+        Button {
+            path = [session.name]
+        } label: {
+            SessionRow(session: session, isKilling: killing.contains(session.name))
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            session.name == path.last ? Color.accentColor.opacity(0.2) : Color.clear
+        )
+        .contextMenu { sessionContextMenu(session) }
+    }
+    #endif
+
+    private func recordNavigation(_ newPath: [String]) {
+        guard !restoringHistory, navigationHistory[historyIndex] != newPath else { return }
+        navigationHistory = Array(navigationHistory.prefix(historyIndex + 1))
+        navigationHistory.append(newPath)
+        historyIndex += 1
+    }
+
+    private func restoreHistory(at index: Int) {
+        guard navigationHistory.indices.contains(index), index != historyIndex else { return }
+        historyIndex = index
+        restoringHistory = true
+        path = navigationHistory[index]
+        // Reset after the bound NavigationStack has observed the restored path.
+        DispatchQueue.main.async {
+            restoringHistory = false
         }
     }
 
@@ -90,6 +328,27 @@ struct SessionListView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
+            .alert("Save workspace", isPresented: workspacePresented, presenting: workspaceTarget) { session in
+                TextField("Name", text: $workspaceName)
+                    .textInputAutocapitalization(.never)
+                TextField("Path", text: $workspacePath)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Save") {
+                    let name = workspaceName
+                    let path = workspacePath
+                    Task {
+                        do {
+                            try await api?.saveWorkspace(fromSession: session.name, name: name, path: path)
+                        } catch {
+                            actionError = "Couldn't save workspace. Check that the path exists on the server."
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("Saves this directory as a workspace on the home screen.")
+            }
             .alert("Something went wrong", isPresented: errorPresented) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -113,6 +372,10 @@ struct SessionListView: View {
 
     private var renamePresented: Binding<Bool> {
         Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } })
+    }
+
+    private var workspacePresented: Binding<Bool> {
+        Binding(get: { workspaceTarget != nil }, set: { if !$0 { workspaceTarget = nil } })
     }
 
     private var errorPresented: Binding<Bool> {
@@ -200,23 +463,75 @@ struct SessionListView: View {
 
     private func sessionLink(_ session: TmuxSession) -> some View {
         NavigationLink(value: session.name) {
-            SessionRow(session: session, isKilling: killing.contains(session.name)) { key in
-                quickReply(session, key: key)
-            }
+            SessionRow(session: session, isKilling: killing.contains(session.name))
         }
         .disabled(killing.contains(session.name))
         .contextMenu {
-            Button {
-                renameText = session.name
-                renameTarget = session
-            } label: {
-                Label("Rename", systemImage: "pencil")
+            sessionContextMenu(session)
+        }
+    }
+
+    @ViewBuilder
+    private func sessionContextMenu(_ session: TmuxSession) -> some View {
+        Button {
+            Task {
+                guard let api,
+                      let links = try? await api.links(session.name, includePullRequest: false),
+                      let url = links.claudeUrl.flatMap(URL.init) else { return }
+                openURL(url)
             }
-            Button(role: .destructive) {
-                pendingKill = session
-            } label: {
-                Label("Kill session", systemImage: "xmark.octagon")
+        } label: {
+            Label("Open in claude.ai", systemImage: "arrow.up.forward.app")
+        }
+        Button {
+            renameText = session.name
+            renameTarget = session
+        } label: {
+            Label("Rename session", systemImage: "pencil")
+        }
+        Button {
+            workspaceName = session.name
+            workspacePath = ""
+            Task {
+                workspacePath = (try? await api?.cwd(session.name)) ?? ""
+                workspaceTarget = session
             }
+        } label: {
+            Label("Save location as workspace", systemImage: "folder.badge.plus")
+        }
+        notificationToggle(session)
+        Button {
+            activityTarget = session
+        } label: {
+            Label("View activity", systemImage: "clock.arrow.circlepath")
+        }
+        Button {
+            path = [session.name]
+            router.showTerminalSearch(in: session.name)
+        } label: {
+            Label("Find in terminal", systemImage: "magnifyingglass")
+        }
+        .keyboardShortcut("f", modifiers: .command)
+        Divider()
+        Button(role: .destructive) {
+            pendingKill = session
+        } label: {
+            Label("Kill session", systemImage: "xmark.octagon")
+        }
+    }
+
+    @ViewBuilder
+    private func notificationToggle(_ session: TmuxSession) -> some View {
+        Button {
+            Task {
+                try? await api?.setNotificationsMuted(session.name, muted: !(session.notificationsMuted ?? false))
+                await load()
+            }
+        } label: {
+            Label(
+                session.notificationsMuted == true ? "Subscribe to notifications" : "Unsubscribe from notifications",
+                systemImage: session.notificationsMuted == true ? "bell" : "bell.slash"
+            )
         }
     }
 
@@ -288,13 +603,31 @@ struct SessionListView: View {
         do {
             async let sessionsCall = api.sessions()
             async let workspacesCall = api.workspaces()
-            sessions = try await sessionsCall.sorted(by: triageOrder)
+            let fetchedSessions = try await sessionsCall.sorted(by: triageOrder)
+            let previousSessions = sessions
+            sessions = fetchedSessions
+            reconcileSelectedSession(previousSessions: previousSessions)
             workspaces = (try? await workspacesCall) ?? workspaces
             loadError = nil
         } catch {
             loadError = error.localizedDescription
         }
         hasLoaded = true
+    }
+
+    private func reconcileSelectedSession(previousSessions: [TmuxSession]) {
+        guard let selected = path.last,
+              !sessions.contains(where: { $0.name == selected }) else { return }
+        removeSessionAndAdvance(from: previousSessions, removing: selected)
+    }
+
+    private func removeSessionAndAdvance(from previousSessions: [TmuxSession], removing name: String) {
+        let removedIndex = previousSessions.firstIndex { $0.name == name }
+        sessions.removeAll { $0.name == name }
+
+        guard path.last == name else { return }
+        let nextIndex = min(removedIndex ?? 0, max(sessions.count - 1, 0))
+        path = sessions.indices.contains(nextIndex) ? [sessions[nextIndex].name] : []
     }
 
     // Sessions waiting on the human float to the top, then busy, then quiet.
@@ -310,10 +643,6 @@ struct SessionListView: View {
         return rank(a) != rank(b) ? rank(a) < rank(b) : a.lastOutputAt > b.lastOutputAt
     }
 
-    private func quickReply(_ session: TmuxSession, key: String) {
-        Task { try? await api?.sendKeys(session.name, keys: [key]) }
-    }
-
     private func kill(_ session: TmuxSession) async {
         guard let api else { return }
         killing.insert(session.name)
@@ -321,7 +650,7 @@ struct SessionListView: View {
         do {
             let worktree = try? await api.worktree(session.name)
             try await api.kill(session.name)
-            sessions.removeAll { $0.name == session.name }
+            removeSessionAndAdvance(from: sessions, removing: session.name)
             if let worktree, worktree.isWorktree {
                 pendingCleanup = worktree
             }
@@ -346,11 +675,10 @@ struct SessionListView: View {
 private struct SessionRow: View {
     let session: TmuxSession
     var isKilling = false
-    var onQuickReply: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
+            HStack(spacing: 6) {
                 Text(session.name)
                     .font(.headline)
                 Spacer()
@@ -364,6 +692,12 @@ private struct SessionRow: View {
             Text("\(session.paneCommand) · \(session.lastOutputDate.formatted(.relative(presentation: .named)))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let preview = session.preview, !preview.isEmpty {
+                Text(preview)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             if session.resolvedState == .needsInput {
                 if let detail = session.detail {
                     Text(detail)
@@ -371,31 +705,9 @@ private struct SessionRow: View {
                         .foregroundStyle(.orange)
                         .lineLimit(2)
                 }
-                quickReplies
             }
         }
         .padding(.vertical, 2)
-    }
-
-    private var quickReplies: some View {
-        HStack(spacing: 6) {
-            ForEach(["1", "2", "3"], id: \.self) { key in
-                Button {
-                    onQuickReply(key)
-                } label: {
-                    Text(key)
-                        .font(.caption.weight(.semibold).monospaced())
-                        .frame(width: 30, height: 26)
-                        .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 7))
-                        .foregroundStyle(.orange)
-                }
-                .buttonStyle(.plain)
-            }
-            Text("quick reply")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.top, 2)
     }
 
     private var stateChip: some View {

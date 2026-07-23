@@ -21,6 +21,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             DispatchQueue.main.async { AppRouter.shared.openSession = String(open) }
         }
         #if targetEnvironment(macCatalyst)
+        // Catalyst centres a navigation title in the remaining toolbar area,
+        // which shifts it to the right when a split-view sidebar is present.
+        // The SwiftUI root provides an app-owned, truly centred replacement.
+        NotificationCenter.default.addObserver(
+            forName: UIScene.willConnectNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            (notification.object as? UIWindowScene)?.titlebar?.titleVisibility = .hidden
+        }
+        DispatchQueue.main.async {
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .forEach { $0.titlebar?.titleVisibility = .hidden }
+        }
         UNUserNotificationCenter.current().delegate = self
         NotifyStreamManager.shared.activate()
         #endif

@@ -1,0 +1,5 @@
+// Copy this file to Signing.local.xcconfig and add your personal signing values.
+// Signing.local.xcconfig is ignored by Git and survives every XcodeGen run.
+PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.missioncontrol
+DEVELOPMENT_TEAM = YOURTEAMID
+CODE_SIGN_STYLE = Automatic

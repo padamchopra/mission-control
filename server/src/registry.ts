@@ -10,7 +10,15 @@ export interface RegistryEntry {
   claudeSessionId?: string;
   transcriptPath?: string;
   cwd?: string;
+  notificationsMuted?: boolean;
+  activity?: SessionActivity[];
   updatedAt: number;
+}
+
+export interface SessionActivity {
+  event: string;
+  message: string;
+  at: number;
 }
 
 const stateFile = join(configDir, "registry.json");
@@ -48,6 +56,22 @@ class Registry {
     if (!entry) return;
     this.entries.delete(from);
     this.entries.set(to, entry);
+    this.persist();
+  }
+
+  setNotificationsMuted(name: string, muted: boolean): void {
+    const prev: RegistryEntry = this.entries.get(name) ?? { state: "unknown", updatedAt: Date.now() };
+    this.entries.set(name, { ...prev, notificationsMuted: muted });
+    this.persist();
+  }
+
+  recordActivity(name: string, event: string, message: string): void {
+    const prev: RegistryEntry = this.entries.get(name) ?? { state: "unknown", updatedAt: Date.now() };
+    const activity = [
+      { event, message: message.slice(0, 500), at: Date.now() },
+      ...(prev.activity ?? []),
+    ].slice(0, 40);
+    this.entries.set(name, { ...prev, activity });
     this.persist();
   }
 

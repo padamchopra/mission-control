@@ -14,8 +14,12 @@ security-relevant even though it's only meant to be reachable by its owner.
   on the WebSocket upgrade. Header only — never a query parameter — so it can't
   leak into request logs.
 - **No arbitrary execution:** there is no "run this command" endpoint. The
-  server only invokes `tmux` (and one `tmux attach` PTY) via `execFile`/`spawn`
-  with argv arrays — never a shell — so input is never interpreted as a command.
+  server invokes `tmux` (and one `tmux attach` PTY) via `execFile`/`spawn` with
+  argv arrays — never a shell — so input is never interpreted as a command.
+  The authenticated server-update endpoint is deliberately narrow: it starts
+  the repository-owned `deploy/update-server.sh`, which only fast-forward pulls
+  the current branch, runs `npm ci`/the server build, writes status to
+  `~/.mission-control`, and restarts Mission Control's fixed launchd label.
 
 ## Input handling
 
@@ -32,6 +36,10 @@ security-relevant even though it's only meant to be reachable by its owner.
   are reduced to their basename, stripped to `[A-Za-z0-9._-]` with leading dots
   removed (no traversal), and capped at 64 MB. `$TMPDIR` is auto-purged by macOS.
 - **Bodies** are size-capped (256 KB JSON, 64 MB upload).
+- **Server updates** are bearer-token protected like every other endpoint and
+  cannot accept a repository, branch, package command, or arbitrary script path
+  from the client. The script's detailed output remains local in
+  `~/.mission-control/update.log`.
 - **Errors** return a generic message; details are logged server-side only.
 
 ## Residual risks (accepted)

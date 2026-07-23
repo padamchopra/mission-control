@@ -1,0 +1,7 @@
+// Public defaults. Your actual signing identity belongs in the optional local
+// override below, which is intentionally ignored by Git.
+PRODUCT_BUNDLE_IDENTIFIER = com.example.missioncontrol
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+
+#include? "Signing.local.xcconfig"
