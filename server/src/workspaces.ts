@@ -62,11 +62,11 @@ async function worktreeListPorcelain(repoPath: string): Promise<string> {
     const { stdout } = await exec(
       "git",
       ["--git-dir", gitDir, "--work-tree", repoPath, "worktree", "list", "--porcelain"],
-      { cwd: homedir() },
+      { cwd: homedir(), timeout: 8000 },
     );
     return stdout;
   }
-  const { stdout } = await exec("git", ["-C", repoPath, "worktree", "list", "--porcelain"], { cwd: homedir() });
+  const { stdout } = await exec("git", ["-C", repoPath, "worktree", "list", "--porcelain"], { cwd: homedir(), timeout: 8000 });
   return stdout;
 }
 
@@ -170,7 +170,7 @@ async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; o
     const args = existsSync(gitDir) && statSync(gitDir).isDirectory()
       ? ["--git-dir", gitDir, "remote", "get-url", "origin"]
       : ["-C", path, "remote", "get-url", "origin"];
-    const { stdout } = await exec("git", args, { cwd: homedir() });
+    const { stdout } = await exec("git", args, { cwd: homedir(), timeout: 8000 });
     origin = normalizeRemote(stdout.trim());
   } catch {
     origin = null;
@@ -248,17 +248,10 @@ export async function addWorkspace(name: string, rawPath: string): Promise<Works
   const repository = await repositoryForPath(rawPath);
   const resolvedAt = Date.now();
   const workspaces = load();
-  // A previous version stored the directory the user selected, which may have
-  // been a linked worktree. Resolve stored entries too so re-saving that repo
-  // upgrades the existing workspace rather than creating a duplicate.
-  const existing = (await Promise.all(workspaces.map(async (workspace) => {
-    try {
-      return (await repositoryForPath(workspace.path)).mainPath === repository.mainPath ? workspace : null;
-    } catch {
-      return null;
-    }
-  }))).find((workspace): workspace is StoredWorkspace => workspace !== null);
-  console.error(`addWorkspace: resolve ${resolvedAt - startedAt}ms · dedupe ${workspaces.length} workspace(s) ${Date.now() - resolvedAt}ms`);
+  // Dedupe by comparing resolved main-checkout paths as strings — never run
+  // git/fs against other workspaces' (possibly stalled) drives during a save.
+  const existing = workspaces.find((workspace) => workspace.path === repository.mainPath);
+  console.error(`addWorkspace: resolve ${resolvedAt - startedAt}ms · ${workspaces.length} existing`);
   if (existing) {
     existing.name = trimmedName;
     existing.path = repository.mainPath;
