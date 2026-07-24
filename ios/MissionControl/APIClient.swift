@@ -15,7 +15,7 @@ struct APIClient {
     }
 
     func sessions() async throws -> [TmuxSession] {
-        let data = try await request("GET", "sessions")
+        let data = try await request("GET", "sessions", timeout: 20)
         return try JSONDecoder().decode(SessionsResponse.self, from: data).sessions
     }
 
@@ -78,13 +78,13 @@ struct APIClient {
         var payload: [String: Any] = ["claude": claude]
         if let name, !name.isEmpty { payload["name"] = name }
         if let path, !path.isEmpty { payload["path"] = path }
-        let data = try await request("POST", "sessions", body: payload)
+        let data = try await request("POST", "sessions", body: payload, timeout: 30)
         return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
     }
 
     @discardableResult
     func createTask(workspaceID: String, prompt: String) async throws -> String {
-        let data = try await request("POST", "workspaces/\(workspaceID)/task", body: ["prompt": prompt])
+        let data = try await request("POST", "workspaces/\(workspaceID)/task", body: ["prompt": prompt], timeout: 60)
         return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
     }
 
@@ -158,20 +158,20 @@ struct APIClient {
     }
 
     func removeWorktree(path: String, force: Bool) async throws {
-        _ = try await request("POST", "worktree/remove", body: ["path": path, "force": force])
+        _ = try await request("POST", "worktree/remove", body: ["path": path, "force": force], timeout: 60)
     }
 
     func workspaces() async throws -> [Workspace] {
-        let data = try await request("GET", "workspaces")
+        let data = try await request("GET", "workspaces", timeout: 45)
         return try JSONDecoder().decode(WorkspacesResponse.self, from: data).workspaces
     }
 
     func addWorkspace(name: String, path: String) async throws {
-        _ = try await request("POST", "workspaces", body: ["name": name, "path": path])
+        _ = try await request("POST", "workspaces", body: ["name": name, "path": path], timeout: 45)
     }
 
     func saveWorkspace(fromSession session: String, name: String, path: String) async throws {
-        _ = try await request("POST", "sessions/\(session)/workspace", body: ["name": name, "path": path])
+        _ = try await request("POST", "sessions/\(session)/workspace", body: ["name": name, "path": path], timeout: 45)
     }
 
     /// The session's current directory on the server, for prefilling the
@@ -209,7 +209,7 @@ struct APIClient {
 
     @discardableResult
     func openSessionInWorkspace(id: String) async throws -> String {
-        let data = try await request("POST", "workspaces/\(id)/session")
+        let data = try await request("POST", "workspaces/\(id)/session", timeout: 45)
         return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
     }
 
@@ -217,7 +217,8 @@ struct APIClient {
         let data = try await request(
             "POST",
             "workspaces/\(workspaceID)/worktrees/close",
-            body: ["path": path, "force": force]
+            body: ["path": path, "force": force],
+            timeout: 60
         )
         return try JSONDecoder().decode(WorktreeCloseResult.self, from: data)
     }
@@ -226,7 +227,8 @@ struct APIClient {
         let data = try await request(
             "POST",
             "workspaces/\(workspaceID)/worktrees/close-all",
-            body: ["force": force]
+            body: ["force": force],
+            timeout: 60
         )
         return try JSONDecoder().decode(WorktreeCloseResult.self, from: data)
     }
@@ -257,7 +259,8 @@ struct APIClient {
         _ method: String,
         _ path: String,
         query: [URLQueryItem] = [],
-        body: [String: Any]? = nil
+        body: [String: Any]? = nil,
+        timeout: TimeInterval = 10
     ) async throws -> Data {
         var url = baseURL.appendingPathComponent(path)
         if !query.isEmpty {
@@ -267,7 +270,7 @@ struct APIClient {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 10
+        request.timeoutInterval = timeout
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

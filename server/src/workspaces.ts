@@ -132,13 +132,38 @@ function normalizeRemote(url: string): string | null {
   return stripped || null;
 }
 
+// Resolving a workspace shells out to git several times per checkout, which is
+// slow on external/network volumes. The fleet polls this every few seconds, so
+// cache the result briefly and de-dupe concurrent scans; mutations invalidate it.
+let workspacesCache: { at: number; workspaces: Workspace[] } | null = null;
+let workspacesInFlight: Promise<Workspace[]> | null = null;
+const WORKSPACES_TTL_MS = 8000;
+
+export function invalidateWorkspacesCache(): void {
+  workspacesCache = null;
+}
+
+export async function listWorkspaces(): Promise<Workspace[]> {
+  if (workspacesCache && Date.now() - workspacesCache.at < WORKSPACES_TTL_MS) return workspacesCache.workspaces;
+  if (workspacesInFlight) return workspacesInFlight;
+  workspacesInFlight = computeWorkspaces()
+    .then((workspaces) => {
+      workspacesCache = { at: Date.now(), workspaces };
+      return workspaces;
+    })
+    .finally(() => {
+      workspacesInFlight = null;
+    });
+  return workspacesInFlight;
+}
+
 /**
  * Resolve every stored repository on read. This also upgrades old directory
  * workspaces to the repository primary checkout. Non-repository legacy entries
  * remain in the JSON file but are not returned: a workspace now has a precise
  * Git meaning rather than silently grouping arbitrary folders.
  */
-export async function listWorkspaces(): Promise<Workspace[]> {
+async function computeWorkspaces(): Promise<Workspace[]> {
   const stored = load();
   const resolved = await Promise.all(stored.map(async (workspace) => {
     try {
@@ -178,16 +203,19 @@ export async function addWorkspace(name: string, rawPath: string): Promise<Works
     existing.name = trimmedName;
     existing.path = repository.mainPath;
     save(workspaces);
+    invalidateWorkspacesCache();
     return { ...existing, path: repository.mainPath, origin: repository.origin, worktrees: repository.worktrees };
   }
   const workspace: StoredWorkspace = { id: randomUUID(), name: trimmedName, path: repository.mainPath };
   workspaces.push(workspace);
   save(workspaces);
+  invalidateWorkspacesCache();
   return { ...workspace, origin: repository.origin, worktrees: repository.worktrees };
 }
 
 export function removeWorkspace(id: string): void {
   save(load().filter((workspace) => workspace.id !== id));
+  invalidateWorkspacesCache();
 }
 
 async function workspaceByID(id: string): Promise<Workspace> {
@@ -233,6 +261,7 @@ export async function createTaskSession(id: string, prompt: string): Promise<str
   const worktreePath = join(worktreeParent, `${slug}-${suffix}`);
   mkdirSync(worktreeParent, { recursive: true });
   await exec("git", ["-C", workspace.path, "worktree", "add", "-b", branch, worktreePath]);
+  invalidateWorkspacesCache();
 
   const name = `${slug}-${suffix}`;
   assertValidName(name);
@@ -275,6 +304,7 @@ async function closeWorktrees(workspace: Workspace, paths: string[], force: bool
     await exec("git", args);
     closedPaths.push(target.path);
   }
+  invalidateWorkspacesCache();
   return { closedPaths, killedSessions: sessionsToKill.map((session) => session.name) };
 }
 
