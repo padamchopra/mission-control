@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { configDir } from "./config.js";
 import { run as exec } from "./run.js";
@@ -49,6 +50,26 @@ function save(workspaces: StoredWorkspace[]): void {
   writeFileSync(workspacesFile, JSON.stringify(workspaces, null, 2) + "\n");
 }
 
+// Lists a repository's worktrees WITHOUT chdir'ing into it. On external/USB
+// volumes, chdir + git's `getcwd()` returns EINTR ("Interrupted system call"),
+// which no amount of retrying reliably beats. Running from a fast local cwd
+// (home) with an explicit --git-dir keeps getcwd() off the slow volume. Only a
+// primary checkout has .git as a real directory; a linked worktree (.git file)
+// falls back to -C.
+async function worktreeListPorcelain(repoPath: string): Promise<string> {
+  const gitDir = join(repoPath, ".git");
+  if (existsSync(gitDir) && statSync(gitDir).isDirectory()) {
+    const { stdout } = await exec(
+      "git",
+      ["--git-dir", gitDir, "--work-tree", repoPath, "worktree", "list", "--porcelain"],
+      { cwd: homedir() },
+    );
+    return stdout;
+  }
+  const { stdout } = await exec("git", ["-C", repoPath, "worktree", "list", "--porcelain"], { cwd: homedir() });
+  return stdout;
+}
+
 function gitErrorDetail(error: unknown): string {
   const e = error as { stderr?: unknown; message?: unknown };
   const stderr = typeof e?.stderr === "string" ? e.stderr : "";
@@ -78,7 +99,7 @@ async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; o
   const path = realpathSync(rawPath);
   let porcelain: string;
   try {
-    ({ stdout: porcelain } = await exec("git", ["-C", path, "worktree", "list", "--porcelain"]));
+    porcelain = await worktreeListPorcelain(path);
   } catch (error) {
     // Surface git's real reason (and the resolved path we tried) instead of a
     // fixed string — external drives, permissions, and dubious ownership all
