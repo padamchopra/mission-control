@@ -29,6 +29,7 @@ struct TerminalScreen: View {
     @State private var notificationsMuted = false
     @State private var showActivity = false
     @State private var showSearch = false
+    @State private var showPullRequest = false
     @State private var mode: SessionMode = .conversation
     #if targetEnvironment(macCatalyst)
     @State private var showInspector = false
@@ -71,6 +72,9 @@ struct TerminalScreen: View {
         }
         .sheet(isPresented: $showSearch) {
             TerminalSearchSheet(sessionName: sessionName, serverURL: serverURL, token: serverToken)
+        }
+        .sheet(isPresented: $showPullRequest) {
+            PullRequestSheet(sessionName: sessionName, api: api)
         }
         .alert("Save repository as workspace", isPresented: $showSaveWorkspace) {
             TextField("Name", text: $workspaceName)
@@ -214,6 +218,11 @@ struct TerminalScreen: View {
                 } label: {
                     Label("Open in claude.ai", systemImage: "arrow.up.forward.app")
                 }
+            }
+            Button {
+                showPullRequest = true
+            } label: {
+                Label("Pull request", systemImage: "arrow.triangle.pull")
             }
             Button {
                 renameText = sessionName

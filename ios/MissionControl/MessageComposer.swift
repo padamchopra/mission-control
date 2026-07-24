@@ -21,6 +21,14 @@ struct MessageComposer: View {
     @State private var loadingSuggestions = false
     @State private var suggestionError: String?
     @State private var suggestionRequest = UUID()
+    // Recent sent messages, unit-separated so multi-line messages survive.
+    @AppStorage("composerHistory") private var historyRaw = ""
+
+    private let snippets = ["Continue", "Run the tests", "Commit and push", "Explain your plan first", "Yes, go ahead", "Undo the last change"]
+
+    private var recents: [String] {
+        historyRaw.split(separator: "\u{1F}").map(String.init)
+    }
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -44,6 +52,7 @@ struct MessageComposer: View {
             suggestionPicker
             HStack(alignment: .bottom, spacing: 8) {
                 attachMenu
+                quickMenu
                 inputField
                 sendButton
             }
@@ -264,6 +273,42 @@ struct MessageComposer: View {
         .help("Send message (Command-Return)")
     }
 
+    private var quickMenu: some View {
+        Menu {
+            Section("Quick messages") {
+                ForEach(snippets, id: \.self) { phrase in
+                    Button(phrase) { fill(phrase) }
+                }
+            }
+            if !recents.isEmpty {
+                Section("Recent") {
+                    ForEach(recents.prefix(6), id: \.self) { phrase in
+                        Button(phrase.replacingOccurrences(of: "\n", with: " ")) { fill(phrase) }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "bolt.circle")
+                .font(.system(size: 30))
+                .foregroundStyle(.secondary)
+        }
+        .frame(height: 34)
+        .menuOrder(.fixed)
+    }
+
+    private func fill(_ phrase: String) {
+        text = phrase
+        cursorRange = NSRange(location: (phrase as NSString).length, length: 0)
+    }
+
+    private func recordHistory(_ message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        var list = recents.filter { $0 != trimmed }
+        list.insert(trimmed, at: 0)
+        historyRaw = list.prefix(8).joined(separator: "\u{1F}")
+    }
+
     private func addImages(_ images: [UIImage]) {
         for (offset, image) in images.enumerated() {
             if let attachment = Attachment.image(image, index: attachments.count + offset) {
@@ -312,6 +357,7 @@ struct MessageComposer: View {
                 let body = ([trimmed] + paths).filter { !$0.isEmpty }.joined(separator: " ")
                 try await api.sendText(sessionName, text: body)
                 await MainActor.run {
+                    recordHistory(trimmed)
                     text = ""
                     cursorRange = NSRange(location: 0, length: 0)
                     attachments = []

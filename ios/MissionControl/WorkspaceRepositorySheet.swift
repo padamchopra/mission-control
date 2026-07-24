@@ -89,6 +89,12 @@ struct WorkspaceRepositorySheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Git repository", systemImage: "folder.badge.gearshape")
                     .font(.headline)
+                if let origin = workspace.origin, !origin.isEmpty {
+                    Text(origin)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
                 Text("Primary checkout")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
@@ -138,6 +144,10 @@ struct WorkspaceRepositorySheet: View {
                     Label("\(sessionCount) active \(sessionCount == 1 ? "session" : "sessions")", systemImage: "terminal")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else if !worktree.isMain && !worktree.dirty {
+                    Label("Safe to reclaim", systemImage: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(.green)
                 }
             }
             Spacer(minLength: 8)

@@ -17,6 +17,9 @@ struct SessionListView: View {
     @State private var workspaceName = ""
     @State private var workspacePath = ""
     @State private var workspaceRepositoryTarget: Workspace?
+    @State private var taskWorkspace: Workspace?
+    @State private var prTarget: TmuxSession?
+    @State private var showBroadcast = false
     @State private var activityTarget: TmuxSession?
     @State private var actionError: String?
     @State private var path: [String] = []
@@ -116,6 +119,15 @@ struct SessionListView: View {
                 api: api,
                 onChanged: { await load() }
             )
+        }
+        .sheet(item: $taskWorkspace) { workspace in
+            TaskLauncherSheet(workspace: workspace, api: api, onLaunched: { name in path = [name] })
+        }
+        .sheet(item: $prTarget) { session in
+            PullRequestSheet(sessionName: session.name, api: api)
+        }
+        .sheet(isPresented: $showBroadcast) {
+            BroadcastSheet(sessions: sessions, api: api)
         }
     }
 
@@ -224,6 +236,15 @@ struct SessionListView: View {
                 }
             }
             Spacer()
+            Button { showBroadcast = true } label: {
+                Image(systemName: "megaphone")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .liquidGlass(in: Circle())
+            .accessibilityLabel("Broadcast a message")
+            .disabled(sessions.isEmpty)
             Button { showServers = true } label: {
                 Image(systemName: "gearshape")
                     .font(.body.weight(.semibold))
@@ -300,6 +321,13 @@ struct SessionListView: View {
             .toolbar {
                 if store.servers.count > 1 || store.active != nil {
                     ToolbarItem(placement: .topBarLeading) { serverSwitcher }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showBroadcast = true } label: {
+                        Image(systemName: "megaphone")
+                    }
+                    .disabled(sessions.isEmpty)
+                    .accessibilityLabel("Broadcast a message")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -519,6 +547,11 @@ struct SessionListView: View {
         } label: {
             Label("Save repository as workspace", systemImage: "folder.badge.plus")
         }
+        Button {
+            prTarget = session
+        } label: {
+            Label("Pull request", systemImage: "arrow.triangle.pull")
+        }
         notificationToggle(session)
         Button {
             activityTarget = session
@@ -624,12 +657,18 @@ struct SessionListView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Manage repository worktrees")
-            Button {
-                Task { await openSession(in: workspace) }
+            Menu {
+                Button { taskWorkspace = workspace } label: {
+                    Label("Start a task with Claude…", systemImage: "sparkles")
+                }
+                Button { Task { await openSession(in: workspace) } } label: {
+                    Label("New shell session", systemImage: "terminal")
+                }
             } label: {
                 Image(systemName: "plus.circle")
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("New session or task")
         }
         .textCase(nil)
         .contextMenu {
