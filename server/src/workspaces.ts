@@ -164,7 +164,13 @@ async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; o
   }));
   let origin: string | null = null;
   try {
-    const { stdout } = await exec("git", ["-C", path, "remote", "get-url", "origin"]);
+    // No chdir into the repo — see worktreeListPorcelain. This runs once per
+    // existing workspace during add's dedupe, so a chdir stall here is N× costly.
+    const gitDir = join(path, ".git");
+    const args = existsSync(gitDir) && statSync(gitDir).isDirectory()
+      ? ["--git-dir", gitDir, "remote", "get-url", "origin"]
+      : ["-C", path, "remote", "get-url", "origin"];
+    const { stdout } = await exec("git", args, { cwd: homedir() });
     origin = normalizeRemote(stdout.trim());
   } catch {
     origin = null;
@@ -238,7 +244,9 @@ async function computeWorkspaces(): Promise<Workspace[]> {
 export async function addWorkspace(name: string, rawPath: string): Promise<Workspace> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("workspace name required");
+  const startedAt = Date.now();
   const repository = await repositoryForPath(rawPath);
+  const resolvedAt = Date.now();
   const workspaces = load();
   // A previous version stored the directory the user selected, which may have
   // been a linked worktree. Resolve stored entries too so re-saving that repo
@@ -250,6 +258,7 @@ export async function addWorkspace(name: string, rawPath: string): Promise<Works
       return null;
     }
   }))).find((workspace): workspace is StoredWorkspace => workspace !== null);
+  console.error(`addWorkspace: resolve ${resolvedAt - startedAt}ms · dedupe ${workspaces.length} workspace(s) ${Date.now() - resolvedAt}ms`);
   if (existing) {
     existing.name = trimmedName;
     existing.path = repository.mainPath;
