@@ -20,6 +20,7 @@ struct SessionListView: View {
     @State private var taskWorkspace: Workspace?
     @State private var prTarget: TmuxSession?
     @State private var showBroadcast = false
+    @State private var fleetFilter: SessionState?
     @State private var activityTarget: TmuxSession?
     @State private var actionError: String?
     @State private var path: [String] = []
@@ -588,27 +589,43 @@ struct SessionListView: View {
         }
     }
 
-    // One-glance fleet header shared by iPhone and Mac: who needs you / working / idle.
+    // One-glance fleet header shared by iPhone and Mac: who needs you / working /
+    // idle. Each count is a tappable filter; tapping the active one clears it.
     private var fleetSummary: some View {
         let needs = sessions.filter { $0.resolvedState == .needsInput }.count
         let working = sessions.filter { $0.resolvedState == .working }.count
         let idle = sessions.filter { $0.resolvedState == .idle }.count
-        return HStack(spacing: 14) {
-            summaryStat(needs, "need you", .orange)
-            summaryStat(working, "working", .blue)
-            summaryStat(idle, "idle", .secondary)
+        return HStack(spacing: 8) {
+            summaryStat(needs, "need you", .orange, state: .needsInput)
+            summaryStat(working, "working", .blue, state: .working)
+            summaryStat(idle, "idle", .secondary, state: .idle)
             Spacer(minLength: 0)
+            if fleetFilter != nil {
+                Button("Clear") { fleetFilter = nil }
+                    .font(.caption2)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
         }
         .font(.caption)
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
     }
 
-    private func summaryStat(_ count: Int, _ label: String, _ color: Color) -> some View {
-        HStack(spacing: 4) {
-            Text("\(count)").fontWeight(.bold).foregroundStyle(count > 0 ? color : Color.secondary)
-            Text(label).foregroundStyle(.secondary)
+    private func summaryStat(_ count: Int, _ label: String, _ color: Color, state: SessionState) -> some View {
+        let active = fleetFilter == state
+        return Button {
+            fleetFilter = active ? nil : state
+        } label: {
+            HStack(spacing: 4) {
+                Text("\(count)").fontWeight(.bold).foregroundStyle(count > 0 ? color : Color.secondary)
+                Text(label).foregroundStyle(active ? color : .secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(active ? color.opacity(0.15) : Color.clear, in: Capsule())
         }
+        .buttonStyle(.plain)
     }
 
     // Inline reply on a needs-input row: Enter accepts the highlighted default,
@@ -686,11 +703,16 @@ struct SessionListView: View {
     }
 
     private func sessionsFor(_ workspace: Workspace) -> [TmuxSession] {
-        sessions.filter { workspaceId(for: $0) == workspace.id }.sorted(by: triageOrder)
+        applyFilter(sessions.filter { workspaceId(for: $0) == workspace.id }).sorted(by: triageOrder)
     }
 
     private func ungroupedSessions() -> [TmuxSession] {
-        sessions.filter { workspaceId(for: $0) == nil }.sorted(by: triageOrder)
+        applyFilter(sessions.filter { workspaceId(for: $0) == nil }).sorted(by: triageOrder)
+    }
+
+    private func applyFilter(_ list: [TmuxSession]) -> [TmuxSession] {
+        guard let fleetFilter else { return list }
+        return list.filter { $0.resolvedState == fleetFilter }
     }
 
     // A session belongs to the workspace whose primary checkout or linked
@@ -866,6 +888,12 @@ private struct SessionRow: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .lineLimit(2)
+                }
+                let waitingMinutes = Int(Date().timeIntervalSince(session.lastOutputDate) / 60)
+                if waitingMinutes >= 3 {
+                    Label("Waiting \(waitingMinutes)m", systemImage: "hourglass")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
                 }
             }
         }
