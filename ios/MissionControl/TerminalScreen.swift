@@ -5,6 +5,8 @@ import UIKit
 // SwiftTerm also exports a `Color`; pin the bare name to SwiftUI's in this file.
 private typealias Color = SwiftUI.Color
 
+private enum SessionMode { case conversation, terminal }
+
 struct TerminalScreen: View {
     let sessionName: String
 
@@ -27,6 +29,7 @@ struct TerminalScreen: View {
     @State private var notificationsMuted = false
     @State private var showActivity = false
     @State private var showSearch = false
+    @State private var mode: SessionMode = .conversation
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var toasts: ToastCenter
     @Environment(\.openURL) private var openURL
@@ -37,29 +40,19 @@ struct TerminalScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            connectionBanner
-            ZStack(alignment: .bottomTrailing) {
-                TerminalContainer(
+            if mode == .terminal { connectionBanner }
+            modeBar
+            switch mode {
+            case .terminal:
+                terminalContent
+            case .conversation:
+                ConversationView(
                     sessionName: sessionName,
                     serverURL: serverURL,
                     token: serverToken,
-                    fontSize: fontSize,
-                    streamState: $streamState,
-                    inCopyMode: $inCopyMode,
-                    fontSizeStore: $fontSize,
-                    coordinator: $coordinator,
-                    openURL: openURL,
-                    onToast: { kind, message in toasts.show(kind, message) }
+                    onShowTerminal: { mode = .terminal }
                 )
-                // On Mac Catalyst, this screen is the detail column of a
-                // split view. Respect that column's bounds rather than
-                // expanding back through the sidebar's horizontal safe area.
-                #if !targetEnvironment(macCatalyst)
-                .ignoresSafeArea(.container, edges: .horizontal)
-                #endif
-                jumpToBottomButton
             }
-            quickKeysRow
             MessageComposer(sessionName: sessionName)
         }
         .background(Color.black)
@@ -88,7 +81,7 @@ struct TerminalScreen: View {
         .sheet(isPresented: $showSearch) {
             TerminalSearchSheet(sessionName: sessionName, serverURL: serverURL, token: serverToken)
         }
-        .alert("Save workspace", isPresented: $showSaveWorkspace) {
+        .alert("Save repository as workspace", isPresented: $showSaveWorkspace) {
             TextField("Name", text: $workspaceName)
                 .textInputAutocapitalization(.never)
             TextField("Path", text: $workspacePath)
@@ -107,7 +100,7 @@ struct TerminalScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Saves this directory as a workspace on the home screen.")
+            Text("The path must be inside a Git repository. Mission Control saves its primary checkout and discovers linked worktrees.")
         }
         .alert("Rename session", isPresented: $showRename) {
             TextField("Name", text: $renameText)
@@ -128,6 +121,47 @@ struct TerminalScreen: View {
         } message: {
             Text("This kills the tmux session and everything running in it (\(sessionName)).")
         }
+    }
+
+    private var modeBar: some View {
+        Picker("View", selection: $mode) {
+            Text("Conversation").tag(SessionMode.conversation)
+            Text("Terminal").tag(SessionMode.terminal)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .background(Color.black)
+    }
+
+    // The live terminal plus its scroll affordance and quick-keys row. Mounted
+    // only in terminal mode, so switching to Conversation tears the PTY down
+    // (tmux holds the session, so switching back just re-attaches).
+    @ViewBuilder
+    private var terminalContent: some View {
+        ZStack(alignment: .bottomTrailing) {
+            TerminalContainer(
+                sessionName: sessionName,
+                serverURL: serverURL,
+                token: serverToken,
+                fontSize: fontSize,
+                streamState: $streamState,
+                inCopyMode: $inCopyMode,
+                fontSizeStore: $fontSize,
+                coordinator: $coordinator,
+                openURL: openURL,
+                onToast: { kind, message in toasts.show(kind, message) }
+            )
+            // On Mac Catalyst, this screen is the detail column of a split
+            // view. Respect that column's bounds rather than expanding back
+            // through the sidebar's horizontal safe area.
+            #if !targetEnvironment(macCatalyst)
+            .ignoresSafeArea(.container, edges: .horizontal)
+            #endif
+            jumpToBottomButton
+        }
+        quickKeysRow
     }
 
     private var sessionMenu: some View {
@@ -153,7 +187,7 @@ struct TerminalScreen: View {
                     showSaveWorkspace = true
                 }
             } label: {
-                Label("Save location as workspace", systemImage: "folder.badge.plus")
+                Label("Save repository as workspace", systemImage: "folder.badge.plus")
             }
             Button {
                 Task { await toggleNotifications() }

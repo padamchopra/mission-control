@@ -50,8 +50,12 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   laptop) and switch between them from the top bar.
 - **Fleet view** — every session with a status chip (working / needs input /
   idle), a live output preview, and sessions waiting on you sorted to the top.
-- **Workspaces** — group sessions by the project directory they run in; tap **+**
-  to open a fresh shell there.
+- **Repository workspaces** — each workspace is a Git repository's primary
+  checkout. Mission Control discovers every linked worktree, groups sessions
+  from any checkout together, and opens fresh shells in the primary checkout.
+  Use the repository control beside a workspace to inspect branches and paths,
+  close one linked worktree or all of them, and choose clean close (refuses
+  uncommitted work) or force close (discards it). Branches are always kept.
 - **Live terminal** — real `tmux attach` rendered by SwiftTerm, with a native
   input bar, a quick-key row (Esc / Tab / arrows / digits / Ctrl-C),
   pinch-to-zoom, and touch or trackpad scrolling through tmux history.
@@ -62,8 +66,8 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   the Mac and its path is sent so Claude can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
   PR, search terminal history, review activity, mute or resume notifications,
-  rename the session, save its directory as a workspace, or kill it (with an
-  offer to clean up the git worktree).
+  rename the session, save its repository as a workspace, or kill it (with an
+  offer to clean up the linked worktree).
 - **Mac app** — the same target builds for macOS via Mac Catalyst: one codebase,
   and workspaces/sessions are served by the server so every device sees the same
   thing. While the Mac app is running (even in the background) notifications

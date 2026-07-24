@@ -91,6 +91,41 @@ struct NotificationSettings: Codable {
     let muted: Bool
 }
 
+// The structured conversation feed, parsed server-side from the session's Claude
+// Code transcript. `available` is false for sessions without a transcript (plain
+// shells, or Claude sessions running without the Mission Control hooks).
+struct Conversation: Decodable {
+    var available: Bool
+    var title: String?
+    var model: String?
+    var todos: [ConversationTodo]
+    var entries: [ConversationEntry]
+}
+
+struct ConversationTodo: Decodable {
+    let content: String
+    let status: String // pending | in_progress | completed
+}
+
+struct ConversationDiffLine: Decodable {
+    let kind: String // add | del | ctx
+    let text: String
+}
+
+struct ConversationEntry: Decodable, Identifiable {
+    let id: String
+    let kind: String // user | assistant | thinking | tool
+    var text: String?
+    var tool: String?
+    var verb: String?
+    var arg: String?
+    var status: String? // ok | error
+    var output: String?
+    var file: String?
+    var skill: String?
+    var diff: [ConversationDiffLine]?
+}
+
 struct ServerUpdateStatus: Codable {
     let state: String
     let message: String
@@ -108,6 +143,21 @@ struct Workspace: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let path: String
+    let worktrees: [GitWorktree]
+}
+
+struct GitWorktree: Codable, Identifiable, Hashable {
+    let path: String
+    let branch: String?
+    let isMain: Bool
+    let dirty: Bool
+
+    var id: String { path }
+}
+
+struct WorktreeCloseResult: Codable {
+    let closedPaths: [String]
+    let killedSessions: [String]
 }
 
 struct WorkspacesResponse: Codable {

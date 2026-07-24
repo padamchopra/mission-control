@@ -16,6 +16,7 @@ struct SessionListView: View {
     @State private var workspaceTarget: TmuxSession?
     @State private var workspaceName = ""
     @State private var workspacePath = ""
+    @State private var workspaceRepositoryTarget: Workspace?
     @State private var activityTarget: TmuxSession?
     @State private var actionError: String?
     @State private var path: [String] = []
@@ -107,6 +108,14 @@ struct SessionListView: View {
         }
         .sheet(item: $activityTarget) { session in
             SessionActivitySheet(sessionName: session.name, serverURL: serverURL, token: serverToken)
+        }
+        .sheet(item: $workspaceRepositoryTarget) { workspace in
+            WorkspaceRepositorySheet(
+                workspace: workspace,
+                sessions: sessions,
+                api: api,
+                onChanged: { await load() }
+            )
         }
     }
 
@@ -328,7 +337,7 @@ struct SessionListView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
-            .alert("Save workspace", isPresented: workspacePresented, presenting: workspaceTarget) { session in
+            .alert("Save repository as workspace", isPresented: workspacePresented, presenting: workspaceTarget) { session in
                 TextField("Name", text: $workspaceName)
                     .textInputAutocapitalization(.never)
                 TextField("Path", text: $workspacePath)
@@ -347,7 +356,7 @@ struct SessionListView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { _ in
-                Text("Saves this directory as a workspace on the home screen.")
+                Text("The selected path must be inside a Git repository. Mission Control saves its primary checkout and discovers all linked worktrees.")
             }
             .alert("Something went wrong", isPresented: errorPresented) {
                 Button("OK", role: .cancel) {}
@@ -355,10 +364,13 @@ struct SessionListView: View {
                 Text(actionError ?? "")
             }
             .alert("Remove worktree?", isPresented: cleanupPresented, presenting: pendingCleanup) { info in
-                Button("Remove", role: .destructive) {
-                    if let path = info.path {
-                        Task { try? await api?.removeWorktree(path: path, force: info.dirty == true) }
+                if info.dirty != true {
+                    Button("Remove cleanly") {
+                        Task { await removeWorktreeAfterSession(info, force: false) }
                     }
+                }
+                Button("Force remove", role: .destructive) {
+                    Task { await removeWorktreeAfterSession(info, force: true) }
                 }
                 Button("Keep", role: .cancel) {}
             } message: { info in
@@ -497,7 +509,7 @@ struct SessionListView: View {
                 workspaceTarget = session
             }
         } label: {
-            Label("Save location as workspace", systemImage: "folder.badge.plus")
+            Label("Save repository as workspace", systemImage: "folder.badge.plus")
         }
         notificationToggle(session)
         Button {
@@ -537,8 +549,20 @@ struct SessionListView: View {
 
     private func workspaceHeader(_ workspace: Workspace) -> some View {
         HStack {
-            Text(workspace.name)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(workspace.name)
+                Text("\(workspace.worktrees.count) \(workspace.worktrees.count == 1 ? "checkout" : "checkouts")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
+            Button {
+                workspaceRepositoryTarget = workspace
+            } label: {
+                Image(systemName: "rectangle.3.group")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Manage repository worktrees")
             Button {
                 Task { await openSession(in: workspace) }
             } label: {
@@ -548,6 +572,11 @@ struct SessionListView: View {
         }
         .textCase(nil)
         .contextMenu {
+            Button {
+                workspaceRepositoryTarget = workspace
+            } label: {
+                Label("Manage worktrees", systemImage: "rectangle.3.group")
+            }
             Button(role: .destructive) {
                 Task { try? await api?.removeWorkspace(id: workspace.id); await load() }
             } label: {
@@ -564,13 +593,20 @@ struct SessionListView: View {
         sessions.filter { workspaceId(for: $0) == nil }.sorted(by: triageOrder)
     }
 
-    // A session belongs to the most specific workspace whose path contains its
-    // current directory.
+    // A session belongs to the workspace whose primary checkout or linked
+    // worktree most specifically contains its current directory.
     private func workspaceId(for session: TmuxSession) -> String? {
         workspaces
-            .filter { session.panePath == $0.path || session.panePath.hasPrefix($0.path + "/") }
-            .max(by: { $0.path.count < $1.path.count })?
-            .id
+            .compactMap { workspace -> (workspace: Workspace, length: Int)? in
+                let matchingPath = workspace.worktrees
+                    .map(\.path)
+                    .filter { session.panePath == $0 || session.panePath.hasPrefix($0 + "/") }
+                    .max(by: { $0.count < $1.count })
+                guard let matchingPath else { return nil }
+                return (workspace, matchingPath.count)
+            }
+            .max(by: { $0.length < $1.length })?
+            .workspace.id
     }
 
     private func openSession(in workspace: Workspace) async {
@@ -587,8 +623,20 @@ struct SessionListView: View {
     private func cleanupMessage(_ info: WorktreeInfo) -> String {
         var parts = ["Session killed."]
         if let branch = info.branch { parts.append("Remove its git worktree? Branch \(branch) is kept.") }
-        if info.dirty == true { parts.append("It has uncommitted changes that will be discarded.") }
+        if info.dirty == true { parts.append("It has uncommitted changes. Force remove will discard them.") }
         return parts.joined(separator: " ")
+    }
+
+    private func removeWorktreeAfterSession(_ info: WorktreeInfo, force: Bool) async {
+        guard let path = info.path else { return }
+        do {
+            try await api?.removeWorktree(path: path, force: force)
+            await load()
+        } catch {
+            actionError = force
+                ? "Couldn't force-remove the worktree."
+                : "Couldn't remove cleanly. Check for uncommitted changes."
+        }
     }
 
     private func autoRefresh() async {

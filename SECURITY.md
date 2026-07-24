@@ -40,6 +40,13 @@ security-relevant even though it's only meant to be reachable by its owner.
   cannot accept a repository, branch, package command, or arbitrary script path
   from the client. The script's detailed output remains local in
   `~/.mission-control/update.log`.
+- **Workspace worktrees** are discovered directly from `git worktree list` for
+  a saved repository. A close request must name one of those current linked
+  worktrees; the primary checkout is never removable. Git is invoked with argv
+  arrays, and clean close refuses dirty worktrees before stopping only tmux
+  sessions whose current directory is inside the selected checkout. Force close
+  is an explicit destructive action and preserves the branch while discarding
+  uncommitted files.
 - **Errors** return a generic message; details are logged server-side only.
 
 ## Residual risks (accepted)

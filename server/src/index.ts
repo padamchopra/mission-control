@@ -9,7 +9,15 @@ import { removeWorktree, resolveLinks, worktreeInfo } from "./git.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
 import { attachStream } from "./stream.js";
-import { addWorkspace, listWorkspaces, openSessionInWorkspace, removeWorkspace } from "./workspaces.js";
+import { readConversation, resolveTranscriptPath } from "./transcript.js";
+import {
+  addWorkspace,
+  closeAllWorkspaceWorktrees,
+  closeWorkspaceWorktree,
+  listWorkspaces,
+  openSessionInWorkspace,
+  removeWorkspace,
+} from "./workspaces.js";
 import { startServerUpdate, updateStatus } from "./update.js";
 import {
   assertValidName,
@@ -135,11 +143,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === "/workspaces" && req.method === "GET") {
-      return json(res, 200, { workspaces: listWorkspaces() });
+      return json(res, 200, { workspaces: await listWorkspaces() });
     }
     if (url.pathname === "/workspaces" && req.method === "POST") {
       const body = await readJson(req);
-      return json(res, 200, { workspace: addWorkspace(String(body.name ?? ""), String(body.path ?? "")) });
+      return json(res, 200, { workspace: await addWorkspace(String(body.name ?? ""), String(body.path ?? "")) });
     }
     if (parts[0] === "workspaces" && parts[1]) {
       const id = decodeURIComponent(parts[1]);
@@ -149,6 +157,14 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "POST" && parts[2] === "session") {
         return json(res, 200, { name: await openSessionInWorkspace(id) });
+      }
+      if (req.method === "POST" && parts[2] === "worktrees" && parts[3] === "close") {
+        const body = await readJson(req);
+        return json(res, 200, await closeWorkspaceWorktree(id, String(body.path ?? ""), body.force === true));
+      }
+      if (req.method === "POST" && parts[2] === "worktrees" && parts[3] === "close-all") {
+        const body = await readJson(req);
+        return json(res, 200, await closeAllWorkspaceWorktrees(id, body.force === true));
       }
     }
 
@@ -168,6 +184,12 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "GET" && parts[2] === "activity") {
         return json(res, 200, { activity: registry.view(name)?.activity ?? [] });
+      }
+      if (req.method === "GET" && parts[2] === "conversation") {
+        const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 120), 1), 400);
+        const entry = registry.view(name);
+        const path = entry?.transcriptPath ?? resolveTranscriptPath(entry?.cwd, entry?.claudeSessionId);
+        return json(res, 200, readConversation(path, limit));
       }
       if (req.method === "GET" && parts[2] === "notifications") {
         return json(res, 200, { muted: registry.view(name)?.notificationsMuted === true });
@@ -242,7 +264,7 @@ const server = createServer(async (req, res) => {
         const requested = typeof body.path === "string" && body.path.trim() ? body.path.trim() : undefined;
         const cwd = requested ?? (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
         if (!cwd) throw new Error("could not resolve session directory");
-        return json(res, 200, { workspace: addWorkspace(String(body.name ?? name), cwd) });
+        return json(res, 200, { workspace: await addWorkspace(String(body.name ?? name), cwd) });
       }
       if (req.method === "POST" && parts[2] === "upload") {
         const filename = String(req.headers["x-filename"] ?? "upload.bin");

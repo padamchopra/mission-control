@@ -41,6 +41,15 @@ struct APIClient {
         return try JSONDecoder().decode(SessionActivityResponse.self, from: data).activity
     }
 
+    func conversation(_ session: String, limit: Int = 120) async throws -> Conversation {
+        let data = try await request(
+            "GET",
+            "sessions/\(session)/conversation",
+            query: [URLQueryItem(name: "limit", value: String(limit))]
+        )
+        return try JSONDecoder().decode(Conversation.self, from: data)
+    }
+
     func setNotificationsMuted(_ session: String, muted: Bool) async throws {
         _ = try await request("POST", "sessions/\(session)/notifications", body: ["muted": muted])
     }
@@ -164,6 +173,24 @@ struct APIClient {
     func openSessionInWorkspace(id: String) async throws -> String {
         let data = try await request("POST", "workspaces/\(id)/session")
         return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
+    }
+
+    func closeWorktree(workspaceID: String, path: String, force: Bool) async throws -> WorktreeCloseResult {
+        let data = try await request(
+            "POST",
+            "workspaces/\(workspaceID)/worktrees/close",
+            body: ["path": path, "force": force]
+        )
+        return try JSONDecoder().decode(WorktreeCloseResult.self, from: data)
+    }
+
+    func closeAllWorktrees(workspaceID: String, force: Bool) async throws -> WorktreeCloseResult {
+        let data = try await request(
+            "POST",
+            "workspaces/\(workspaceID)/worktrees/close-all",
+            body: ["force": force]
+        )
+        return try JSONDecoder().decode(WorktreeCloseResult.self, from: data)
     }
 
     func kill(_ session: String) async throws {

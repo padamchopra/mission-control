@@ -1,21 +1,42 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { promisify } from "node:util";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { configDir } from "./config.js";
-import { assertValidName } from "./tmux.js";
+import { assertValidName, killSession, listSessions } from "./tmux.js";
 
 const exec = promisify(execFile);
 const workspacesFile = join(configDir, "workspaces.json");
 
+/** A workspace is a Git repository's primary checkout, never an arbitrary folder. */
 export interface Workspace {
+  id: string;
+  name: string;
+  /** The repository's primary (main) checkout, used for new sessions. */
+  path: string;
+  worktrees: GitWorktree[];
+}
+
+export interface GitWorktree {
+  path: string;
+  branch: string | null;
+  isMain: boolean;
+  dirty: boolean;
+}
+
+interface StoredWorkspace {
   id: string;
   name: string;
   path: string;
 }
 
-function load(): Workspace[] {
+interface ParsedWorktree {
+  path: string;
+  branch: string | null;
+}
+
+function load(): StoredWorkspace[] {
   if (!existsSync(workspacesFile)) return [];
   try {
     const parsed = JSON.parse(readFileSync(workspacesFile, "utf8"));
@@ -25,46 +46,181 @@ function load(): Workspace[] {
   }
 }
 
-function save(workspaces: Workspace[]): void {
+function save(workspaces: StoredWorkspace[]): void {
   writeFileSync(workspacesFile, JSON.stringify(workspaces, null, 2) + "\n");
 }
 
-export function listWorkspaces(): Workspace[] {
-  return load();
+function parseWorktreeList(porcelain: string): ParsedWorktree[] {
+  return porcelain
+    .split("\n\n")
+    .map((block) => {
+      const path = block.split("\n").find((line) => line.startsWith("worktree "))?.slice("worktree ".length).trim();
+      const ref = block.split("\n").find((line) => line.startsWith("branch "))?.slice("branch ".length).trim();
+      return path ? { path, branch: ref?.replace(/^refs\/heads\//, "") ?? null } : null;
+    })
+    .filter((entry): entry is ParsedWorktree => entry !== null);
 }
 
-export function addWorkspace(name: string, rawPath: string): Workspace {
+async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; worktrees: GitWorktree[] }> {
+  if (!existsSync(rawPath) || !statSync(rawPath).isDirectory()) throw new Error("path is not a directory");
+  const path = realpathSync(rawPath);
+  let porcelain: string;
+  try {
+    ({ stdout: porcelain } = await exec("git", ["-C", path, "worktree", "list", "--porcelain"]));
+  } catch {
+    throw new Error("workspace path must be inside a Git repository");
+  }
+  const entries = parseWorktreeList(porcelain).map((entry) => {
+    try {
+      // Match tmux's resolved pane paths even when Git was configured through
+      // a symlink (for example /tmp on macOS).
+      return { ...entry, path: realpathSync(entry.path) };
+    } catch {
+      return entry;
+    }
+  });
+  if (entries.length === 0) throw new Error("Git repository has no worktrees");
+
+  // Git documents the primary checkout as the first worktree in this output.
+  const mainPath = entries[0].path;
+  const worktrees = await Promise.all(entries.map(async (entry, index) => {
+    let dirty = false;
+    try {
+      const { stdout } = await exec("git", ["-C", entry.path, "status", "--porcelain"]);
+      dirty = stdout.trim().length > 0;
+    } catch {
+      // A prunable/missing worktree stays visible so Git can report its state;
+      // we never assume it is safe to force-delete.
+      dirty = true;
+    }
+    return { path: entry.path, branch: entry.branch, isMain: index === 0, dirty };
+  }));
+  return { mainPath, worktrees };
+}
+
+/**
+ * Resolve every stored repository on read. This also upgrades old directory
+ * workspaces to the repository primary checkout. Non-repository legacy entries
+ * remain in the JSON file but are not returned: a workspace now has a precise
+ * Git meaning rather than silently grouping arbitrary folders.
+ */
+export async function listWorkspaces(): Promise<Workspace[]> {
+  const stored = load();
+  const resolved = await Promise.all(stored.map(async (workspace) => {
+    try {
+      const repository = await repositoryForPath(workspace.path);
+      return {
+        workspace: { ...workspace, path: repository.mainPath, worktrees: repository.worktrees },
+        migrated: workspace.path !== repository.mainPath,
+      };
+    } catch {
+      return null;
+    }
+  }));
+  const migrated = resolved.flatMap((item) => item ? [item.workspace] : []);
+  if (resolved.some((item) => item?.migrated)) {
+    const byID = new Map(migrated.map(({ id, name, path }) => [id, { id, name, path }]));
+    save(stored.map((workspace) => byID.get(workspace.id) ?? workspace));
+  }
+  return migrated;
+}
+
+export async function addWorkspace(name: string, rawPath: string): Promise<Workspace> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("workspace name required");
-  if (!existsSync(rawPath) || !statSync(rawPath).isDirectory()) throw new Error("path is not a directory");
-  // Canonicalize (resolve symlinks) so it matches tmux's pane_current_path,
-  // which is already resolved — e.g. /tmp vs /private/tmp on macOS.
-  const path = realpathSync(rawPath);
+  const repository = await repositoryForPath(rawPath);
   const workspaces = load();
-  const existing = workspaces.find((w) => w.path === path);
+  // A previous version stored the directory the user selected, which may have
+  // been a linked worktree. Resolve stored entries too so re-saving that repo
+  // upgrades the existing workspace rather than creating a duplicate.
+  const existing = (await Promise.all(workspaces.map(async (workspace) => {
+    try {
+      return (await repositoryForPath(workspace.path)).mainPath === repository.mainPath ? workspace : null;
+    } catch {
+      return null;
+    }
+  }))).find((workspace): workspace is StoredWorkspace => workspace !== null);
   if (existing) {
     existing.name = trimmedName;
+    existing.path = repository.mainPath;
     save(workspaces);
-    return existing;
+    return { ...existing, path: repository.mainPath, worktrees: repository.worktrees };
   }
-  const workspace: Workspace = { id: randomUUID(), name: trimmedName, path };
+  const workspace: StoredWorkspace = { id: randomUUID(), name: trimmedName, path: repository.mainPath };
   workspaces.push(workspace);
   save(workspaces);
-  return workspace;
+  return { ...workspace, worktrees: repository.worktrees };
 }
 
 export function removeWorkspace(id: string): void {
-  save(load().filter((w) => w.id !== id));
+  save(load().filter((workspace) => workspace.id !== id));
 }
 
-// Opens a plain shell tmux session in the workspace path, auto-named from the
-// workspace so tapping "+" is one action with no prompt.
+async function workspaceByID(id: string): Promise<Workspace> {
+  const stored = load().find((workspace) => workspace.id === id);
+  if (!stored) throw new Error("workspace not found");
+  const repository = await repositoryForPath(stored.path);
+  if (stored.path !== repository.mainPath) {
+    stored.path = repository.mainPath;
+    const all = load().map((workspace) => workspace.id === id ? stored : workspace);
+    save(all);
+  }
+  return { ...stored, path: repository.mainPath, worktrees: repository.worktrees };
+}
+
+// Opens a plain shell tmux session at the primary checkout, auto-named from
+// the workspace so tapping "+" is one action with no prompt.
 export async function openSessionInWorkspace(id: string): Promise<string> {
-  const workspace = load().find((w) => w.id === id);
-  if (!workspace) throw new Error("workspace not found");
+  const workspace = await workspaceByID(id);
   const base = (workspace.name.replace(/[^A-Za-z0-9_-]/g, "-").replace(/^[^A-Za-z0-9_]+/, "") || "ws").slice(0, 24);
   const name = `${base}-${randomUUID().slice(0, 4)}`;
   assertValidName(name);
   await exec("tmux", ["new-session", "-d", "-s", name, "-c", workspace.path]);
   return name;
+}
+
+function containsPath(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(root + "/");
+}
+
+async function closeWorktrees(workspace: Workspace, paths: string[], force: boolean): Promise<{ closedPaths: string[]; killedSessions: string[] }> {
+  const targets = workspace.worktrees.filter((worktree) => paths.includes(worktree.path));
+  if (targets.length !== paths.length || targets.some((worktree) => worktree.isMain)) {
+    throw new Error("refusing to remove an unregistered or primary worktree");
+  }
+  if (!force) {
+    const dirty = targets.filter((worktree) => worktree.dirty);
+    if (dirty.length) throw new Error(`worktree has uncommitted changes: ${dirty.map((worktree) => worktree.branch ?? worktree.path).join(", ")}`);
+  }
+
+  // Stop any sessions rooted in the worktree before Git removes its directory.
+  // This makes close deterministic instead of leaving tmux processes stranded
+  // in a deleted working directory.
+  const sessions = await listSessions();
+  const sessionsToKill = sessions.filter((session) => targets.some((worktree) => containsPath(worktree.path, session.panePath)));
+  await Promise.all(sessionsToKill.map((session) => killSession(session.name)));
+
+  const closedPaths: string[] = [];
+  for (const target of targets) {
+    const args = ["-C", workspace.path, "worktree", "remove"];
+    if (force) args.push("--force");
+    args.push(target.path);
+    await exec("git", args);
+    closedPaths.push(target.path);
+  }
+  return { closedPaths, killedSessions: sessionsToKill.map((session) => session.name) };
+}
+
+export async function closeWorkspaceWorktree(id: string, path: string, force: boolean) {
+  const workspace = await workspaceByID(id);
+  return closeWorktrees(workspace, [path], force);
+}
+
+export async function closeAllWorkspaceWorktrees(id: string, force: boolean) {
+  const workspace = await workspaceByID(id);
+  return closeWorktrees(
+    workspace,
+    workspace.worktrees.filter((worktree) => !worktree.isMain).map((worktree) => worktree.path),
+    force,
+  );
 }
