@@ -1,10 +1,7 @@
-import { execFile } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
-
-const exec = promisify(execFile);
+import { run as exec } from "./run.js";
 
 export interface SessionLinks {
   claudeUrl: string | null;

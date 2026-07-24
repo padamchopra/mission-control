@@ -1,10 +1,8 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { promisify } from "node:util";
-
-const exec = promisify(execFile);
+import { run as exec } from "./run.js";
 // Must start with an alphanumeric/underscore so a name can never be read as a
 // tmux flag (leading "-") or a path segment ("."/".."/leading dot).
 const NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;

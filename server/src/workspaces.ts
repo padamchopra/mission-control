@@ -1,12 +1,9 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { configDir } from "./config.js";
+import { run as exec } from "./run.js";
 import { assertValidName, killSession, listSessions, sendText } from "./tmux.js";
-
-const exec = promisify(execFile);
 const workspacesFile = join(configDir, "workspaces.json");
 
 /** A workspace is a Git repository's primary checkout, never an arbitrary folder. */
