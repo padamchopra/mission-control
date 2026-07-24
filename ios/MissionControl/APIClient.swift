@@ -74,6 +74,15 @@ struct APIClient {
     }
 
     @discardableResult
+    func createSession(name: String?, path: String?, claude: Bool) async throws -> String {
+        var payload: [String: Any] = ["claude": claude]
+        if let name, !name.isEmpty { payload["name"] = name }
+        if let path, !path.isEmpty { payload["path"] = path }
+        let data = try await request("POST", "sessions", body: payload)
+        return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
+    }
+
+    @discardableResult
     func createTask(workspaceID: String, prompt: String) async throws -> String {
         let data = try await request("POST", "workspaces/\(workspaceID)/task", body: ["prompt": prompt])
         return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""

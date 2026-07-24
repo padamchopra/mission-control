@@ -34,6 +34,7 @@ import {
   capturePane,
   killSession,
   listSessions,
+  newShellSession,
   paneCurrentPath,
   paneInCopyMode,
   renameSession,
@@ -144,6 +145,16 @@ const server = createServer(async (req, res) => {
           diffStat: await diffStatFor(s.panePath),
         }))),
       });
+    }
+
+    if (req.method === "POST" && url.pathname === "/sessions") {
+      const body = await readJson(req);
+      const name = await newShellSession({
+        name: typeof body.name === "string" ? body.name : undefined,
+        path: typeof body.path === "string" ? body.path : undefined,
+        claude: body.claude === true,
+      });
+      return json(res, 200, { name });
     }
 
     if (req.method === "POST" && url.pathname === "/events") {

@@ -20,6 +20,7 @@ struct SessionListView: View {
     @State private var taskWorkspace: Workspace?
     @State private var prTarget: TmuxSession?
     @State private var showBroadcast = false
+    @State private var showNewSession = false
     @State private var fleetFilter: SessionState?
     @State private var activityTarget: TmuxSession?
     @State private var actionError: String?
@@ -130,6 +131,9 @@ struct SessionListView: View {
         .sheet(isPresented: $showBroadcast) {
             BroadcastSheet(sessions: sessions, api: api)
         }
+        .sheet(isPresented: $showNewSession) {
+            NewSessionSheet(workspaces: workspaces, api: api, onCreated: { name in path = [name] })
+        }
     }
 
     #if targetEnvironment(macCatalyst)
@@ -237,6 +241,14 @@ struct SessionListView: View {
                 }
             }
             Spacer()
+            Button { showNewSession = true } label: {
+                Image(systemName: "plus")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .liquidGlass(in: Circle())
+            .accessibilityLabel("New session")
             Button { showBroadcast = true } label: {
                 Image(systemName: "megaphone")
                     .font(.body.weight(.semibold))
@@ -322,6 +334,12 @@ struct SessionListView: View {
             .toolbar {
                 if store.servers.count > 1 || store.active != nil {
                     ToolbarItem(placement: .topBarLeading) { serverSwitcher }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showNewSession = true } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New session")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showBroadcast = true } label: {
@@ -471,11 +489,14 @@ struct SessionListView: View {
                 description: Text(loadError)
             )
         } else if sessions.isEmpty && hasLoaded {
-            ContentUnavailableView(
-                "No active sessions",
-                systemImage: "moon.zzz",
-                description: Text("Nothing is running in tmux on this server right now.")
-            )
+            ContentUnavailableView {
+                Label("No active sessions", systemImage: "moon.zzz")
+            } description: {
+                Text("Nothing is running in tmux on this server right now.")
+            } actions: {
+                Button("New session") { showNewSession = true }
+                    .buttonStyle(.borderedProminent)
+            }
         } else {
             sessionList
         }

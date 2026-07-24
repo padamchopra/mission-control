@@ -1,4 +1,7 @@
 import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -161,6 +164,23 @@ export async function paneCurrentPath(name: string): Promise<string | undefined>
   } catch {
     return undefined;
   }
+}
+
+// Starts a detached session in any directory (default: home). Optionally
+// launches Claude via a fixed argv. Used by the top-level "New session" action,
+// independent of any saved workspace.
+export async function newShellSession(options: { name?: string; path?: string; claude?: boolean }): Promise<string> {
+  const requested = options.name?.trim();
+  const name = requested && requested.length > 0 ? requested : `session-${randomUUID().slice(0, 6)}`;
+  assertValidName(name);
+  const cwd = options.path?.trim() || homedir();
+  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+    throw new Error("path is not a directory");
+  }
+  const args = ["new-session", "-d", "-s", name, "-c", cwd];
+  if (options.claude) args.push("claude");
+  await exec("tmux", args);
+  return name;
 }
 
 export async function killSession(name: string): Promise<void> {
