@@ -399,7 +399,7 @@ struct SessionListView: View {
                         do {
                             try await api?.saveWorkspace(fromSession: session.name, name: name, path: path)
                         } catch {
-                            actionError = "Couldn't save workspace. Check that the path exists on the server."
+                            actionError = error.localizedDescription
                         }
                     }
                 }

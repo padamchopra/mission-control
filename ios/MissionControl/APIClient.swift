@@ -275,6 +275,11 @@ struct APIClient {
         }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            // Prefer the server's own {error} message so validation failures
+            // (e.g. saving a workspace) explain themselves.
+            if let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"], !message.isEmpty {
+                throw APIError.server(message)
+            }
             throw APIError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
         return data
@@ -283,11 +288,14 @@ struct APIClient {
 
 enum APIError: LocalizedError {
     case badStatus(Int)
+    case server(String)
 
     var errorDescription: String? {
         switch self {
         case .badStatus(let code):
             return "Server returned \(code)"
+        case .server(let message):
+            return message
         }
     }
 }

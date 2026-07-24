@@ -170,7 +170,11 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === "/workspaces" && req.method === "POST") {
       const body = await readJson(req);
-      return json(res, 200, { workspace: await addWorkspace(String(body.name ?? ""), String(body.path ?? "")) });
+      try {
+        return json(res, 200, { workspace: await addWorkspace(String(body.name ?? ""), String(body.path ?? "")) });
+      } catch (err) {
+        return json(res, 400, { error: (err as Error).message || "could not add workspace" });
+      }
     }
     if (parts[0] === "workspaces" && parts[1]) {
       const id = decodeURIComponent(parts[1]);
@@ -312,7 +316,11 @@ const server = createServer(async (req, res) => {
         const requested = typeof body.path === "string" && body.path.trim() ? body.path.trim() : undefined;
         const cwd = requested ?? (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
         if (!cwd) throw new Error("could not resolve session directory");
-        return json(res, 200, { workspace: await addWorkspace(String(body.name ?? name), cwd) });
+        try {
+          return json(res, 200, { workspace: await addWorkspace(String(body.name ?? name), cwd) });
+        } catch (err) {
+          return json(res, 400, { error: (err as Error).message || "could not add workspace" });
+        }
       }
       if (req.method === "POST" && parts[2] === "upload") {
         const filename = String(req.headers["x-filename"] ?? "upload.bin");

@@ -52,6 +52,19 @@ function save(workspaces: StoredWorkspace[]): void {
   writeFileSync(workspacesFile, JSON.stringify(workspaces, null, 2) + "\n");
 }
 
+function gitErrorDetail(error: unknown): string {
+  const e = error as { stderr?: unknown; message?: unknown };
+  const stderr = typeof e?.stderr === "string" ? e.stderr : "";
+  const message = typeof e?.message === "string" ? e.message : "";
+  return (stderr || message)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(" ")
+    .slice(0, 300);
+}
+
 function parseWorktreeList(porcelain: string): ParsedWorktree[] {
   return porcelain
     .split("\n\n")
@@ -69,8 +82,12 @@ async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; o
   let porcelain: string;
   try {
     ({ stdout: porcelain } = await exec("git", ["-C", path, "worktree", "list", "--porcelain"]));
-  } catch {
-    throw new Error("workspace path must be inside a Git repository");
+  } catch (error) {
+    // Surface git's real reason (and the resolved path we tried) instead of a
+    // fixed string — external drives, permissions, and dubious ownership all
+    // fail here and are indistinguishable without it.
+    const detail = gitErrorDetail(error);
+    throw new Error(detail ? `Git couldn't read a repository at "${path}": ${detail}` : `no Git repository at "${path}"`);
   }
   const entries = parseWorktreeList(porcelain).map((entry) => {
     try {
