@@ -70,6 +70,38 @@ async function worktreeListPorcelain(repoPath: string): Promise<string> {
   return stdout;
 }
 
+// Resolves a worktree's git directory without chdir'ing: a primary checkout has
+// .git as a directory; a linked worktree has a .git file "gitdir: <path>".
+function gitDirFor(worktreePath: string): string | null {
+  const dotGit = join(worktreePath, ".git");
+  try {
+    if (statSync(dotGit).isDirectory()) return dotGit;
+    const match = readFileSync(dotGit, "utf8").trim().match(/^gitdir:\s*(.+)$/);
+    if (match) {
+      const pointer = match[1].trim();
+      return pointer.startsWith("/") ? pointer : join(worktreePath, pointer);
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+// Dirty state of a worktree, computed WITHOUT chdir'ing into it (so git's
+// getcwd() never touches an EINTR-prone external volume). Conservative on error.
+async function worktreeDirty(worktreePath: string): Promise<boolean> {
+  const gitDir = gitDirFor(worktreePath);
+  try {
+    const args = gitDir
+      ? ["--git-dir", gitDir, "--work-tree", worktreePath, "status", "--porcelain"]
+      : ["-C", worktreePath, "status", "--porcelain"];
+    const { stdout } = await exec("git", args, { cwd: homedir() });
+    return stdout.trim().length > 0;
+  } catch {
+    return true;
+  }
+}
+
 function gitErrorDetail(error: unknown): string {
   const e = error as { stderr?: unknown; message?: unknown };
   const stderr = typeof e?.stderr === "string" ? e.stderr : "";
@@ -120,18 +152,12 @@ async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; o
 
   // Git documents the primary checkout as the first worktree in this output.
   const mainPath = entries[0].path;
-  const worktrees = await Promise.all(entries.map(async (entry, index) => {
-    let dirty = false;
-    try {
-      const { stdout } = await exec("git", ["-C", entry.path, "status", "--porcelain"]);
-      dirty = stdout.trim().length > 0;
-    } catch {
-      // A prunable/missing worktree stays visible so Git can report its state;
-      // we never assume it is safe to force-delete.
-      dirty = true;
-    }
-    return { path: entry.path, branch: entry.branch, isMain: index === 0, dirty };
-  }));
+  const worktrees = await Promise.all(entries.map(async (entry, index) => ({
+    path: entry.path,
+    branch: entry.branch,
+    isMain: index === 0,
+    dirty: await worktreeDirty(entry.path),
+  })));
   let origin: string | null = null;
   try {
     const { stdout } = await exec("git", ["-C", path, "remote", "get-url", "origin"]);
