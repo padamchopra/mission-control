@@ -5,7 +5,7 @@ import { config } from "./config.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream } from "./notify.js";
-import { removeWorktree, resolveLinks, worktreeInfo } from "./git.js";
+import { removeWorktree, resolveChecks, resolveLinks, worktreeInfo } from "./git.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
 import { attachStream } from "./stream.js";
@@ -231,6 +231,10 @@ const server = createServer(async (req, res) => {
             url.searchParams.get("pr") !== "0",
           ),
         );
+      }
+      if (req.method === "GET" && parts[2] === "checks") {
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        return json(res, 200, await resolveChecks(cwd, url.searchParams.get("refresh") === "1"));
       }
       if (req.method === "GET" && parts[2] === "worktree") {
         const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;

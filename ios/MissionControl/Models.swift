@@ -124,6 +124,20 @@ struct ConversationEntry: Decodable, Identifiable {
     var file: String?
     var skill: String?
     var diff: [ConversationDiffLine]?
+    var adds: Int?
+    var dels: Int?
+}
+
+// CI status for a session's open pull request, from `gh pr checks`.
+struct SessionChecks: Decodable {
+    var available: Bool
+    var checks: [CheckRun]
+}
+
+struct CheckRun: Decodable, Identifiable {
+    let name: String
+    let state: String // pass | fail | pending | skipping | cancel | ...
+    var id: String { name }
 }
 
 struct ServerUpdateStatus: Codable {

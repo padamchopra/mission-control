@@ -30,6 +30,9 @@ struct TerminalScreen: View {
     @State private var showActivity = false
     @State private var showSearch = false
     @State private var mode: SessionMode = .conversation
+    #if targetEnvironment(macCatalyst)
+    @State private var showInspector = false
+    #endif
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var toasts: ToastCenter
     @Environment(\.openURL) private var openURL
@@ -39,28 +42,16 @@ struct TerminalScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if mode == .terminal { connectionBanner }
-            modeBar
-            switch mode {
-            case .terminal:
-                terminalContent
-            case .conversation:
-                ConversationView(
-                    sessionName: sessionName,
-                    serverURL: serverURL,
-                    token: serverToken,
-                    onShowTerminal: { mode = .terminal }
-                )
-            }
-            MessageComposer(sessionName: sessionName)
-        }
-        .background(Color.black)
+        content
+            .background(Color.black)
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 pullRequestButton
+                #if targetEnvironment(macCatalyst)
+                inspectorToggle
+                #endif
                 if isKilling {
                     ProgressView()
                 } else {
@@ -122,6 +113,57 @@ struct TerminalScreen: View {
             Text("This kills the tmux session and everything running in it (\(sessionName)).")
         }
     }
+
+    // On the Mac, the detail can host an optional inspector beside the main
+    // column. On the phone there's no room, so it's just the main column.
+    @ViewBuilder
+    private var content: some View {
+        #if targetEnvironment(macCatalyst)
+        HStack(spacing: 0) {
+            mainColumn
+            if showInspector {
+                Divider()
+                SessionInspector(sessionName: sessionName, serverURL: serverURL, token: serverToken)
+                    .frame(width: 320)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+        #else
+        mainColumn
+        #endif
+    }
+
+    private var mainColumn: some View {
+        VStack(spacing: 0) {
+            if mode == .terminal { connectionBanner }
+            modeBar
+            switch mode {
+            case .terminal:
+                terminalContent
+            case .conversation:
+                ConversationView(
+                    sessionName: sessionName,
+                    serverURL: serverURL,
+                    token: serverToken,
+                    onShowTerminal: { mode = .terminal }
+                )
+            }
+            MessageComposer(sessionName: sessionName)
+        }
+    }
+
+    #if targetEnvironment(macCatalyst)
+    private var inspectorToggle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { showInspector.toggle() }
+        } label: {
+            Image(systemName: "sidebar.trailing")
+        }
+        .foregroundStyle(showInspector ? Color.accentColor : Color.primary)
+        .keyboardShortcut("i", modifiers: [.command, .option])
+        .help("Toggle inspector (Changes · Plan · Checks)")
+    }
+    #endif
 
     private var modeBar: some View {
         Picker("View", selection: $mode) {

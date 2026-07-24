@@ -50,6 +50,11 @@ struct APIClient {
         return try JSONDecoder().decode(Conversation.self, from: data)
     }
 
+    func checks(_ session: String) async throws -> SessionChecks {
+        let data = try await request("GET", "sessions/\(session)/checks")
+        return try JSONDecoder().decode(SessionChecks.self, from: data)
+    }
+
     func setNotificationsMuted(_ session: String, muted: Bool) async throws {
         _ = try await request("POST", "sessions/\(session)/notifications", body: ["muted": muted])
     }

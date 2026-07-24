@@ -206,6 +206,7 @@ struct SessionListView: View {
                 }
                 .frame(maxHeight: .infinity)
             } else {
+                desktopFleetSummary
                 desktopSessionList
             }
         }
@@ -261,16 +262,64 @@ struct SessionListView: View {
     }
 
     private func desktopSessionRow(_ session: TmuxSession) -> some View {
-        Button {
-            path = [session.name]
-        } label: {
+        VStack(alignment: .leading, spacing: 8) {
             SessionRow(session: session, isKilling: killing.contains(session.name))
+                .contentShape(Rectangle())
+                .onTapGesture { path = [session.name] }
+            if session.resolvedState == .needsInput {
+                HStack(spacing: 8) {
+                    Button("Approve") { respond(session, keys: ["enter"], note: "Approved \(session.name)") }
+                        .tint(.green)
+                    Button("Deny") { respond(session, keys: ["escape"], note: "Sent Escape to \(session.name)") }
+                        .tint(.red)
+                    Button("Open") { path = [session.name] }
+                    Spacer(minLength: 0)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .font(.caption)
+            }
         }
-        .buttonStyle(.plain)
         .listRowBackground(
             session.name == path.last ? Color.accentColor.opacity(0.2) : Color.clear
         )
         .contextMenu { sessionContextMenu(session) }
+    }
+
+    // A one-glance fleet header: how many sessions want you, are working, or idle.
+    private var desktopFleetSummary: some View {
+        let needs = sessions.filter { $0.resolvedState == .needsInput }.count
+        let working = sessions.filter { $0.resolvedState == .working }.count
+        let idle = sessions.filter { $0.resolvedState == .idle }.count
+        return HStack(spacing: 14) {
+            summaryStat(needs, "need you", .orange)
+            summaryStat(working, "working", .blue)
+            summaryStat(idle, "idle", .secondary)
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 8)
+    }
+
+    private func summaryStat(_ count: Int, _ label: String, _ color: Color) -> some View {
+        HStack(spacing: 4) {
+            Text("\(count)").fontWeight(.bold).foregroundStyle(count > 0 ? color : Color.secondary)
+            Text(label).foregroundStyle(.secondary)
+        }
+    }
+
+    // Inline reply from a needs-input card: Enter accepts the highlighted
+    // default, Escape cancels — the same keys you'd press in the terminal.
+    private func respond(_ session: TmuxSession, keys: [String], note: String) {
+        Task {
+            do {
+                try await api?.sendKeys(session.name, keys: keys)
+                ToastCenter.shared.show(.success, note)
+            } catch {
+                ToastCenter.shared.show(.error, "Couldn't reach \(session.name)")
+            }
+        }
     }
     #endif
 

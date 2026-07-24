@@ -77,6 +77,64 @@ async function fetchPrUrl(cwd: string): Promise<string | null> {
   }
 }
 
+export interface CheckRun {
+  name: string;
+  state: string; // pass | fail | pending | skipping | cancel | ...
+}
+
+export interface ChecksResult {
+  available: boolean;
+  checks: CheckRun[];
+}
+
+const CHECKS_CACHE_TTL_MS = 30_000;
+const checksCache = new Map<string, { result: ChecksResult; at: number }>();
+
+// CI status for the branch's open PR, via `gh pr checks`. Same per-directory
+// caching as the PR link so polling clients don't hammer the GitHub API.
+export async function resolveChecks(cwd: string | undefined, refresh = false): Promise<ChecksResult> {
+  if (!cwd) return { available: false, checks: [] };
+  const cached = checksCache.get(cwd);
+  if (!refresh && cached && Date.now() - cached.at < CHECKS_CACHE_TTL_MS) return cached.result;
+  const result = await fetchChecks(cwd);
+  checksCache.set(cwd, { result, at: Date.now() });
+  return result;
+}
+
+function parseChecks(raw: string): CheckRun[] {
+  const parsed = JSON.parse(raw || "[]");
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((c: any) => ({
+      name: String(c.name ?? c.workflow ?? "").trim(),
+      state: String(c.bucket ?? c.state ?? "").toLowerCase(),
+    }))
+    .filter((c) => c.name.length > 0);
+}
+
+async function fetchChecks(cwd: string): Promise<ChecksResult> {
+  try {
+    const { stdout } = await exec("gh", ["pr", "checks", "--json", "name,state,bucket,workflow"], { cwd });
+    return { available: true, checks: parseChecks(stdout.trim()) };
+  } catch (err) {
+    // `gh pr checks` exits non-zero when any check is failing or pending, yet
+    // still prints the JSON to stdout — recover that before treating it as "no PR".
+    const out = String((err as { stdout?: unknown })?.stdout ?? "").trim();
+    if (out) {
+      try {
+        return { available: true, checks: parseChecks(out) };
+      } catch {
+        // fall through to the no-PR path
+      }
+    }
+    const detail = String((err as { stderr?: unknown })?.stderr ?? err ?? "").trim();
+    if (detail && !/no pull requests found|no checks reported|not a git repository/i.test(detail)) {
+      console.error(`checks lookup failed in ${cwd}:`, detail);
+    }
+    return { available: false, checks: [] };
+  }
+}
+
 export interface WorktreeInfo {
   isWorktree: boolean;
   path?: string;

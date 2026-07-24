@@ -16,6 +16,8 @@ export interface ConvEntry {
   file?: string;
   skill?: string;
   diff?: ConvDiffLine[];
+  adds?: number;
+  dels?: number;
 }
 
 export interface ConvDiffLine {
@@ -96,6 +98,11 @@ export function readConversation(path: string | undefined, limit = 120): Convers
           if (desc.skill) entry.skill = desc.skill;
           const diff = buildDiff(b.name, b.input);
           if (diff.length) entry.diff = diff;
+          const counts = countDiff(b.name, b.input);
+          if (counts.adds || counts.dels) {
+            entry.adds = counts.adds;
+            entry.dels = counts.dels;
+          }
           if (typeof b.id === "string") toolIndexById.set(b.id, entries.length);
           entries.push(entry);
         }
@@ -211,6 +218,29 @@ function buildDiff(name: unknown, input: any): ConvDiffLine[] {
     return sideLines(inp.content, "add");
   }
   return [];
+}
+
+// Accurate (uncapped) added/removed line counts for the Changes inspector,
+// counted the same naive way the diff is built: every old line is a deletion,
+// every new line an addition.
+function countDiff(name: unknown, input: any): { adds: number; dels: number } {
+  const inp = input && typeof input === "object" ? input : {};
+  if (name === "Edit") return { dels: lineCount(str(inp.old_string)), adds: lineCount(str(inp.new_string)) };
+  if (name === "MultiEdit" && Array.isArray(inp.edits)) {
+    let adds = 0;
+    let dels = 0;
+    for (const e of inp.edits) {
+      dels += lineCount(str(e?.old_string));
+      adds += lineCount(str(e?.new_string));
+    }
+    return { adds, dels };
+  }
+  if (name === "Write" && typeof inp.content === "string") return { adds: lineCount(inp.content), dels: 0 };
+  return { adds: 0, dels: 0 };
+}
+
+function lineCount(text?: string): number {
+  return text ? text.split("\n").length : 0;
 }
 
 function pairDiff(oldStr?: string, newStr?: string): ConvDiffLine[] {

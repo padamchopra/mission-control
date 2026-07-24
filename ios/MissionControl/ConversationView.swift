@@ -90,9 +90,7 @@ struct ConversationView: View {
     }
 
     private func assistantRow(_ text: String) -> some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(Color(white: 0.93))
+        MarkdownText(text: text)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
     }
