@@ -27,6 +27,7 @@ import {
   listWorkspaces,
   openSessionInWorkspace,
   removeWorkspace,
+  worktreeDirtyMap,
 } from "./workspaces.js";
 import { startServerUpdate, updateStatus } from "./update.js";
 import {
@@ -184,6 +185,9 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "POST" && parts[2] === "session") {
         return json(res, 200, { name: await openSessionInWorkspace(id) });
+      }
+      if (req.method === "GET" && parts[2] === "dirty") {
+        return json(res, 200, { dirty: await worktreeDirtyMap(id) });
       }
       if (req.method === "POST" && parts[2] === "task") {
         const body = await readJson(req);

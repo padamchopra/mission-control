@@ -166,6 +166,13 @@ struct APIClient {
         return try JSONDecoder().decode(WorkspacesResponse.self, from: data).workspaces
     }
 
+    /// Per-worktree dirty state, computed on demand (kept out of the fast list).
+    func worktreeDirty(workspaceID: String) async throws -> [String: Bool] {
+        let data = try await request("GET", "workspaces/\(workspaceID)/dirty", timeout: 60)
+        struct Response: Decodable { let dirty: [String: Bool] }
+        return (try? JSONDecoder().decode(Response.self, from: data))?.dirty ?? [:]
+    }
+
     func addWorkspace(name: String, path: String) async throws {
         _ = try await request("POST", "workspaces", body: ["name": name, "path": path], timeout: 45)
     }

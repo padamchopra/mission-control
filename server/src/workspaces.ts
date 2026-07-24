@@ -152,12 +152,16 @@ async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; o
 
   // Git documents the primary checkout as the first worktree in this output.
   const mainPath = entries[0].path;
-  const worktrees = await Promise.all(entries.map(async (entry, index) => ({
+  // Dirty state is deliberately NOT computed here: `git status` walks the whole
+  // working tree, which is slow on large repos / external drives — and this runs
+  // on every fleet poll. It's fetched on demand (the repository sheet) and
+  // recomputed fresh at close time, where accuracy actually matters.
+  const worktrees = entries.map((entry, index) => ({
     path: entry.path,
     branch: entry.branch,
     isMain: index === 0,
-    dirty: await worktreeDirty(entry.path),
-  })));
+    dirty: false,
+  }));
   let origin: string | null = null;
   try {
     const { stdout } = await exec("git", ["-C", path, "remote", "get-url", "origin"]);
@@ -332,7 +336,12 @@ async function closeWorktrees(workspace: Workspace, paths: string[], force: bool
     throw new Error("refusing to remove an unregistered or primary worktree");
   }
   if (!force) {
-    const dirty = targets.filter((worktree) => worktree.dirty);
+    // Recompute dirty fresh (listing no longer carries it) so clean close can
+    // never discard uncommitted work.
+    const dirty: GitWorktree[] = [];
+    for (const target of targets) {
+      if (await worktreeDirty(target.path)) dirty.push(target);
+    }
     if (dirty.length) throw new Error(`worktree has uncommitted changes: ${dirty.map((worktree) => worktree.branch ?? worktree.path).join(", ")}`);
   }
 
@@ -367,4 +376,15 @@ export async function closeAllWorkspaceWorktrees(id: string, force: boolean) {
     workspace.worktrees.filter((worktree) => !worktree.isMain).map((worktree) => worktree.path),
     force,
   );
+}
+
+// On-demand dirty state for every worktree of a workspace, for the repository
+// sheet. Kept out of the fleet-poll listing because `git status` is slow on big
+// repos and external drives.
+export async function worktreeDirtyMap(id: string): Promise<Record<string, boolean>> {
+  const workspace = await workspaceByID(id);
+  const entries = await Promise.all(
+    workspace.worktrees.map(async (worktree) => [worktree.path, await worktreeDirty(worktree.path)] as const),
+  );
+  return Object.fromEntries(entries);
 }

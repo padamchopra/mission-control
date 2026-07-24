@@ -15,6 +15,7 @@ struct WorkspaceRepositorySheet: View {
     @State private var pendingWorktree: GitWorktree?
     @State private var showCloseAll = false
     @State private var isClosing = false
+    @State private var checkingChanges = true
 
     init(
         workspace: Workspace,
@@ -81,7 +82,17 @@ struct WorkspaceRepositorySheet: View {
             } message: {
                 Text(closeMessage(for: linkedWorktrees, all: true))
             }
+            .task { await loadDirty() }
         }
+    }
+
+    private func loadDirty() async {
+        guard let api else { checkingChanges = false; return }
+        let map = (try? await api.worktreeDirty(workspaceID: workspace.id)) ?? [:]
+        worktrees = worktrees.map { worktree in
+            GitWorktree(path: worktree.path, branch: worktree.branch, isMain: worktree.isMain, dirty: map[worktree.path] ?? worktree.dirty)
+        }
+        checkingChanges = false
     }
 
     private var overview: some View {
@@ -104,6 +115,11 @@ struct WorkspaceRepositorySheet: View {
                     .textSelection(.enabled)
                 Text("\(linkedWorktrees.count) linked \(linkedWorktrees.count == 1 ? "worktree" : "worktrees")")
                     .font(.subheadline)
+                if checkingChanges {
+                    Label("Checking for changes…", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.vertical, 5)
         }
