@@ -184,3 +184,12 @@ the full threat model and input-handling notes.
   `~/.claude/sessions/`. Local-only sessions have no web URL and the item is hidden.
 - **Uploaded media** lives under the OS temp directory, which macOS purges on its
   own — no manual cleanup.
+- **Repositories on an external/removable volume** (e.g. `/Volumes/...`) need the
+  server's `node` binary to have **Full Disk Access**. The server runs as a
+  background launchd process, which macOS does *not* grant removable-volume access
+  by default — so git/`gh` commands against such a repo silently stall (workspace
+  saves and PR checks hang). Fix: System Settings → Privacy & Security → Full Disk
+  Access → add the node binary (`readlink -f "$(command -v node)"`), then restart
+  the server (`launchctl kickstart -k gui/$(id -u)/com.example.missioncontrol`).
+  Every git/`gh`/tmux call is also capped at 15s, so a stalled volume fails fast
+  instead of hanging.

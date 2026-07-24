@@ -244,14 +244,11 @@ async function computeWorkspaces(): Promise<Workspace[]> {
 export async function addWorkspace(name: string, rawPath: string): Promise<Workspace> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("workspace name required");
-  const startedAt = Date.now();
   const repository = await repositoryForPath(rawPath);
-  const resolvedAt = Date.now();
   const workspaces = load();
   // Dedupe by comparing resolved main-checkout paths as strings — never run
   // git/fs against other workspaces' (possibly stalled) drives during a save.
   const existing = workspaces.find((workspace) => workspace.path === repository.mainPath);
-  console.error(`addWorkspace: resolve ${resolvedAt - startedAt}ms · ${workspaces.length} existing`);
   if (existing) {
     existing.name = trimmedName;
     existing.path = repository.mainPath;

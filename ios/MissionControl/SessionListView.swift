@@ -44,14 +44,15 @@ struct SessionListView: View {
         APIClient(urlString: serverURL, token: serverToken)
     }
 
-    // body is split into layers (chrome → dialogs → lifecycle) because one flat
-    // modifier chain exceeds the type-checker's budget.
-    var body: some View {
+    // body is split into layers because one flat modifier chain exceeds the
+    // type-checker's budget. layeredBody holds navigation + sheets; body adds
+    // the session-action dialogs on top.
+    private var layeredBody: some View {
         Group {
             #if targetEnvironment(macCatalyst)
             desktopNavigation
             #else
-            NavigationStack(path: $path) { dialogsLayer }
+            NavigationStack(path: $path) { chromeLayer }
             #endif
         }
         .task(id: serverURL + serverToken) {
@@ -134,6 +135,73 @@ struct SessionListView: View {
         .sheet(isPresented: $showNewSession) {
             NewSessionSheet(workspaces: workspaces, api: api, onCreated: { name in path = [name] })
         }
+    }
+
+    var body: some View {
+        // Dialogs live here (not inside layeredBody) both to keep each modifier
+        // chain within the type-checker's budget and so the session
+        // context-menu actions work on the Mac split view too — its detail
+        // column never mounted the old iPhone-only dialogs layer.
+        layeredBody
+            .confirmationDialog(
+                "Kill session?",
+                isPresented: killPresented,
+                presenting: pendingKill
+            ) { session in
+                Button("Kill \(session.name)", role: .destructive) {
+                    Task { await kill(session) }
+                }
+            } message: { session in
+                Text("This kills the tmux session and everything running in it (\(session.name)).")
+            }
+            .alert("Rename session", isPresented: renamePresented, presenting: renameTarget) { session in
+                TextField("Name", text: $renameText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Rename") {
+                    Task { await rename(session, to: renameText) }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .alert("Save repository as workspace", isPresented: workspacePresented, presenting: workspaceTarget) { session in
+                TextField("Name", text: $workspaceName)
+                    .textInputAutocapitalization(.never)
+                TextField("Path", text: $workspacePath)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Save") {
+                    let name = workspaceName
+                    let path = workspacePath
+                    Task {
+                        do {
+                            try await api?.saveWorkspace(fromSession: session.name, name: name, path: path)
+                        } catch {
+                            actionError = error.localizedDescription
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("The selected path must be inside a Git repository. Mission Control saves its primary checkout and discovers all linked worktrees.")
+            }
+            .alert("Something went wrong", isPresented: errorPresented) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(actionError ?? "")
+            }
+            .alert("Remove worktree?", isPresented: cleanupPresented, presenting: pendingCleanup) { info in
+                if info.dirty != true {
+                    Button("Remove cleanly") {
+                        Task { await removeWorktreeAfterSession(info, force: false) }
+                    }
+                }
+                Button("Force remove", role: .destructive) {
+                    Task { await removeWorktreeAfterSession(info, force: true) }
+                }
+                Button("Keep", role: .cancel) {}
+            } message: { info in
+                Text(cleanupMessage(info))
+            }
     }
 
     #if targetEnvironment(macCatalyst)
@@ -361,69 +429,6 @@ struct SessionListView: View {
             }
             .sheet(isPresented: $showServers) {
                 ServersView()
-            }
-    }
-
-    private var dialogsLayer: some View {
-        chromeLayer
-            .confirmationDialog(
-                "Kill session?",
-                isPresented: killPresented,
-                presenting: pendingKill
-            ) { session in
-                Button("Kill \(session.name)", role: .destructive) {
-                    Task { await kill(session) }
-                }
-            } message: { session in
-                Text("This kills the tmux session and everything running in it (\(session.name)).")
-            }
-            .alert("Rename session", isPresented: renamePresented, presenting: renameTarget) { session in
-                TextField("Name", text: $renameText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Rename") {
-                    Task { await rename(session, to: renameText) }
-                }
-                Button("Cancel", role: .cancel) {}
-            }
-            .alert("Save repository as workspace", isPresented: workspacePresented, presenting: workspaceTarget) { session in
-                TextField("Name", text: $workspaceName)
-                    .textInputAutocapitalization(.never)
-                TextField("Path", text: $workspacePath)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Save") {
-                    let name = workspaceName
-                    let path = workspacePath
-                    Task {
-                        do {
-                            try await api?.saveWorkspace(fromSession: session.name, name: name, path: path)
-                        } catch {
-                            actionError = error.localizedDescription
-                        }
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text("The selected path must be inside a Git repository. Mission Control saves its primary checkout and discovers all linked worktrees.")
-            }
-            .alert("Something went wrong", isPresented: errorPresented) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(actionError ?? "")
-            }
-            .alert("Remove worktree?", isPresented: cleanupPresented, presenting: pendingCleanup) { info in
-                if info.dirty != true {
-                    Button("Remove cleanly") {
-                        Task { await removeWorktreeAfterSession(info, force: false) }
-                    }
-                }
-                Button("Force remove", role: .destructive) {
-                    Task { await removeWorktreeAfterSession(info, force: true) }
-                }
-                Button("Keep", role: .cancel) {}
-            } message: { info in
-                Text(cleanupMessage(info))
             }
     }
 
