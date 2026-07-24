@@ -15,12 +15,23 @@ export async function handleHookEvent(
 
   switch (event) {
     case "SessionStart":
-      registry.update(session, { ...base, state: "working", detail: "session started" });
+      registry.update(session, { ...base, state: "working", detail: "session started", currentAction: undefined });
       registry.recordActivity(session, "Session started", "Claude session started");
       break;
     case "UserPromptSubmit":
-      registry.update(session, { ...base, state: "working", detail: undefined });
+      registry.update(session, { ...base, state: "working", detail: undefined, currentAction: undefined });
       registry.recordActivity(session, "Prompt submitted", "Claude is working");
+      break;
+    // PreToolUse/PostToolUse give the fleet a live "what it's doing now" label.
+    // They fire often, so they only patch state — never the activity log.
+    case "PreToolUse":
+      registry.update(session, { ...base, state: "working", currentAction: toolLabel(payload) });
+      break;
+    case "PostToolUse":
+      registry.update(session, base);
+      break;
+    case "SessionEnd":
+      registry.update(session, { ...base, state: "idle", detail: "session ended", currentAction: undefined });
       break;
     case "Notification": {
       const message = str(payload.message) ?? "";
@@ -43,7 +54,7 @@ export async function handleHookEvent(
           break;
         }
         case "idle_prompt":
-          registry.update(session, { ...base, state: "idle", detail: "waiting for your next prompt" });
+          registry.update(session, { ...base, state: "idle", detail: "waiting for your next prompt", currentAction: undefined });
           if (previous?.state !== "idle") {
             registry.recordActivity(session, "Idle", "Claude is waiting for the next prompt");
           }
@@ -56,7 +67,7 @@ export async function handleHookEvent(
       break;
     }
     case "Stop":
-      registry.update(session, { ...base, state: "idle", detail: "turn finished" });
+      registry.update(session, { ...base, state: "idle", detail: "turn finished", currentAction: undefined });
       // A Stop hook is likewise sometimes repeated. A completed turn merits
       // one quiet update, never a stack of identical banners.
       if (previous?.state !== "idle") {
@@ -73,4 +84,41 @@ export async function handleHookEvent(
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+// A short, human label for what a tool call is doing, shown live on fleet cards.
+function toolLabel(payload: Record<string, unknown>): string | undefined {
+  const name = str(payload.tool_name);
+  if (!name) return undefined;
+  const input = payload.tool_input && typeof payload.tool_input === "object" ? (payload.tool_input as Record<string, unknown>) : {};
+  const base = (value: unknown) => {
+    const s = str(value);
+    return s ? s.split("/").pop() || s : "";
+  };
+  switch (name) {
+    case "Read":
+      return `Reading ${base(input.file_path)}`;
+    case "Edit":
+    case "MultiEdit":
+      return `Editing ${base(input.file_path)}`;
+    case "Write":
+      return `Writing ${base(input.file_path)}`;
+    case "Bash": {
+      const command = str(input.command) ?? str(input.description);
+      return command ? `Running: ${command.slice(0, 44)}` : "Running a command";
+    }
+    case "Grep":
+    case "Glob":
+      return "Searching the code";
+    case "Task":
+    case "Agent":
+      return "Delegating to a subagent";
+    case "TodoWrite":
+      return "Updating the plan";
+    case "WebFetch":
+    case "WebSearch":
+      return "Searching the web";
+    default:
+      return name;
+  }
 }

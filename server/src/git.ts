@@ -135,6 +135,102 @@ async function fetchChecks(cwd: string): Promise<ChecksResult> {
   }
 }
 
+export interface DiffStat {
+  files: number;
+  adds: number;
+  dels: number;
+}
+
+const DIFFSTAT_CACHE_TTL_MS = 15_000;
+const diffStatCache = new Map<string, { stat: DiffStat | null; at: number }>();
+
+// Uncommitted changes vs HEAD as a compact +/- summary for fleet cards.
+export async function diffStatFor(cwd: string | undefined): Promise<DiffStat | null> {
+  if (!cwd) return null;
+  const cached = diffStatCache.get(cwd);
+  if (cached && Date.now() - cached.at < DIFFSTAT_CACHE_TTL_MS) return cached.stat;
+  const stat = await computeDiffStat(cwd);
+  diffStatCache.set(cwd, { stat, at: Date.now() });
+  return stat;
+}
+
+async function computeDiffStat(cwd: string): Promise<DiffStat | null> {
+  try {
+    const { stdout } = await exec("git", ["-C", cwd, "diff", "--numstat", "HEAD"]);
+    let files = 0;
+    let adds = 0;
+    let dels = 0;
+    for (const line of stdout.split("\n")) {
+      if (!line.trim()) continue;
+      const [a, d] = line.split("\t");
+      files += 1;
+      adds += Number(a) || 0;
+      dels += Number(d) || 0;
+    }
+    return files === 0 ? null : { files, adds, dels };
+  } catch {
+    return null; // not a repo, no HEAD yet, detached, etc.
+  }
+}
+
+// Opens a PR for the current branch. With no title, `--fill` derives title/body
+// from the commits. Returns the PR URL gh prints.
+export async function createPullRequest(cwd: string | undefined, title?: string, body?: string): Promise<string> {
+  if (!cwd) throw new Error("no directory");
+  const args = ["pr", "create"];
+  if (title && title.trim()) {
+    args.push("--title", title.trim(), "--body", (body ?? "").trim());
+  } else {
+    args.push("--fill");
+  }
+  const { stdout } = await exec("gh", args, { cwd });
+  prCache.delete(cwd);
+  checksCache.delete(cwd);
+  return stdout.trim().split("\n").pop()?.trim() ?? "";
+}
+
+// Squash-merges the branch's PR. `auto` enables merge-when-green (GitHub merges
+// once required checks pass) instead of merging immediately.
+export async function mergePullRequest(cwd: string | undefined, auto: boolean): Promise<void> {
+  if (!cwd) throw new Error("no directory");
+  const args = ["pr", "merge", "--squash"];
+  if (auto) args.push("--auto");
+  await exec("gh", args, { cwd });
+  checksCache.delete(cwd);
+}
+
+export interface ReviewComment {
+  author: string;
+  body: string;
+  state?: string;
+}
+
+export async function reviewComments(cwd: string | undefined): Promise<ReviewComment[]> {
+  if (!cwd) return [];
+  try {
+    const { stdout } = await exec("gh", ["pr", "view", "--json", "reviews,comments"], { cwd });
+    const parsed = JSON.parse(stdout || "{}");
+    const out: ReviewComment[] = [];
+    for (const review of parsed.reviews ?? []) {
+      const body = String(review.body ?? "").trim();
+      const state = String(review.state ?? "").trim();
+      if (body || state) out.push({ author: login(review.author), body, state });
+    }
+    for (const comment of parsed.comments ?? []) {
+      const body = String(comment.body ?? "").trim();
+      if (body) out.push({ author: login(comment.author), body });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function login(author: unknown): string {
+  if (author && typeof author === "object" && "login" in author) return String((author as { login: unknown }).login ?? "");
+  return String(author ?? "");
+}
+
 export interface WorktreeInfo {
   isWorktree: boolean;
   path?: string;

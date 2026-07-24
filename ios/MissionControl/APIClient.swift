@@ -55,6 +55,30 @@ struct APIClient {
         return try JSONDecoder().decode(SessionChecks.self, from: data)
     }
 
+    @discardableResult
+    func createPullRequest(_ session: String, title: String?, body: String?) async throws -> String {
+        var payload: [String: Any] = [:]
+        if let title, !title.isEmpty { payload["title"] = title }
+        if let body, !body.isEmpty { payload["body"] = body }
+        let data = try await request("POST", "sessions/\(session)/pr", body: payload)
+        return (try? JSONDecoder().decode(PullRequestResult.self, from: data))?.url ?? ""
+    }
+
+    func mergePullRequest(_ session: String, auto: Bool) async throws {
+        _ = try await request("POST", "sessions/\(session)/pr/merge", body: ["auto": auto])
+    }
+
+    func reviews(_ session: String) async throws -> [ReviewComment] {
+        let data = try await request("GET", "sessions/\(session)/reviews")
+        return (try? JSONDecoder().decode(ReviewsResponse.self, from: data))?.comments ?? []
+    }
+
+    @discardableResult
+    func createTask(workspaceID: String, prompt: String) async throws -> String {
+        let data = try await request("POST", "workspaces/\(workspaceID)/task", body: ["prompt": prompt])
+        return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
+    }
+
     func setNotificationsMuted(_ session: String, muted: Bool) async throws {
         _ = try await request("POST", "sessions/\(session)/notifications", body: ["muted": muted])
     }

@@ -21,8 +21,10 @@ struct TmuxSession: Codable, Identifiable, Hashable {
     let panePath: String
     var state: SessionState?
     var detail: String?
+    var currentAction: String?
     var notificationsMuted: Bool?
     var preview: String?
+    var diffStat: DiffStatSummary?
 
     var id: String { name }
     var resolvedState: SessionState { state ?? .unknown }
@@ -31,6 +33,12 @@ struct TmuxSession: Codable, Identifiable, Hashable {
 
 struct SessionsResponse: Codable {
     let sessions: [TmuxSession]
+}
+
+struct DiffStatSummary: Codable, Hashable {
+    let files: Int
+    let adds: Int
+    let dels: Int
 }
 
 struct ModeResponse: Codable {
@@ -157,7 +165,23 @@ struct Workspace: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let path: String
+    var origin: String?
     let worktrees: [GitWorktree]
+}
+
+struct PullRequestResult: Decodable {
+    let url: String
+}
+
+struct ReviewComment: Decodable, Identifiable {
+    let author: String
+    let body: String
+    var state: String?
+    var id: String { "\(author)-\(body.prefix(24))" }
+}
+
+struct ReviewsResponse: Decodable {
+    let comments: [ReviewComment]
 }
 
 struct GitWorktree: Codable, Identifiable, Hashable {

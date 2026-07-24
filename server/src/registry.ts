@@ -7,6 +7,7 @@ export type SessionState = "working" | "needs_input" | "idle" | "unknown";
 export interface RegistryEntry {
   state: SessionState;
   detail?: string;
+  currentAction?: string;
   claudeSessionId?: string;
   transcriptPath?: string;
   cwd?: string;

@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { configDir } from "./config.js";
-import { assertValidName, killSession, listSessions } from "./tmux.js";
+import { assertValidName, killSession, listSessions, sendText } from "./tmux.js";
 
 const exec = promisify(execFile);
 const workspacesFile = join(configDir, "workspaces.json");
@@ -15,6 +15,8 @@ export interface Workspace {
   name: string;
   /** The repository's primary (main) checkout, used for new sessions. */
   path: string;
+  /** Display form of the `origin` remote (host/owner/repo), if any. */
+  origin: string | null;
   worktrees: GitWorktree[];
 }
 
@@ -61,7 +63,7 @@ function parseWorktreeList(porcelain: string): ParsedWorktree[] {
     .filter((entry): entry is ParsedWorktree => entry !== null);
 }
 
-async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; worktrees: GitWorktree[] }> {
+async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; origin: string | null; worktrees: GitWorktree[] }> {
   if (!existsSync(rawPath) || !statSync(rawPath).isDirectory()) throw new Error("path is not a directory");
   const path = realpathSync(rawPath);
   let porcelain: string;
@@ -95,7 +97,25 @@ async function repositoryForPath(rawPath: string): Promise<{ mainPath: string; w
     }
     return { path: entry.path, branch: entry.branch, isMain: index === 0, dirty };
   }));
-  return { mainPath, worktrees };
+  let origin: string | null = null;
+  try {
+    const { stdout } = await exec("git", ["-C", path, "remote", "get-url", "origin"]);
+    origin = normalizeRemote(stdout.trim());
+  } catch {
+    origin = null;
+  }
+  return { mainPath, origin, worktrees };
+}
+
+// git@github.com:owner/repo.git / https://github.com/owner/repo.git → github.com/owner/repo
+function normalizeRemote(url: string): string | null {
+  if (!url) return null;
+  const stripped = url
+    .replace(/\.git$/, "")
+    .replace(/^git@([^:]+):/, "$1/")
+    .replace(/^ssh:\/\//, "")
+    .replace(/^https?:\/\//, "");
+  return stripped || null;
 }
 
 /**
@@ -110,7 +130,7 @@ export async function listWorkspaces(): Promise<Workspace[]> {
     try {
       const repository = await repositoryForPath(workspace.path);
       return {
-        workspace: { ...workspace, path: repository.mainPath, worktrees: repository.worktrees },
+        workspace: { ...workspace, path: repository.mainPath, origin: repository.origin, worktrees: repository.worktrees },
         migrated: workspace.path !== repository.mainPath,
       };
     } catch {
@@ -144,12 +164,12 @@ export async function addWorkspace(name: string, rawPath: string): Promise<Works
     existing.name = trimmedName;
     existing.path = repository.mainPath;
     save(workspaces);
-    return { ...existing, path: repository.mainPath, worktrees: repository.worktrees };
+    return { ...existing, path: repository.mainPath, origin: repository.origin, worktrees: repository.worktrees };
   }
   const workspace: StoredWorkspace = { id: randomUUID(), name: trimmedName, path: repository.mainPath };
   workspaces.push(workspace);
   save(workspaces);
-  return { ...workspace, worktrees: repository.worktrees };
+  return { ...workspace, origin: repository.origin, worktrees: repository.worktrees };
 }
 
 export function removeWorkspace(id: string): void {
@@ -165,7 +185,7 @@ async function workspaceByID(id: string): Promise<Workspace> {
     const all = load().map((workspace) => workspace.id === id ? stored : workspace);
     save(all);
   }
-  return { ...stored, path: repository.mainPath, worktrees: repository.worktrees };
+  return { ...stored, path: repository.mainPath, origin: repository.origin, worktrees: repository.worktrees };
 }
 
 // Opens a plain shell tmux session at the primary checkout, auto-named from
@@ -176,6 +196,39 @@ export async function openSessionInWorkspace(id: string): Promise<string> {
   const name = `${base}-${randomUUID().slice(0, 4)}`;
   assertValidName(name);
   await exec("tmux", ["new-session", "-d", "-s", name, "-c", workspace.path]);
+  return name;
+}
+
+// Starts a whole new task: a fresh branch + linked worktree + tmux session with
+// Claude launched, and the task delivered as Claude's first message. Claude is
+// launched via a fixed argv ("claude"); the prompt is only ever delivered
+// through injection-safe bracketed paste, never as part of a shell command.
+export async function createTaskSession(id: string, prompt: string): Promise<string> {
+  const workspace = await workspaceByID(id);
+  const trimmed = prompt.trim();
+  const slug =
+    (trimmed || "task")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24)
+      .replace(/-+$/g, "") || "task";
+  const suffix = randomUUID().slice(0, 4);
+  const branch = `mc/${slug}-${suffix}`;
+  const worktreeParent = join(dirname(workspace.path), `${basename(workspace.path)}-worktrees`);
+  const worktreePath = join(worktreeParent, `${slug}-${suffix}`);
+  mkdirSync(worktreeParent, { recursive: true });
+  await exec("git", ["-C", workspace.path, "worktree", "add", "-b", branch, worktreePath]);
+
+  const name = `${slug}-${suffix}`;
+  assertValidName(name);
+  await exec("tmux", ["new-session", "-d", "-s", name, "-c", worktreePath, "claude"]);
+  if (trimmed) {
+    // Give Claude a moment to start, then hand it the task through bracketed paste.
+    setTimeout(() => {
+      sendText(name, trimmed, true).catch(() => {});
+    }, 2500);
+  }
   return name;
 }
 

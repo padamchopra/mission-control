@@ -44,7 +44,7 @@ const fs = require("fs");
 const path = require("path");
 const settingsPath = path.join(process.env.HOME, ".claude", "settings.json");
 const hookCmd = (event) => `$HOME/.mission-control/mc-hook.sh ${event}`;
-const events = ["SessionStart", "UserPromptSubmit", "Notification", "Stop"];
+const events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "SessionEnd"];
 
 const settings = fs.existsSync(settingsPath)
   ? JSON.parse(fs.readFileSync(settingsPath, "utf8"))

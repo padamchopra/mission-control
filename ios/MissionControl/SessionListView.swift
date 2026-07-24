@@ -206,7 +206,7 @@ struct SessionListView: View {
                 }
                 .frame(maxHeight: .infinity)
             } else {
-                desktopFleetSummary
+                fleetSummary
                 desktopSessionList
             }
         }
@@ -266,19 +266,7 @@ struct SessionListView: View {
             SessionRow(session: session, isKilling: killing.contains(session.name))
                 .contentShape(Rectangle())
                 .onTapGesture { path = [session.name] }
-            if session.resolvedState == .needsInput {
-                HStack(spacing: 8) {
-                    Button("Approve") { respond(session, keys: ["enter"], note: "Approved \(session.name)") }
-                        .tint(.green)
-                    Button("Deny") { respond(session, keys: ["escape"], note: "Sent Escape to \(session.name)") }
-                        .tint(.red)
-                    Button("Open") { path = [session.name] }
-                    Spacer(minLength: 0)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .font(.caption)
-            }
+            needsInputActions(session)
         }
         .listRowBackground(
             session.name == path.last ? Color.accentColor.opacity(0.2) : Color.clear
@@ -286,41 +274,6 @@ struct SessionListView: View {
         .contextMenu { sessionContextMenu(session) }
     }
 
-    // A one-glance fleet header: how many sessions want you, are working, or idle.
-    private var desktopFleetSummary: some View {
-        let needs = sessions.filter { $0.resolvedState == .needsInput }.count
-        let working = sessions.filter { $0.resolvedState == .working }.count
-        let idle = sessions.filter { $0.resolvedState == .idle }.count
-        return HStack(spacing: 14) {
-            summaryStat(needs, "need you", .orange)
-            summaryStat(working, "working", .blue)
-            summaryStat(idle, "idle", .secondary)
-            Spacer(minLength: 0)
-        }
-        .font(.caption)
-        .padding(.horizontal, 18)
-        .padding(.bottom, 8)
-    }
-
-    private func summaryStat(_ count: Int, _ label: String, _ color: Color) -> some View {
-        HStack(spacing: 4) {
-            Text("\(count)").fontWeight(.bold).foregroundStyle(count > 0 ? color : Color.secondary)
-            Text(label).foregroundStyle(.secondary)
-        }
-    }
-
-    // Inline reply from a needs-input card: Enter accepts the highlighted
-    // default, Escape cancels — the same keys you'd press in the terminal.
-    private func respond(_ session: TmuxSession, keys: [String], note: String) {
-        Task {
-            do {
-                try await api?.sendKeys(session.name, keys: keys)
-                ToastCenter.shared.show(.success, note)
-            } catch {
-                ToastCenter.shared.show(.error, "Couldn't reach \(session.name)")
-            }
-        }
-    }
     #endif
 
     private func recordNavigation(_ newPath: [String]) {
@@ -501,6 +454,9 @@ struct SessionListView: View {
 
     private var sessionList: some View {
         List {
+            fleetSummary
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             ForEach(workspaces) { workspace in
                 Section {
                     ForEach(sessionsFor(workspace)) { session in
@@ -523,10 +479,13 @@ struct SessionListView: View {
     }
 
     private func sessionLink(_ session: TmuxSession) -> some View {
-        NavigationLink(value: session.name) {
-            SessionRow(session: session, isKilling: killing.contains(session.name))
+        VStack(alignment: .leading, spacing: 8) {
+            NavigationLink(value: session.name) {
+                SessionRow(session: session, isKilling: killing.contains(session.name))
+            }
+            .disabled(killing.contains(session.name))
+            needsInputActions(session)
         }
-        .disabled(killing.contains(session.name))
         .contextMenu {
             sessionContextMenu(session)
         }
@@ -593,6 +552,59 @@ struct SessionListView: View {
                 session.notificationsMuted == true ? "Subscribe to notifications" : "Unsubscribe from notifications",
                 systemImage: session.notificationsMuted == true ? "bell" : "bell.slash"
             )
+        }
+    }
+
+    // One-glance fleet header shared by iPhone and Mac: who needs you / working / idle.
+    private var fleetSummary: some View {
+        let needs = sessions.filter { $0.resolvedState == .needsInput }.count
+        let working = sessions.filter { $0.resolvedState == .working }.count
+        let idle = sessions.filter { $0.resolvedState == .idle }.count
+        return HStack(spacing: 14) {
+            summaryStat(needs, "need you", .orange)
+            summaryStat(working, "working", .blue)
+            summaryStat(idle, "idle", .secondary)
+            Spacer(minLength: 0)
+        }
+        .font(.caption)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
+
+    private func summaryStat(_ count: Int, _ label: String, _ color: Color) -> some View {
+        HStack(spacing: 4) {
+            Text("\(count)").fontWeight(.bold).foregroundStyle(count > 0 ? color : Color.secondary)
+            Text(label).foregroundStyle(.secondary)
+        }
+    }
+
+    // Inline reply on a needs-input row: Enter accepts the highlighted default,
+    // Escape cancels — the same keys you'd press in the terminal.
+    @ViewBuilder
+    private func needsInputActions(_ session: TmuxSession) -> some View {
+        if session.resolvedState == .needsInput {
+            HStack(spacing: 8) {
+                Button("Approve") { respond(session, keys: ["enter"], note: "Approved \(session.name)") }
+                    .tint(.green)
+                Button("Deny") { respond(session, keys: ["escape"], note: "Sent Escape to \(session.name)") }
+                    .tint(.red)
+                Button("Open") { path = [session.name] }
+                Spacer(minLength: 0)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .font(.caption)
+        }
+    }
+
+    private func respond(_ session: TmuxSession, keys: [String], note: String) {
+        Task {
+            do {
+                try await api?.sendKeys(session.name, keys: keys)
+                ToastCenter.shared.show(.success, note)
+            } catch {
+                ToastCenter.shared.show(.error, "Couldn't reach \(session.name)")
+            }
         }
     }
 
@@ -789,6 +801,20 @@ private struct SessionRow: View {
             Text("\(session.paneCommand) · \(session.lastOutputDate.formatted(.relative(presentation: .named)))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if session.resolvedState == .working, let action = session.currentAction, !action.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "circle.fill").font(.system(size: 6)).foregroundStyle(.blue)
+                    Text(action).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            if let diff = session.diffStat {
+                HStack(spacing: 6) {
+                    Text("+\(diff.adds)").foregroundStyle(.green)
+                    Text("−\(diff.dels)").foregroundStyle(.red)
+                    Text("· \(diff.files) file\(diff.files == 1 ? "" : "s")").foregroundStyle(.secondary)
+                }
+                .font(.caption2.monospaced())
+            }
             if let preview = session.preview, !preview.isEmpty {
                 Text(preview)
                     .font(.caption.monospaced())

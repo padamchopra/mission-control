@@ -5,7 +5,16 @@ import { config } from "./config.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream } from "./notify.js";
-import { removeWorktree, resolveChecks, resolveLinks, worktreeInfo } from "./git.js";
+import {
+  createPullRequest,
+  diffStatFor,
+  mergePullRequest,
+  removeWorktree,
+  resolveChecks,
+  resolveLinks,
+  reviewComments,
+  worktreeInfo,
+} from "./git.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
 import { attachStream } from "./stream.js";
@@ -14,6 +23,7 @@ import {
   addWorkspace,
   closeAllWorkspaceWorktrees,
   closeWorkspaceWorktree,
+  createTaskSession,
   listWorkspaces,
   openSessionInWorkspace,
   removeWorkspace,
@@ -130,6 +140,8 @@ const server = createServer(async (req, res) => {
           // A short pane capture gives the fleet view useful context without
           // streaming every terminal or retaining output anywhere else.
           preview: (await capturePane(s.name, 1).catch(() => "")).trim(),
+          // Cached per directory, so the fleet poll stays cheap.
+          diffStat: await diffStatFor(s.panePath),
         }))),
       });
     }
@@ -157,6 +169,10 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "POST" && parts[2] === "session") {
         return json(res, 200, { name: await openSessionInWorkspace(id) });
+      }
+      if (req.method === "POST" && parts[2] === "task") {
+        const body = await readJson(req);
+        return json(res, 200, { name: await createTaskSession(id, String(body.prompt ?? "")) });
       }
       if (req.method === "POST" && parts[2] === "worktrees" && parts[3] === "close") {
         const body = await readJson(req);
@@ -235,6 +251,23 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && parts[2] === "checks") {
         const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
         return json(res, 200, await resolveChecks(cwd, url.searchParams.get("refresh") === "1"));
+      }
+      if (req.method === "POST" && parts[2] === "pr" && parts.length === 3) {
+        const body = await readJson(req);
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        const title = typeof body.title === "string" ? body.title : undefined;
+        const prBody = typeof body.body === "string" ? body.body : undefined;
+        return json(res, 200, { url: await createPullRequest(cwd, title, prBody) });
+      }
+      if (req.method === "POST" && parts[2] === "pr" && parts[3] === "merge") {
+        const body = await readJson(req);
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        await mergePullRequest(cwd, body.auto === true);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "GET" && parts[2] === "reviews") {
+        const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
+        return json(res, 200, { comments: await reviewComments(cwd) });
       }
       if (req.method === "GET" && parts[2] === "worktree") {
         const cwd = (await paneCurrentPath(name)) ?? registry.view(name)?.cwd;
