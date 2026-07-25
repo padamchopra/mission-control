@@ -4,7 +4,7 @@ import { WebSocketServer } from "ws";
 import { config } from "./config.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
-import { attachNotifyStream } from "./notify.js";
+import { attachNotifyStream, broadcast } from "./notify.js";
 import {
   createPullRequest,
   diffStatFor,
@@ -17,6 +17,7 @@ import {
 } from "./git.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
+import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { attachStream } from "./stream.js";
 import { readConversation, resolveTranscriptPath } from "./transcript.js";
 import {
@@ -133,6 +134,18 @@ const server = createServer(async (req, res) => {
       return json(res, 202, startServerUpdate());
     }
 
+    // Composer quick replies, shared across every client connected to this server.
+    if (url.pathname === "/quick-replies" && req.method === "GET") {
+      return json(res, 200, { replies: getQuickReplies() });
+    }
+    if (url.pathname === "/quick-replies" && req.method === "PUT") {
+      const body = await readJson(req);
+      const replies = setQuickReplies(body.replies);
+      // Live-sync to any desktop client already open on this server.
+      broadcast({ type: "quick-replies", replies });
+      return json(res, 200, { replies });
+    }
+
     if (req.method === "GET" && url.pathname === "/sessions") {
       const sessions = await listSessions();
       return json(res, 200, {
@@ -224,7 +237,14 @@ const server = createServer(async (req, res) => {
         const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 120), 1), 400);
         const entry = registry.view(name);
         const path = entry?.transcriptPath ?? resolveTranscriptPath(entry?.cwd, entry?.claudeSessionId);
-        return json(res, 200, readConversation(path, limit));
+        const conversation = readConversation(path, limit);
+        // Attach the live hook state so the feed can show a processing indicator.
+        // Guarded on `available` so we never mutate the shared UNAVAILABLE object.
+        if (conversation.available) {
+          if (entry?.state) conversation.state = entry.state;
+          if (entry?.currentAction) conversation.action = entry.currentAction;
+        }
+        return json(res, 200, conversation);
       }
       if (req.method === "GET" && parts[2] === "notifications") {
         return json(res, 200, { muted: registry.view(name)?.notificationsMuted === true });

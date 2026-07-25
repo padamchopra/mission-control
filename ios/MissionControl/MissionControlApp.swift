@@ -6,6 +6,10 @@ struct MissionControlApp: App {
     @StateObject private var router = AppRouter.shared
     @StateObject private var servers = ServerStore.shared
     @StateObject private var toasts = ToastCenter.shared
+    // Instantiated at launch so it observes the active server and does an initial
+    // fetch before the composer's quick-reply menu is first opened.
+    @StateObject private var quickReplies = QuickRepliesStore.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +18,11 @@ struct MissionControlApp: App {
                 .environmentObject(servers)
                 .environmentObject(toasts)
                 .preferredColorScheme(.dark)
+                // The phone doesn't hold the notify socket (that's desktop-only),
+                // so pull the latest quick replies whenever it returns to front.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await quickReplies.refresh() } }
+                }
         }
         .commands {
             CommandMenu("Navigate") {

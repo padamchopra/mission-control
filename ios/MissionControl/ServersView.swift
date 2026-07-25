@@ -24,6 +24,7 @@ struct ServersView: View {
         NavigationStack {
             List {
                 serverListContent
+                composerSection
                 maintenanceSection
             }
             .navigationTitle("Servers")
@@ -118,6 +119,18 @@ struct ServersView: View {
         }
         ForEach(store.servers) { server in
             serverRow(server)
+        }
+    }
+
+    private var composerSection: some View {
+        Section {
+            NavigationLink {
+                QuickRepliesView()
+            } label: {
+                Label("Quick replies", systemImage: "text.bubble")
+            }
+        } header: {
+            Text("Composer")
         }
     }
 

@@ -97,6 +97,19 @@ struct APIClient {
         return (try? JSONDecoder().decode(NotificationSettings.self, from: data))?.muted ?? false
     }
 
+    /// The server's shared composer quick replies. Every client connected to the
+    /// same server sees this one list.
+    func quickReplies() async throws -> [String] {
+        let data = try await request("GET", "quick-replies")
+        return try JSONDecoder().decode(QuickRepliesResponse.self, from: data).replies
+    }
+
+    @discardableResult
+    func saveQuickReplies(_ replies: [String]) async throws -> [String] {
+        let data = try await request("PUT", "quick-replies", body: ["replies": replies])
+        return try JSONDecoder().decode(QuickRepliesResponse.self, from: data).replies
+    }
+
     func startServerUpdate() async throws -> ServerUpdateStatus {
         let data = try await request("POST", "server/update")
         return try JSONDecoder().decode(ServerUpdateStatus.self, from: data)

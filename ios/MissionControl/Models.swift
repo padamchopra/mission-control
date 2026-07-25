@@ -99,6 +99,10 @@ struct NotificationSettings: Codable {
     let muted: Bool
 }
 
+struct QuickRepliesResponse: Codable {
+    let replies: [String]
+}
+
 // The structured conversation feed, parsed server-side from the session's Claude
 // Code transcript. `available` is false for sessions without a transcript (plain
 // shells, or Claude sessions running without the Mission Control hooks).
@@ -108,6 +112,8 @@ struct Conversation: Decodable {
     var model: String?
     var todos: [ConversationTodo]
     var entries: [ConversationEntry]
+    var state: String?  // working | needs_input | idle | unknown
+    var action: String? // live step label while working, e.g. "Reading Foo.swift"
 }
 
 struct ConversationTodo: Decodable {
@@ -118,6 +124,23 @@ struct ConversationTodo: Decodable {
 struct ConversationDiffLine: Decodable {
     let kind: String // add | del | ctx
     let text: String
+}
+
+// One AskUserQuestion prompt shown in the feed. A picked option carries
+// `selected`; `answer` holds a free-text ("Other") response that matched no option.
+struct ConversationQuestion: Decodable {
+    var header: String?
+    let question: String
+    var multiSelect: Bool?
+    var options: [ConversationQuestionOption]
+    var answer: String?
+}
+
+struct ConversationQuestionOption: Decodable, Identifiable {
+    let label: String
+    var description: String?
+    var selected: Bool?
+    var id: String { label }
 }
 
 struct ConversationEntry: Decodable, Identifiable {
@@ -134,6 +157,7 @@ struct ConversationEntry: Decodable, Identifiable {
     var diff: [ConversationDiffLine]?
     var adds: Int?
     var dels: Int?
+    var questions: [ConversationQuestion]?
 }
 
 // CI status for a session's open pull request, from `gh pr checks`.

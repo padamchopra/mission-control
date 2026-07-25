@@ -1,5 +1,41 @@
 import SwiftUI
 
+// maxY of the feed's bottom sentinel within the scroll coordinate space, and the
+// scroll viewport's height — together they tell us whether the user is scrolled
+// up (so the jump-to-latest button should show).
+private struct BottomOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct ViewportHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Three dots that pulse in sequence — a lightweight "thinking" animation that
+/// reads as activity even before Claude produces any output.
+private struct TypingIndicator: View {
+    @State private var animating = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color(red: 0.42, green: 0.71, blue: 1.0))
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(animating ? 1.0 : 0.5)
+                    .opacity(animating ? 1.0 : 0.35)
+                    .animation(
+                        .easeInOut(duration: 0.6).repeatForever().delay(Double(index) * 0.2),
+                        value: animating
+                    )
+            }
+        }
+        .onAppear { animating = true }
+    }
+}
+
 /// A native, phone-friendly rendering of a session's Claude Code transcript:
 /// user prompts, assistant text, collapsible reasoning, tool calls with inline
 /// diffs/output, and the live plan. It polls the server the same way the
@@ -13,11 +49,23 @@ struct ConversationView: View {
     @State private var conversation: Conversation?
     @State private var failed = false
     @State private var expanded: Set<String> = []
+    @State private var viewportHeight: CGFloat = 0
+    @State private var bottomMaxY: CGFloat = 0
+    @State private var planExpanded = false
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
     private static let accent = Color(red: 0.04, green: 0.52, blue: 1.0)
     private static let verbColor = Color(red: 0.42, green: 0.71, blue: 1.0)
+    private static let scrollSpace = "convScroll"
+
+    // The bottom sentinel sits just below the viewport's lower edge while more
+    // content is scrolled off, so its maxY exceeding the viewport height (past a
+    // small slack) means the user has scrolled up.
+    private var isAtBottom: Bool {
+        guard viewportHeight > 0 else { return true }
+        return bottomMaxY <= viewportHeight + 60
+    }
 
     var body: some View {
         Group {
@@ -41,27 +89,76 @@ struct ConversationView: View {
     }
 
     private func feed(_ conversation: Conversation) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(conversation.entries) { entry in
-                        row(entry).id(entry.id)
+        VStack(spacing: 0) {
+            if !conversation.todos.isEmpty {
+                planBar(conversation.todos)
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(conversation.entries) { entry in
+                            row(entry).id(entry.id)
+                        }
+                        if conversation.state == "working" {
+                            workingRow(conversation.action).id("WORKING")
+                        }
+                        Color.clear.frame(height: 1).id("BOTTOM")
+                            .background(GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: BottomOffsetKey.self,
+                                    value: geo.frame(in: .named(Self.scrollSpace)).maxY
+                                )
+                            })
                     }
-                    if !conversation.todos.isEmpty {
-                        planCard(conversation.todos).id("PLAN")
-                    }
-                    Color.clear.frame(height: 1).id("BOTTOM")
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 14)
+                .coordinateSpace(name: Self.scrollSpace)
+                .scrollDismissesKeyboard(.interactively)
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: ViewportHeightKey.self, value: geo.size.height)
+                })
+                .onPreferenceChange(BottomOffsetKey.self) { bottomMaxY = $0 }
+                .onPreferenceChange(ViewportHeightKey.self) { viewportHeight = $0 }
+                .onChange(of: conversation.entries.count) { _, _ in
+                    // Don't yank the user down while they're reading history; the
+                    // jump button is there for that. Only follow new content when
+                    // they're already at the bottom.
+                    guard isAtBottom else { return }
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                }
+                .onChange(of: conversation.state) { _, _ in
+                    // Keep the working indicator in view as it appears/disappears.
+                    guard isAtBottom else { return }
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                }
+                .onAppear {
+                    DispatchQueue.main.async { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                }
+                .overlay(alignment: .bottomTrailing) { jumpButton(proxy) }
+                .animation(.easeOut(duration: 0.2), value: isAtBottom)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: conversation.entries.count) { _, _ in
+        }
+    }
+
+    @ViewBuilder
+    private func jumpButton(_ proxy: ScrollViewProxy) -> some View {
+        if !isAtBottom {
+            Button {
                 withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+            } label: {
+                Image(systemName: "arrow.down")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(11)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.15)))
             }
-            .onAppear {
-                DispatchQueue.main.async { proxy.scrollTo("BOTTOM", anchor: .bottom) }
-            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 14)
+            .padding(.bottom, 14)
+            .transition(.scale.combined(with: .opacity))
+            .accessibilityLabel("Jump to latest")
         }
     }
 
@@ -71,7 +168,12 @@ struct ConversationView: View {
         case "user": userRow(entry.text ?? "")
         case "assistant": assistantRow(entry.text ?? "")
         case "thinking": thinkingRow(entry)
-        case "tool": toolRow(entry)
+        case "tool":
+            if let questions = entry.questions, !questions.isEmpty {
+                questionRow(entry, questions)
+            } else {
+                toolRow(entry)
+            }
         default: EmptyView()
         }
     }
@@ -93,6 +195,23 @@ struct ConversationView: View {
         MarkdownText(text: text)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
+    }
+
+    // Live "Claude is processing" indicator, shown at the tail of the feed while
+    // the session's hook state is `working`. Mirrors the thinking/spinner line
+    // the terminal shows so you know it's busy without switching to the terminal.
+    private func workingRow(_ action: String?) -> some View {
+        HStack(spacing: 10) {
+            TypingIndicator()
+            Text(action?.isEmpty == false ? action! : "Thinking…")
+                .font(.callout)
+                .foregroundStyle(Color(white: 0.6))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
     }
 
     private func thinkingRow(_ entry: ConversationEntry) -> some View {
@@ -166,6 +285,119 @@ struct ConversationView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // AskUserQuestion: Claude asked the user something. Rendered as an always-open
+    // card — the questions, their options, and which one the user picked (or the
+    // free-text answer they typed instead).
+    private func questionRow(_ entry: ConversationEntry, _ questions: [ConversationQuestion]) -> some View {
+        let answered = entry.status == "ok"
+        return VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 7) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Self.verbColor)
+                Text("Asked you")
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(Self.verbColor)
+                Spacer(minLength: 4)
+                if answered {
+                    Label("answered", systemImage: "checkmark")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.green)
+                } else {
+                    Label("waiting", systemImage: "clock")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+            }
+            ForEach(Array(questions.enumerated()), id: \.offset) { _, question in
+                questionBlock(question)
+            }
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+
+    private func questionBlock(_ question: ConversationQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let header = question.header, !header.isEmpty {
+                Text(header.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .kerning(0.6)
+                    .foregroundStyle(Color(white: 0.5))
+            }
+            Text(question.question)
+                .font(.callout)
+                .foregroundStyle(Color(white: 0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(question.options) { option in
+                    optionRow(option)
+                }
+                if let answer = question.answer, !answer.isEmpty {
+                    freeAnswerRow(answer)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func optionRow(_ option: ConversationQuestionOption) -> some View {
+        let selected = option.selected == true
+        return HStack(alignment: .top, spacing: 9) {
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 14))
+                .foregroundStyle(selected ? Self.accent : Color(white: 0.3))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(option.label)
+                    .font(.caption.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? .white : Color(white: 0.75))
+                if let description = option.description, !description.isEmpty {
+                    Text(description)
+                        .font(.caption2)
+                        .foregroundStyle(Color(white: 0.5))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selected ? Self.accent.opacity(0.14) : Color(white: 0.07),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(selected ? Self.accent.opacity(0.55) : Color.clear, lineWidth: 1)
+        )
+    }
+
+    private func freeAnswerRow(_ answer: String) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(Self.accent)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your answer")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color(white: 0.5))
+                Text(answer)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Self.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Self.accent.opacity(0.55), lineWidth: 1)
+        )
+    }
+
     @ViewBuilder
     private func statusIcon(_ status: String?) -> some View {
         switch status {
@@ -205,27 +437,69 @@ struct ConversationView: View {
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color(white: 0.18)))
     }
 
-    private func planCard(_ todos: [ConversationTodo]) -> some View {
+    // The plan, pinned above the scrolling feed so progress stays glanceable no
+    // matter where you are in the history. Collapsed to a one-line progress
+    // summary by default; tap to reveal the full checklist.
+    private func planBar(_ todos: [ConversationTodo]) -> some View {
         let done = todos.filter { $0.status == "completed" }.count
-        return VStack(alignment: .leading, spacing: 9) {
-            Text("PLAN · \(done) of \(todos.count)")
-                .font(.caption2.weight(.bold))
-                .kerning(0.6)
-                .foregroundStyle(Color(white: 0.5))
-            ForEach(Array(todos.enumerated()), id: \.offset) { _, todo in
-                HStack(alignment: .top, spacing: 9) {
-                    todoBox(todo.status).padding(.top, 1)
-                    Text(todo.content)
-                        .font(.caption)
-                        .foregroundStyle(todo.status == "completed" ? Color(white: 0.5) : Color(white: 0.9))
-                        .strikethrough(todo.status == "completed", color: Color(white: 0.4))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        return VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.22)) { planExpanded.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "checklist")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Self.verbColor)
+                    Text("Plan")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("\(done) of \(todos.count)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(white: 0.55))
+                    Spacer(minLength: 8)
+                    progressBar(done: done, total: todos.count, width: 72)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.5))
+                        .rotationEffect(.degrees(planExpanded ? 0 : -90))
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if planExpanded {
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(Array(todos.enumerated()), id: \.offset) { _, todo in
+                        HStack(alignment: .top, spacing: 9) {
+                            todoBox(todo.status).padding(.top, 1)
+                            Text(todo.content)
+                                .font(.caption)
+                                .foregroundStyle(todo.status == "completed" ? Color(white: 0.5) : Color(white: 0.9))
+                                .strikethrough(todo.status == "completed", color: Color(white: 0.4))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(Color(white: 0.09))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(white: 0.18)).frame(height: 0.5)
+        }
+    }
+
+    private func progressBar(done: Int, total: Int, width: CGFloat) -> some View {
+        let fraction = total > 0 ? CGFloat(done) / CGFloat(total) : 0
+        return ZStack(alignment: .leading) {
+            Capsule().fill(Color(white: 0.22)).frame(width: width, height: 4)
+            Capsule().fill(Self.verbColor).frame(width: width * fraction, height: 4)
+        }
     }
 
     @ViewBuilder

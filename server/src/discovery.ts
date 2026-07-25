@@ -8,7 +8,8 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 
 const MAX_RESULTS = 80;
-const MAX_DEPTH = 6;
+const MAX_DEPTH = 8;
+const MAX_SCAN = 6000;
 const DISCOVERY_CACHE_TTL_MS = 30_000;
 const IGNORED_DIRECTORIES = new Set([
   ".git", ".build", ".next", ".swiftpm", "build", "deriveddata", "dist",
@@ -17,44 +18,110 @@ const IGNORED_DIRECTORIES = new Set([
 const SECRET_FILE = /(^|\/)(\.env(?:\.|$)|.*\.(?:key|pem|p12|mobileprovision))$/i;
 const projectRootCache = new Map<string, { root: string; at: number }>();
 const skillCache = new Map<string, { skills: SkillSuggestion[]; at: number }>();
+const fileListCache = new Map<string, { files: string[]; at: number }>();
 
 export type FileSuggestion = { path: string };
 export type SkillSuggestion = { name: string; description: string | null; source: "Project" | "Personal" };
 
 /**
- * Lists taggable project files relative to the active pane's directory. This
- * deliberately excludes generated trees and obvious credential files: the
- * picker should help the agent, not turn into a secret-file browser.
+ * Lists taggable project files relative to the active pane's directory, ranked
+ * by how well each matches the query. The candidate list comes from `git
+ * ls-files` when possible (no depth limit, honours .gitignore) and falls back to
+ * a bounded directory walk otherwise. Obvious credential files are always hidden:
+ * the picker should help the agent, not turn into a secret-file browser.
  */
 export async function findProjectFiles(root: string, query: string): Promise<FileSuggestion[]> {
   root = await projectRoot(root);
-  const results: FileSuggestion[] = [];
   const needle = query.trim().toLowerCase();
+  const candidates = await listCandidateFiles(root);
 
+  const scored: Array<{ path: string; score: number }> = [];
+  for (const path of candidates) {
+    if (SECRET_FILE.test(path)) continue;
+    const score = matchScore(path.toLowerCase(), needle);
+    if (score < 0) continue;
+    scored.push({ path, score });
+  }
+
+  // Highest relevance first; then prefer shorter (shallower) paths, then A→Z so
+  // the ordering is stable across requests.
+  scored.sort((a, b) =>
+    b.score - a.score || a.path.length - b.path.length || a.path.localeCompare(b.path),
+  );
+  return scored.slice(0, MAX_RESULTS).map(({ path }) => ({ path }));
+}
+
+async function listCandidateFiles(root: string): Promise<string[]> {
+  const cached = fileListCache.get(root);
+  if (cached && Date.now() - cached.at < DISCOVERY_CACHE_TTL_MS) return cached.files;
+  const files = (await gitFiles(root)) ?? (await walkFiles(root));
+  fileListCache.set(root, { files, at: Date.now() });
+  return files;
+}
+
+// Tracked plus untracked-but-not-ignored files, repo-root-relative. NUL-delimited
+// so paths with spaces/newlines survive. Returns null when this isn't a git repo.
+async function gitFiles(root: string): Promise<string[] | null> {
+  try {
+    const { stdout } = await exec(
+      "git",
+      ["-C", root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+    const files = stdout.split("\0").filter(Boolean);
+    return files.length ? files : null;
+  } catch {
+    return null;
+  }
+}
+
+async function walkFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
   async function walk(directory: string, depth: number): Promise<void> {
-    if (depth > MAX_DEPTH || results.length >= MAX_RESULTS) return;
+    if (depth > MAX_DEPTH || out.length >= MAX_SCAN) return;
     let entries: Dirent<string>[];
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch {
       return;
     }
-
     for (const entry of entries) {
-      if (results.length >= MAX_RESULTS) return;
+      if (out.length >= MAX_SCAN) return;
       const fullPath = join(directory, entry.name);
-      const displayPath = relative(root, fullPath);
       if (entry.isDirectory()) {
         if (!IGNORED_DIRECTORIES.has(entry.name.toLowerCase())) await walk(fullPath, depth + 1);
-        continue;
+      } else if (entry.isFile()) {
+        out.push(relative(root, fullPath));
       }
-      if (!entry.isFile() || SECRET_FILE.test(displayPath)) continue;
-      if (!needle || displayPath.toLowerCase().includes(needle)) results.push({ path: displayPath });
     }
   }
-
   await walk(root, 0);
-  return results.sort((a, b) => a.path.localeCompare(b.path));
+  return out;
+}
+
+// Ranks a lowercased path against a lowercased needle. Filename matches beat path
+// matches, prefixes beat interior hits, and a subsequence ("mdtext" → MarkdownText)
+// is the last resort. A negative score means "no match, drop it".
+function matchScore(path: string, needle: string): number {
+  if (!needle) return 0;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (name === needle) return 100;
+  const nameIdx = name.indexOf(needle);
+  if (nameIdx === 0) return 90;
+  if (nameIdx > 0) return 70;
+  const pathIdx = path.indexOf(needle);
+  if (pathIdx >= 0) return pathIdx === 0 || path[pathIdx - 1] === "/" ? 50 : 40;
+  if (isSubsequence(needle, name)) return 20;
+  if (isSubsequence(needle, path)) return 10;
+  return -1;
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+  let i = 0;
+  for (let j = 0; j < haystack.length && i < needle.length; j++) {
+    if (haystack[j] === needle[i]) i++;
+  }
+  return i === needle.length;
 }
 
 /** Searches project-local skills before a user's installed skills. */

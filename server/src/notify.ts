@@ -27,6 +27,19 @@ export function attachNotifyStream(ws: WebSocket): void {
   ws.on("error", () => clients.delete(ws));
 }
 
+// Push an arbitrary message to every connected desktop client. Used for live
+// settings sync (e.g. quick replies) so an edit on one device shows up on
+// another that's already open, without a poll. Unlike notifications this never
+// falls back to ntfy — a client that isn't connected just picks it up on its
+// next refresh.
+export function broadcast(payload: unknown): void {
+  if (clients.size === 0) return;
+  const text = JSON.stringify(payload);
+  for (const ws of clients) {
+    if (ws.readyState === ws.OPEN) ws.send(text);
+  }
+}
+
 // A half-dead socket (slept laptop, dropped VPN) would swallow notifications:
 // still "connected" so ntfy is skipped, but nothing arrives. Ping regularly
 // and drop clients that stop ponging, so delivery falls back to the phone.

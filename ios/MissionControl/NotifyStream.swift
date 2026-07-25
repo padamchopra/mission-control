@@ -32,7 +32,7 @@ final class NotifyStreamManager: NSObject {
     private func run(_ server: Server) async {
         while !Task.isCancelled {
             if let socket = openSocket(server) {
-                await receiveLoop(socket)
+                await receiveLoop(socket, server: server)
                 socket.cancel(with: .goingAway, reason: nil)
             }
             try? await Task.sleep(for: .seconds(20))
@@ -49,7 +49,7 @@ final class NotifyStreamManager: NSObject {
         return socket
     }
 
-    private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
+    private func receiveLoop(_ socket: URLSessionWebSocketTask, server: Server) async {
         while !Task.isCancelled {
             guard let message = try? await socket.receive() else { return }
             let data: Data?
@@ -58,7 +58,22 @@ final class NotifyStreamManager: NSObject {
             case .data(let raw): data = raw
             @unknown default: data = nil
             }
-            if let data, let event = try? JSONDecoder().decode(NotifyEvent.self, from: data) {
+            guard let data else { continue }
+            await handle(data, server: server)
+        }
+    }
+
+    private func handle(_ data: Data, server: Server) async {
+        // Notifications carry no `type` (or "notification"); other payloads —
+        // like live quick-reply edits — are tagged so we can route them.
+        let type = (try? JSONDecoder().decode(WSEnvelope.self, from: data))?.type
+        switch type {
+        case "quick-replies":
+            if let push = try? JSONDecoder().decode(QuickRepliesPush.self, from: data) {
+                await QuickRepliesStore.shared.applyPushed(push.replies, for: server)
+            }
+        default:
+            if let event = try? JSONDecoder().decode(NotifyEvent.self, from: data) {
                 await post(event)
             }
         }
@@ -88,4 +103,13 @@ struct NotifyEvent: Codable {
     let title: String
     let message: String
     let highPriority: Bool
+}
+
+// Just enough to tell notify-stream message kinds apart before fully decoding.
+private struct WSEnvelope: Decodable {
+    let type: String?
+}
+
+private struct QuickRepliesPush: Decodable {
+    let replies: [String]
 }

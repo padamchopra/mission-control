@@ -270,6 +270,11 @@ struct TerminalScreen: View {
         }
     }
 
+    // A plain toolbar icon that matches the menu/inspector buttons beside it,
+    // rather than a custom pill. The pull-request glyph reads as "PR" in both
+    // states (a magnifying glass looked like terminal search); colour carries the
+    // state — green once a PR exists and the tap opens it, otherwise a muted tap
+    // that checks the branch for one.
     private var pullRequestButton: some View {
         Button {
             if let url = links?.prUrl.flatMap(URL.init) {
@@ -281,25 +286,11 @@ struct TerminalScreen: View {
         } label: {
             if isCheckingPullRequest {
                 ProgressView()
-                    .frame(minWidth: 84)
-            } else if links?.prUrl != nil {
-                Label("Open PR", systemImage: "arrow.triangle.pull")
-                    .foregroundStyle(.white)
             } else {
-                Label("Check PR", systemImage: "magnifyingglass")
+                Image(systemName: "arrow.triangle.pull")
             }
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            links?.prUrl != nil ? Color.green : Color.white.opacity(0.1),
-            in: Capsule()
-        )
-        .overlay {
-            Capsule()
-                .stroke(links?.prUrl != nil ? Color.green : Color.white.opacity(0.18), lineWidth: 1)
-        }
+        .foregroundStyle(links?.prUrl != nil ? Color.green : Color.secondary)
         .disabled(isCheckingPullRequest)
         .accessibilityLabel(links?.prUrl != nil ? "Open pull request" : "Check for pull request")
         .help(links?.prUrl != nil ? "Open pull request" : "Check this branch for an open pull request")

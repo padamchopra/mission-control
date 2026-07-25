@@ -24,7 +24,7 @@ struct MessageComposer: View {
     // Recent sent messages, unit-separated so multi-line messages survive.
     @AppStorage("composerHistory") private var historyRaw = ""
 
-    private let snippets = ["Continue", "Run the tests", "Commit and push", "Explain your plan first", "Yes, go ahead", "Undo the last change"]
+    @ObservedObject private var quickReplies = QuickRepliesStore.shared
 
     private var recents: [String] {
         historyRaw.split(separator: "\u{1F}").map(String.init)
@@ -275,9 +275,11 @@ struct MessageComposer: View {
 
     private var quickMenu: some View {
         Menu {
-            Section("Quick messages") {
-                ForEach(snippets, id: \.self) { phrase in
-                    Button(phrase) { fill(phrase) }
+            if !quickReplies.replies.isEmpty {
+                Section("Quick replies") {
+                    ForEach(quickReplies.replies, id: \.self) { phrase in
+                        Button(phrase) { fill(phrase) }
+                    }
                 }
             }
             if !recents.isEmpty {

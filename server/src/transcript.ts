@@ -18,11 +18,28 @@ export interface ConvEntry {
   diff?: ConvDiffLine[];
   adds?: number;
   dels?: number;
+  questions?: ConvQuestion[];
 }
 
 export interface ConvDiffLine {
   kind: "add" | "del" | "ctx";
   text: string;
+}
+
+// One AskUserQuestion prompt. `answer` holds a free-text ("Other") response that
+// matched no listed option; a chosen option is marked via its `selected` flag.
+export interface ConvQuestion {
+  header?: string;
+  question: string;
+  multiSelect?: boolean;
+  options: ConvQuestionOption[];
+  answer?: string;
+}
+
+export interface ConvQuestionOption {
+  label: string;
+  description?: string;
+  selected?: boolean;
 }
 
 export interface ConvTodo {
@@ -36,6 +53,10 @@ export interface Conversation {
   model?: string;
   todos: ConvTodo[];
   entries: ConvEntry[];
+  // The session's live hook state, merged in by the endpoint so the feed can show
+  // a "working" indicator. `action` is the current step label (e.g. "Reading x").
+  state?: string; // working | needs_input | idle | unknown
+  action?: string;
 }
 
 // Transcripts grow without bound (tens of MB for long sessions), so we only ever
@@ -103,6 +124,10 @@ export function readConversation(path: string | undefined, limit = 120): Convers
             entry.adds = counts.adds;
             entry.dels = counts.dels;
           }
+          if (b.name === "AskUserQuestion") {
+            const questions = buildQuestions(b.input);
+            if (questions.length) entry.questions = questions;
+          }
           if (typeof b.id === "string") toolIndexById.set(b.id, entries.length);
           entries.push(entry);
         }
@@ -119,9 +144,16 @@ export function readConversation(path: string | undefined, limit = 120): Convers
         if (tr) {
           const idx = toolIndexById.get(tr.tool_use_id);
           if (idx != null && entries[idx]) {
-            entries[idx].status = tr.is_error ? "error" : "ok";
-            const out = resultText(tr.content) ?? resultText(o.toolUseResult);
-            if (out) entries[idx].output = clip(out, MAX_OUTPUT);
+            const entry = entries[idx];
+            entry.status = tr.is_error ? "error" : "ok";
+            if (entry.questions) {
+              // The answers are rendered inline on the chips, so skip the
+              // redundant "Your questions have been answered: …" text output.
+              applyAnswers(entry.questions, (o.toolUseResult as any)?.answers);
+            } else {
+              const out = resultText(tr.content) ?? resultText(o.toolUseResult);
+              if (out) entry.output = clip(out, MAX_OUTPUT);
+            }
           }
           continue;
         }
@@ -198,6 +230,12 @@ function describeTool(name: unknown, input: any): { verb: string; arg: string; f
       return { verb: "Fetched", arg: clip(str(inp.url) ?? "", MAX_ARG) };
     case "WebSearch":
       return { verb: "Searched web", arg: clip(str(inp.query) ?? "", MAX_ARG) };
+    case "AskUserQuestion": {
+      const qs = Array.isArray(inp.questions) ? inp.questions : [];
+      const first = str(qs[0]?.header) ?? str(qs[0]?.question) ?? "";
+      const arg = qs.length > 1 ? `${qs.length} questions` : first;
+      return { verb: "Asked", arg: clip(arg, MAX_ARG) };
+    }
     default:
       return { verb: n, arg: clip(firstString(inp), MAX_ARG) };
   }
@@ -255,6 +293,54 @@ function sideLines(text: string, kind: "add" | "del"): ConvDiffLine[] {
     shown.push({ kind: "ctx", text: `… ${lines.length - MAX_DIFF_SIDE} more lines` });
   }
   return shown;
+}
+
+function buildQuestions(input: any): ConvQuestion[] {
+  const qs = input && Array.isArray(input.questions) ? input.questions : [];
+  const out: ConvQuestion[] = [];
+  for (const q of qs) {
+    const question = str(q?.question);
+    if (!question) continue;
+    const options: ConvQuestionOption[] = [];
+    if (Array.isArray(q.options)) {
+      for (const opt of q.options) {
+        const label = str(opt?.label);
+        if (!label) continue;
+        const o: ConvQuestionOption = { label: clip(label, MAX_ARG) };
+        const description = str(opt?.description);
+        if (description) o.description = clip(description, MAX_TEXT);
+        options.push(o);
+      }
+    }
+    const entry: ConvQuestion = { question: clip(question, MAX_TEXT), options };
+    const header = str(q.header);
+    if (header) entry.header = header;
+    if (q.multiSelect === true) entry.multiSelect = true;
+    out.push(entry);
+  }
+  return out;
+}
+
+// Mark the option(s) the user picked from `toolUseResult.answers` (question text
+// → chosen label, or an array for multiSelect). A pick that matches no listed
+// option is an "Other" free-text response, kept on `answer`.
+function applyAnswers(questions: ConvQuestion[], answers: unknown): void {
+  if (!answers || typeof answers !== "object") return;
+  const map = answers as Record<string, unknown>;
+  const byTrimmed = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(map)) byTrimmed.set(k.trim(), v);
+  for (const q of questions) {
+    const raw = q.question in map ? map[q.question] : byTrimmed.get(q.question.trim());
+    if (raw == null) continue;
+    const picks = (Array.isArray(raw) ? raw : [raw]).map((p) => String(p)).filter((p) => p.length > 0);
+    const free: string[] = [];
+    for (const pick of picks) {
+      const opt = q.options.find((o) => o.label === pick || o.label === pick.trim());
+      if (opt) opt.selected = true;
+      else free.push(pick);
+    }
+    if (free.length) q.answer = clip(free.join(", "), MAX_TEXT);
+  }
 }
 
 function extractTodos(input: any): ConvTodo[] {
