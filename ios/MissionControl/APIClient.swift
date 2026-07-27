@@ -40,6 +40,14 @@ struct APIClient {
         _ = try await request("POST", "sessions/\(session)/keys", body: ["keys": keys])
     }
 
+    /// Pick a numbered option in an open prompt. The server re-reads the pane to
+    /// find where the highlight actually is before moving it, and refuses if the
+    /// screen no longer shows a choice — so a stale card can't answer the wrong
+    /// question.
+    func chooseOption(_ session: String, index: Int) async throws {
+        _ = try await request("POST", "sessions/\(session)/choose", body: ["index": index])
+    }
+
     func snapshot(_ session: String, lines: Int = 1_200) async throws -> String {
         let data = try await request(
             "GET",

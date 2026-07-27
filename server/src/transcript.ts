@@ -78,6 +78,9 @@ export interface Conversation {
   // on disk to parse. The terminal is the source of truth in this app, so fall
   // back to it rather than leaving the feed looking idle mid-question.
   prompt?: string;
+  // The same pane, parsed into a question when it reads like a choice — so the
+  // client can render its normal card, with the highlighted option marked.
+  promptQuestion?: ConvQuestion;
 }
 
 /// How the session is configured, recorded by Claude Code on its own records as

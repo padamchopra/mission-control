@@ -147,6 +147,10 @@ struct Conversation: Decodable {
     /// record only once the question is answered, so while the dialog is open
     /// the terminal is the only place the question exists.
     var prompt: String?
+    /// The same pane parsed into a question when it reads like a choice, with the
+    /// currently highlighted option marked — which is what makes picking a
+    /// specific option possible rather than only taking the default.
+    var promptQuestion: ConversationQuestion?
 }
 
 /// How a session is configured — most of what `/status` and `/model` would

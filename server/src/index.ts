@@ -16,6 +16,7 @@ import {
   worktreeInfo,
 } from "./git.js";
 import { buildInbox } from "./inbox.js";
+import { highlightedIndex, parsePanePrompt } from "./prompt.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
@@ -310,7 +311,12 @@ const server = createServer(async (req, res) => {
           // an open question dialog, whose record Claude Code writes only once
           // it's answered. Show the pane instead of an idle-looking feed.
           if (entry?.state === "needs_input" && !conversation.entries.some((e) => e.kind === "tool" && e.status == null)) {
-            conversation.prompt = trimPane(await capturePane(name, 40).catch(() => ""));
+            const pane = await capturePane(name, 40).catch(() => "");
+            conversation.prompt = trimPane(pane);
+            // Parsed into the same shape a transcript question produces, so the
+            // client renders one card either way. Raw pane stays attached as the
+            // fallback for when the dialog doesn't parse.
+            conversation.promptQuestion = parsePanePrompt(pane);
           }
         }
         return json(res, 200, conversation);
@@ -360,6 +366,26 @@ const server = createServer(async (req, res) => {
           pushSession(name, registry.view(name));
         }
         return json(res, 200, { ok: true });
+      }
+      // Pick a specific option in an open dialog. The pane says which row is
+      // highlighted, so the arrows needed to reach another one are computable —
+      // but only from a fresh read, so the highlight is re-derived here rather
+      // than trusted from whatever the client last rendered. Refuses rather than
+      // guesses if the pane no longer looks like a choice.
+      if (req.method === "POST" && parts[2] === "choose") {
+        const body = await readJson(req);
+        const target = Number(body.index);
+        if (!Number.isInteger(target) || target < 0 || target > 20) {
+          return json(res, 400, { error: "invalid option index" });
+        }
+        const current = highlightedIndex(await capturePane(name, 40));
+        if (current == null) {
+          return json(res, 409, { error: "no selectable prompt on screen" });
+        }
+        const steps = target - current;
+        const keys = Array(Math.abs(steps)).fill(steps > 0 ? "down" : "up");
+        await sendKeys(name, [...keys, "enter"]);
+        return json(res, 200, { ok: true, from: current, to: target });
       }
       if (req.method === "POST" && parts[2] === "scroll") {
         const body = await readJson(req);

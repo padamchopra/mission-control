@@ -208,7 +208,9 @@ notification away from ntfy.
 
 The server shells out to `tmux`/`git`/`gh` only via `execFile` with argument
 arrays (never a shell), validates session names, whitelists keys, and is reachable
-only over your tailnet behind a bearer token. See [SECURITY.md](SECURITY.md) for
+only over your tailnet behind a bearer token. Answering a prompt by tapping an
+option is arrow keys and Enter from that same whitelist — the option index is
+range-checked and resolved against a fresh read of the pane, never sent as text. See [SECURITY.md](SECURITY.md) for
 the full threat model and input-handling notes.
 
 ## Notes
@@ -223,9 +225,14 @@ the full threat model and input-handling notes.
   one is written only once the question is answered — so while a question is on
   screen there is nothing on disk to parse, and the feed would otherwise end on
   whatever tool ran before it. When a session is waiting on you and the transcript
-  can't say why, the server attaches a capture of the pane and the feed shows the
-  question verbatim. Once answered, the parsed card takes over, option previews
-  and all.
+  can't say why, the server captures the pane and parses it back into a question:
+  header, question, numbered options, and the preview panel. Because the pane
+  marks the highlighted row, the app can also reach any *other* option — tapping
+  one re-reads the pane, computes the arrow keys needed from where the cursor
+  actually is, and sends them. It refuses rather than guesses if the screen no
+  longer shows a choice. Reading a TUI's output back is inherently best-effort, so
+  the raw pane stays one tap away and is what's shown whenever the parse comes up
+  empty; once the question is answered the transcript-parsed card takes over.
 - **What can't be rendered natively.** Most of what Claude Code's informational
   slash commands print is recoverable without running them: the model, effort,
   permission mode, branch and build all come off the transcript, and context size

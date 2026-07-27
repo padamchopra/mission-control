@@ -123,7 +123,9 @@ struct ConversationView: View {
                         if conversation.state == "working" {
                             workingRow(conversation.action).id("WORKING")
                         }
-                        if let prompt = conversation.prompt, !prompt.isEmpty {
+                        if let question = conversation.promptQuestion {
+                            livePromptRow(question, raw: conversation.prompt).id("PROMPT")
+                        } else if let prompt = conversation.prompt, !prompt.isEmpty {
                             promptRow(prompt).id("PROMPT")
                         }
                         // Queued prompts sit after the live indicator because
@@ -362,6 +364,83 @@ struct ConversationView: View {
         }
     }
 
+    // The pane's question, parsed into the same card an answered one gets — and
+    // tappable, because the pane marks which row the cursor is on, so the arrows
+    // needed to reach any other row are computable. The raw pane stays one tap
+    // away for when the parse loses something.
+    private func livePromptRow(_ question: ConversationQuestion, raw: String?) -> some View {
+        let rawOpen = expanded.contains("PROMPT-RAW")
+        return VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 7) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+                Text("Waiting on you")
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.orange)
+                Spacer(minLength: 4)
+                if raw?.isEmpty == false {
+                    Button { toggle("PROMPT-RAW") } label: {
+                        Text(rawOpen ? "Hide terminal" : "Terminal")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Self.verbColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                if let header = question.header, !header.isEmpty {
+                    Text(header.uppercased())
+                        .font(.caption2.weight(.bold))
+                        .kerning(0.6)
+                        .foregroundStyle(Color(white: 0.5))
+                }
+                Text(question.question)
+                    .font(.callout)
+                    .foregroundStyle(Color(white: 0.9))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
+                        optionRow(
+                            option,
+                            number: index + 1,
+                            id: "PROMPT-o\(index)",
+                            live: true,
+                            onChoose: { choose(index, label: option.label) }
+                        )
+                    }
+                }
+                Text("Tap an option to answer it. The chevron marks the one Enter would take.")
+                    .font(.caption2)
+                    .foregroundStyle(Color(white: 0.45))
+            }
+            if rawOpen, let raw {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(raw)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.7))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: true, vertical: true)
+                }
+                .padding(9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+            }
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+        )
+    }
+
+    private func choose(_ index: Int, label: String) {
+        act("Chose \(label)") { api in try await api.chooseOption(sessionName, index: index) }
+    }
+
     // What the session is waiting on, taken straight from the pane. Claude Code's
     // question dialogs live in the TUI and their transcript record isn't written
     // until they're answered, so while one is open this is the only place the
@@ -598,27 +677,28 @@ struct ConversationView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func optionRow(_ option: ConversationQuestionOption, number: Int, id: String) -> some View {
+    private func optionRow(
+        _ option: ConversationQuestionOption,
+        number: Int,
+        id: String,
+        live: Bool = false,
+        onChoose: (() -> Void)? = nil
+    ) -> some View {
         let selected = option.selected == true
         let hasPreview = option.preview?.isEmpty == false
         let isOpen = expanded.contains(id)
         return VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 9) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14))
-                    .foregroundStyle(selected ? Self.accent : Color(white: 0.3))
-                    .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 2) {
-                    // Numbered to match the terminal's own list, so "option 2"
-                    // means the same thing in both places.
-                    Text("\(number). \(option.label)")
-                        .font(.caption.weight(selected ? .semibold : .regular))
-                        .foregroundStyle(selected ? .white : Color(white: 0.75))
-                    if let description = option.description, !description.isEmpty {
-                        Text(description)
-                            .font(.caption2)
-                            .foregroundStyle(Color(white: 0.5))
+                // The preview toggle is its own control, so only the label area
+                // takes the tap — nesting buttons would swallow one of them.
+                if let onChoose {
+                    Button(action: onChoose) {
+                        optionLabel(option, number: number, selected: selected, live: live)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(acting)
+                } else {
+                    optionLabel(option, number: number, selected: selected, live: live)
                 }
                 Spacer(minLength: 0)
                 if hasPreview {
@@ -654,6 +734,41 @@ struct ConversationView: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(selected ? Self.accent.opacity(0.55) : Color.clear, lineWidth: 1)
         )
+    }
+
+    // `selected` means two different things: the option the user picked, on an
+    // answered question, and the row the cursor sits on, in a live one. Same
+    // highlight, different glyph, so neither reads as the other.
+    private func optionLabel(
+        _ option: ConversationQuestionOption,
+        number: Int,
+        selected: Bool,
+        live: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: live
+                  ? (selected ? "chevron.right.circle.fill" : "circle")
+                  : (selected ? "checkmark.circle.fill" : "circle"))
+                .font(.system(size: 14))
+                .foregroundStyle(selected ? Self.accent : Color(white: 0.3))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                // Numbered to match the terminal's own list, so "option 2"
+                // means the same thing in both places.
+                Text("\(number). \(option.label)")
+                    .font(.caption.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? .white : Color(white: 0.75))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let description = option.description, !description.isEmpty {
+                    Text(description)
+                        .font(.caption2)
+                        .foregroundStyle(Color(white: 0.5))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     private func freeAnswerRow(_ answer: String, title: String = "Your answer") -> some View {
