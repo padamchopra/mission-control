@@ -313,55 +313,62 @@ struct SessionListView: View {
         }
     }
 
+    // Two rows on purpose. Four 36pt controls beside the title left it about
+    // 50pt at the sidebar's width, which SwiftUI spent on hyphenating "Mission
+    // Control" into a column of syllables. Owning a full-width row means the
+    // title can't be squeezed by whatever gets added to the action row next.
     private var desktopSidebarHeader: some View {
-        HStack(alignment: .center, spacing: 10) {
-            desktopSidebarToggle
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Mission Control")
-                    .font(.title2.weight(.bold))
-                if store.servers.count > 1 || store.active != nil {
-                    serverSwitcher
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                desktopSidebarToggle
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Mission Control")
+                        .font(.title2.weight(.bold))
+                        .lineLimit(1)
+                    if store.servers.count > 1 || store.active != nil {
+                        serverSwitcher
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                Spacer(minLength: 0)
             }
-            Spacer()
-            Button { router.showInbox() } label: {
-                inboxLabel
-                    .frame(width: 36, height: 36)
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                headerAction("Decisions", label: { inboxLabel }) { router.showInbox() }
+                    .accessibilityLabel(inboxAccessibilityLabel)
+                    .help("Decisions waiting on you (Shift-Command-D)")
+                headerAction("New session", systemImage: "plus") { showNewSession = true }
+                headerAction("Broadcast a message", systemImage: "megaphone") { showBroadcast = true }
+                    .disabled(sessions.isEmpty)
+                headerAction("Server settings", systemImage: "gearshape") { showServers = true }
             }
-            .buttonStyle(.plain)
-            .liquidGlass(in: Circle())
-            .accessibilityLabel(inboxAccessibilityLabel)
-            .help("Decisions waiting on you (Shift-Command-D)")
-            Button { showNewSession = true } label: {
-                Image(systemName: "plus")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.plain)
-            .liquidGlass(in: Circle())
-            .accessibilityLabel("New session")
-            Button { showBroadcast = true } label: {
-                Image(systemName: "megaphone")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.plain)
-            .liquidGlass(in: Circle())
-            .accessibilityLabel("Broadcast a message")
-            .disabled(sessions.isEmpty)
-            Button { showServers = true } label: {
-                Image(systemName: "gearshape")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.plain)
-            .liquidGlass(in: Circle())
-            .accessibilityLabel("Server settings")
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 10)
+    }
+
+    private func headerAction(
+        _ accessibilityLabel: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        headerAction(accessibilityLabel, label: {
+            Image(systemName: systemImage).font(.body.weight(.semibold))
+        }, action: action)
+    }
+
+    private func headerAction<Label: View>(
+        _ accessibilityLabel: String,
+        @ViewBuilder label: () -> Label,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            label().frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain)
+        .liquidGlass(in: Circle())
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var desktopSessionList: some View {
@@ -497,7 +504,11 @@ struct SessionListView: View {
             }
         } label: {
             HStack(spacing: 4) {
+                // A hostname is one token, so without this it wraps a character
+                // at a time rather than truncating.
                 Text(store.active?.name ?? "Servers")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Image(systemName: "chevron.down").font(.caption2)
             }
             .font(.subheadline.weight(.semibold))
