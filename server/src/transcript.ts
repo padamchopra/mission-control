@@ -36,11 +36,17 @@ export interface ConvQuestion {
   multiSelect?: boolean;
   options: ConvQuestionOption[];
   answer?: string;
+  // Free-text the user attached to their pick, alongside choosing an option.
+  notes?: string;
 }
 
 export interface ConvQuestionOption {
   label: string;
   description?: string;
+  // The option's worked example — often a draft of the thing being decided, and
+  // so the only part that actually settles the question. Dropping it left the
+  // card showing three labels and none of the substance.
+  preview?: string;
   selected?: boolean;
 }
 
@@ -65,6 +71,13 @@ export interface Conversation {
   // from what the server itself sent.
   pending?: PendingMessage[];
   info?: SessionInfo;
+  // The pane as it stands, attached only when the session is waiting on you and
+  // the transcript has nothing to show for it. Claude Code's question dialogs
+  // are interactive UI: the assistant record carrying an AskUserQuestion isn't
+  // written until the question is answered, so while it's open there is nothing
+  // on disk to parse. The terminal is the source of truth in this app, so fall
+  // back to it rather than leaving the feed looking idle mid-question.
+  prompt?: string;
 }
 
 /// How the session is configured, recorded by Claude Code on its own records as
@@ -107,6 +120,9 @@ const MAX_TEXT = 4000;
 const MAX_THINK = 1200;
 const MAX_ARG = 200;
 const MAX_OUTPUT = 400;
+// Option previews are code or prose drafts, so they need real room — but they're
+// rendered collapsed, so this is a ceiling rather than a target.
+const MAX_PREVIEW = 2500;
 const MAX_DIFF_SIDE = 30;
 
 const UNAVAILABLE: Conversation = { available: false, todos: [], entries: [] };
@@ -206,7 +222,9 @@ export function readConversation(path: string | undefined, limit = 120): Convers
             if (entry.questions) {
               // The answers are rendered inline on the chips, so skip the
               // redundant "Your questions have been answered: …" text output.
-              applyAnswers(entry.questions, (o.toolUseResult as any)?.answers);
+              const result = o.toolUseResult as any;
+              applyAnswers(entry.questions, result?.answers);
+              applyNotes(entry.questions, result?.annotations);
             } else {
               const out = resultText(tr.content) ?? resultText(o.toolUseResult);
               if (out) entry.output = clip(out, MAX_OUTPUT);
@@ -439,6 +457,8 @@ function buildQuestions(input: any): ConvQuestion[] {
         const o: ConvQuestionOption = { label: clip(label, MAX_ARG) };
         const description = str(opt?.description);
         if (description) o.description = clip(description, MAX_TEXT);
+        const preview = str(opt?.preview);
+        if (preview) o.preview = clip(preview, MAX_PREVIEW);
         options.push(o);
       }
     }
@@ -470,6 +490,20 @@ function applyAnswers(questions: ConvQuestion[], answers: unknown): void {
       else free.push(pick);
     }
     if (free.length) q.answer = clip(free.join(", "), MAX_TEXT);
+  }
+}
+
+// Notes the user typed alongside their pick, keyed by question text the same way
+// answers are. Defensive about the shape — this rides on an optional field.
+function applyNotes(questions: ConvQuestion[], annotations: unknown): void {
+  if (!annotations || typeof annotations !== "object") return;
+  const map = annotations as Record<string, any>;
+  const byTrimmed = new Map<string, any>();
+  for (const [k, v] of Object.entries(map)) byTrimmed.set(k.trim(), v);
+  for (const q of questions) {
+    const entry = q.question in map ? map[q.question] : byTrimmed.get(q.question.trim());
+    const notes = str(entry?.notes);
+    if (notes) q.notes = clip(notes, MAX_TEXT);
   }
 }
 

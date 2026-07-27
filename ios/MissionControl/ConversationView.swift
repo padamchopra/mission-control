@@ -123,6 +123,9 @@ struct ConversationView: View {
                         if conversation.state == "working" {
                             workingRow(conversation.action).id("WORKING")
                         }
+                        if let prompt = conversation.prompt, !prompt.isEmpty {
+                            promptRow(prompt).id("PROMPT")
+                        }
                         // Queued prompts sit after the live indicator because
                         // that's their real position: behind the running turn.
                         ForEach(conversation.pending ?? []) { message in
@@ -359,6 +362,49 @@ struct ConversationView: View {
         }
     }
 
+    // What the session is waiting on, taken straight from the pane. Claude Code's
+    // question dialogs live in the TUI and their transcript record isn't written
+    // until they're answered, so while one is open this is the only place the
+    // question exists — shown verbatim rather than not at all.
+    private func promptRow(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+                Text("Waiting on you")
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.orange)
+                Spacer(minLength: 4)
+                Button { onShowTerminal() } label: {
+                    Text("Open terminal")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Self.verbColor)
+                }
+                .buttonStyle(.plain)
+            }
+            // The pane is laid out for a fixed width, so let it scroll sideways
+            // rather than reflowing it into nonsense.
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.82))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: true)
+            }
+            Text("Answer with the chips below, or open the terminal to choose a specific option.")
+                .font(.caption2)
+                .foregroundStyle(Color(white: 0.45))
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+        )
+    }
+
     // A prompt Claude has been handed but hasn't started: same bubble as a sent
     // message, drawn hollow so it reads as not-yet-happened rather than as
     // history. Whichever device queued it, every device shows it.
@@ -505,8 +551,8 @@ struct ConversationView: View {
                         .foregroundStyle(.orange)
                 }
             }
-            ForEach(Array(questions.enumerated()), id: \.offset) { _, question in
-                questionBlock(question)
+            ForEach(Array(questions.enumerated()), id: \.offset) { index, question in
+                questionBlock(question, id: "\(entry.id)-q\(index)")
             }
         }
         .padding(13)
@@ -514,13 +560,23 @@ struct ConversationView: View {
         .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 
-    private func questionBlock(_ question: ConversationQuestion) -> some View {
+    private func questionBlock(_ question: ConversationQuestion, id: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let header = question.header, !header.isEmpty {
-                Text(header.uppercased())
-                    .font(.caption2.weight(.bold))
-                    .kerning(0.6)
-                    .foregroundStyle(Color(white: 0.5))
+            HStack(spacing: 6) {
+                if let header = question.header, !header.isEmpty {
+                    Text(header.uppercased())
+                        .font(.caption2.weight(.bold))
+                        .kerning(0.6)
+                        .foregroundStyle(Color(white: 0.5))
+                }
+                if question.multiSelect == true {
+                    Text("pick any")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color(white: 0.45))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color(white: 0.18), in: Capsule())
+                }
             }
             Text(question.question)
                 .font(.callout)
@@ -528,35 +584,67 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(question.options) { option in
-                    optionRow(option)
+                ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
+                    optionRow(option, number: index + 1, id: "\(id)-o\(index)")
                 }
                 if let answer = question.answer, !answer.isEmpty {
                     freeAnswerRow(answer)
+                }
+                if let notes = question.notes, !notes.isEmpty {
+                    freeAnswerRow(notes, title: "Your notes")
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func optionRow(_ option: ConversationQuestionOption) -> some View {
+    private func optionRow(_ option: ConversationQuestionOption, number: Int, id: String) -> some View {
         let selected = option.selected == true
-        return HStack(alignment: .top, spacing: 9) {
-            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 14))
-                .foregroundStyle(selected ? Self.accent : Color(white: 0.3))
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(option.label)
-                    .font(.caption.weight(selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? .white : Color(white: 0.75))
-                if let description = option.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption2)
-                        .foregroundStyle(Color(white: 0.5))
+        let hasPreview = option.preview?.isEmpty == false
+        let isOpen = expanded.contains(id)
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(selected ? Self.accent : Color(white: 0.3))
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    // Numbered to match the terminal's own list, so "option 2"
+                    // means the same thing in both places.
+                    Text("\(number). \(option.label)")
+                        .font(.caption.weight(selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? .white : Color(white: 0.75))
+                    if let description = option.description, !description.isEmpty {
+                        Text(description)
+                            .font(.caption2)
+                            .foregroundStyle(Color(white: 0.5))
+                    }
+                }
+                Spacer(minLength: 0)
+                if hasPreview {
+                    Button { toggle(id) } label: {
+                        HStack(spacing: 3) {
+                            Text(isOpen ? "Hide" : "Preview")
+                            Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8))
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Self.verbColor)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            Spacer(minLength: 0)
+            // Collapsed by default: a preview is often a full file draft, and
+            // three of them expanded would bury the question itself.
+            if isOpen, let preview = option.preview {
+                Text(preview)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.72))
+                    .textSelection(.enabled)
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+            }
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -568,14 +656,14 @@ struct ConversationView: View {
         )
     }
 
-    private func freeAnswerRow(_ answer: String) -> some View {
+    private func freeAnswerRow(_ answer: String, title: String = "Your answer") -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 14))
                 .foregroundStyle(Self.accent)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Your answer")
+                Text(title)
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Color(white: 0.5))
                 Text(answer)

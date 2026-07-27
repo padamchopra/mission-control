@@ -218,6 +218,14 @@ the full threat model and input-handling notes.
   `~/.claude/sessions/`. Local-only sessions have no web URL and the item is hidden.
 - **Uploaded media** lives under the OS temp directory, which macOS purges on its
   own — no manual cleanup.
+- **Open question dialogs come from the pane, not the transcript.** Claude Code's
+  `AskUserQuestion` dialogs are interactive UI, and the assistant record carrying
+  one is written only once the question is answered — so while a question is on
+  screen there is nothing on disk to parse, and the feed would otherwise end on
+  whatever tool ran before it. When a session is waiting on you and the transcript
+  can't say why, the server attaches a capture of the pane and the feed shows the
+  question verbatim. Once answered, the parsed card takes over, option previews
+  and all.
 - **What can't be rendered natively.** Most of what Claude Code's informational
   slash commands print is recoverable without running them: the model, effort,
   permission mode, branch and build all come off the transcript, and context size

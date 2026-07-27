@@ -135,6 +135,17 @@ function reconcilePending(name: string, conversation: Conversation): PendingMess
   return remaining.length > 0 ? remaining : undefined;
 }
 
+// A pane capture is padded to the terminal's width and height. Strip the trailing
+// blank rows and per-line padding so the prompt renders as a card rather than a
+// rectangle of whitespace, and drop the composer chrome at the foot of the pane.
+function trimPane(text: string): string | undefined {
+  const lines = text.split("\n").map((l) => l.replace(/\s+$/, ""));
+  while (lines.length && !lines[lines.length - 1]) lines.pop();
+  while (lines.length && !lines[0]) lines.shift();
+  const trimmed = lines.join("\n");
+  return trimmed.trim() ? trimmed : undefined;
+}
+
 // The transcript clips long messages and normalises nothing, so match on a
 // whitespace-collapsed prefix rather than the whole string.
 function sameMessage(transcriptText: string | undefined, queued: string): boolean {
@@ -295,6 +306,12 @@ const server = createServer(async (req, res) => {
           if (entry?.currentAction) conversation.action = entry.currentAction;
           conversation.context = readContextUsage(path);
           conversation.pending = reconcilePending(name, conversation);
+          // Waiting on a human, but nothing in the transcript says what for —
+          // an open question dialog, whose record Claude Code writes only once
+          // it's answered. Show the pane instead of an idle-looking feed.
+          if (entry?.state === "needs_input" && !conversation.entries.some((e) => e.kind === "tool" && e.status == null)) {
+            conversation.prompt = trimPane(await capturePane(name, 40).catch(() => ""));
+          }
         }
         return json(res, 200, conversation);
       }

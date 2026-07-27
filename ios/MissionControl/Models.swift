@@ -142,6 +142,11 @@ struct Conversation: Decodable {
     var context: ContextUsage?
     var pending: [PendingMessage]?
     var info: SessionInfo?
+    /// The pane as it stands, sent only when the session is waiting on you and
+    /// the transcript can't say why — Claude Code writes an AskUserQuestion
+    /// record only once the question is answered, so while the dialog is open
+    /// the terminal is the only place the question exists.
+    var prompt: String?
 }
 
 /// How a session is configured — most of what `/status` and `/model` would
@@ -253,11 +258,15 @@ struct ConversationQuestion: Decodable {
     var multiSelect: Bool?
     var options: [ConversationQuestionOption]
     var answer: String?
+    var notes: String?
 }
 
 struct ConversationQuestionOption: Decodable, Identifiable {
     let label: String
     var description: String?
+    /// The option's worked example — usually the draft being decided on, so
+    /// often the only part that actually answers the question.
+    var preview: String?
     var selected: Bool?
     var id: String { label }
 }
