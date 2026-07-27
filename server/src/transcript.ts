@@ -2,6 +2,7 @@ import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { config } from "./config.js";
+import type { PendingMessage } from "./registry.js";
 
 // A single rendered item in the conversation feed. `kind` picks the renderer on
 // the client; the other fields are populated per kind.
@@ -59,6 +60,10 @@ export interface Conversation {
   state?: string; // working | needs_input | idle | unknown
   action?: string;
   context?: ContextUsage;
+  // Prompts queued behind the current turn, merged in by the endpoint. Not in
+  // the transcript — Claude Code's queue never reaches disk — so these come
+  // from what the server itself sent.
+  pending?: PendingMessage[];
 }
 
 // How full the session's context window is, and how much history it has already

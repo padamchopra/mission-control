@@ -12,7 +12,6 @@ struct MessageComposer: View {
     @AppStorage("serverToken") private var serverToken = ""
 
     @State private var text = ""
-    @State private var queued: [String] = []
     @State private var textHeight: CGFloat = 34
     @State private var attachments: [Attachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
@@ -55,9 +54,6 @@ struct MessageComposer: View {
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !queued.isEmpty {
-                queuedStrip
-            }
             // Only once there's something to send. The placeholder already says
             // "Queue a message", so an unconditional banner would just be a line
             // of orange sitting there for the minutes an agent spends working.
@@ -92,51 +88,16 @@ struct MessageComposer: View {
             CameraPicker { image in addImages([image]) }
                 .ignoresSafeArea()
         }
-        // Once the turn ends, Claude has taken whatever was queued. Clearing on
-        // the way out of `working` can be a beat early when it goes straight into
-        // the next queued prompt, but nothing is lost — it's already delivered.
-        .onChange(of: sessionState) { _, state in
-            if state != .working { queued.removeAll() }
-        }
     }
 
+    // The queue itself is rendered in the conversation feed, from the server's
+    // record of it, so it shows on every device rather than only the one that
+    // typed it. All the composer owes you is a heads-up before you send.
     private var queueHint: some View {
         Label("Claude is working — this will be queued until the turn ends.", systemImage: "clock")
             .font(.caption2)
             .foregroundStyle(.orange)
             .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var queuedStrip: some View {
-        HStack(spacing: 8) {
-            Text("\(queued.count) queued")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.orange)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(queued.enumerated()), id: \.offset) { _, message in
-                        Text(message.replacingOccurrences(of: "\n", with: " "))
-                            .font(.caption2)
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.orange.opacity(0.15), in: Capsule())
-                            .foregroundStyle(.orange)
-                    }
-                }
-            }
-            // Only this device's view of the queue — Claude owns the real one, so
-            // let the user dismiss it if it ever looks wrong.
-            Button {
-                queued.removeAll()
-            } label: {
-                Image(systemName: "xmark.circle.fill").font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Hide queued messages")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @State private var photosPresented = false
@@ -410,7 +371,6 @@ struct MessageComposer: View {
         sending = true
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let outgoing = attachments
-        let queueing = willQueue
         Task {
             do {
                 var paths: [String] = []
@@ -426,12 +386,6 @@ struct MessageComposer: View {
                 try await api.sendText(sessionName, text: body)
                 await MainActor.run {
                     recordHistory(trimmed)
-                    if queueing {
-                        let label = trimmed.isEmpty
-                            ? "\(outgoing.count) attachment\(outgoing.count == 1 ? "" : "s")"
-                            : trimmed
-                        queued.append(label)
-                    }
                     text = ""
                     cursorRange = NSRange(location: 0, length: 0)
                     attachments = []

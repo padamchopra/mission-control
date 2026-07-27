@@ -4,7 +4,7 @@ import { WebSocketServer } from "ws";
 import { config } from "./config.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
-import { attachNotifyStream, broadcast, pushSessionList } from "./notify.js";
+import { attachNotifyStream, broadcast, pushSession, pushSessionList } from "./notify.js";
 import {
   createPullRequest,
   diffStatFor,
@@ -17,10 +17,10 @@ import {
 } from "./git.js";
 import { buildInbox } from "./inbox.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
-import { registry } from "./registry.js";
+import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { attachStream } from "./stream.js";
-import { readContextUsage, readConversation, resolveTranscriptPath } from "./transcript.js";
+import { readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
 import {
   addWorkspace,
   closeAllWorkspaceWorktrees,
@@ -115,6 +115,32 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
     });
     req.on("error", reject);
   });
+}
+
+// Which recorded prompts are still queued. A queued prompt counts as delivered
+// only once it appears in the transcript as a real user turn — testing for that
+// rather than trusting a hook means it doesn't matter whether UserPromptSubmit
+// fires when a prompt is queued or when Claude finally picks it up.
+function reconcilePending(name: string, conversation: Conversation): PendingMessage[] | undefined {
+  const pending = registry.pending(name);
+  if (pending.length === 0) return undefined;
+  const delivered = new Set<string>();
+  for (const p of pending) {
+    if (conversation.entries.some((e) => e.kind === "user" && sameMessage(e.text, p.text))) {
+      delivered.add(p.text);
+    }
+  }
+  if (delivered.size > 0) registry.dropPending(name, [...delivered]);
+  const remaining = pending.filter((p) => !delivered.has(p.text));
+  return remaining.length > 0 ? remaining : undefined;
+}
+
+// The transcript clips long messages and normalises nothing, so match on a
+// whitespace-collapsed prefix rather than the whole string.
+function sameMessage(transcriptText: string | undefined, queued: string): boolean {
+  if (!transcriptText) return false;
+  const key = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 160);
+  return key(transcriptText) === key(queued);
 }
 
 const server = createServer(async (req, res) => {
@@ -268,6 +294,7 @@ const server = createServer(async (req, res) => {
           if (entry?.state) conversation.state = entry.state;
           if (entry?.currentAction) conversation.action = entry.currentAction;
           conversation.context = readContextUsage(path);
+          conversation.pending = reconcilePending(name, conversation);
         }
         return json(res, 200, conversation);
       }
@@ -293,12 +320,28 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "POST" && parts[2] === "text") {
         const body = await readJson(req);
-        await sendText(name, String(body.text ?? ""), body.submit !== false);
+        const text = String(body.text ?? "");
+        const submit = body.submit !== false;
+        await sendText(name, text, submit);
+        // A prompt submitted mid-turn is queued by Claude Code, not run. Record
+        // it so every connected client can show it as pending — not just the one
+        // that sent it — and nudge them to look.
+        if (submit && text.trim() && registry.view(name)?.state === "working") {
+          registry.addPending(name, text.trim());
+          pushSession(name, registry.view(name));
+        }
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && parts[2] === "keys") {
         const body = await readJson(req);
-        await sendKeys(name, Array.isArray(body.keys) ? body.keys.map(String) : []);
+        const keys = Array.isArray(body.keys) ? body.keys.map(String) : [];
+        await sendKeys(name, keys);
+        // Escape interrupts the turn and discards whatever was queued behind it,
+        // so our record of that queue is stale the moment it lands.
+        if (keys.some((k) => k.toLowerCase() === "escape")) {
+          registry.dropPending(name);
+          pushSession(name, registry.view(name));
+        }
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && parts[2] === "scroll") {

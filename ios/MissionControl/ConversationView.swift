@@ -57,6 +57,8 @@ struct ConversationView: View {
     @State private var planExpanded = false
     @State private var pendingRefresh: Task<Void, Never>?
     @State private var loading = false
+    @State private var acting = false
+    @State private var confirmClear = false
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
@@ -94,6 +96,13 @@ struct ConversationView: View {
             guard push.serverURL == serverURL, push.session == sessionName else { return }
             requestRefresh()
         }
+        .confirmationDialog("Clear this conversation?", isPresented: $confirmClear) {
+            Button("Clear \(sessionName)", role: .destructive) {
+                send("/clear", note: "Cleared \(sessionName)")
+            }
+        } message: {
+            Text("Sends /clear. Claude loses the conversation's context — the transcript stays on disk, but the session starts fresh.")
+        }
     }
 
     private func feed(_ conversation: Conversation) -> some View {
@@ -112,6 +121,11 @@ struct ConversationView: View {
                         }
                         if conversation.state == "working" {
                             workingRow(conversation.action).id("WORKING")
+                        }
+                        // Queued prompts sit after the live indicator because
+                        // that's their real position: behind the running turn.
+                        ForEach(conversation.pending ?? []) { message in
+                            pendingRow(message.text).id("PENDING-\(message.id)")
                         }
                         Color.clear.frame(height: 1).id("BOTTOM")
                     }
@@ -153,6 +167,127 @@ struct ConversationView: View {
                 .overlay(alignment: .bottomTrailing) { jumpButton(proxy) }
                 .animation(.easeOut(duration: 0.2), value: isAtBottom)
             }
+            actionChips(conversation)
+        }
+    }
+
+    // A row of one-tap actions so the common moves — interrupt, approve, compact
+    // — don't require switching to the terminal to press a key. Everything here
+    // is either a whitelisted key or a fixed slash command sent as text; there's
+    // no path from a chip to an arbitrary command.
+    private func actionChips(_ conversation: Conversation) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                stateChips(conversation.state)
+                compactChip(conversation.context)
+                moreChip
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+        }
+        .background(Color(white: 0.05))
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color(white: 0.16)).frame(height: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private func stateChips(_ state: String?) -> some View {
+        switch state {
+        case "working":
+            // Escape is what you'd press in the terminal to interrupt a turn.
+            chip("Stop", "stop.circle", tint: .red) {
+                sendKeys(["escape"], note: "Interrupted \(sessionName)")
+            }
+        case "needs_input":
+            chip("Approve", "checkmark.circle", tint: .green) {
+                sendKeys(["enter"], note: "Approved \(sessionName)")
+            }
+            chip("Deny", "xmark.circle", tint: .red) {
+                sendKeys(["escape"], note: "Sent Escape to \(sessionName)")
+            }
+        default:
+            chip("Continue", "arrow.right.circle") {
+                send("Continue", note: "Sent to \(sessionName)")
+            }
+        }
+    }
+
+    // Compacting is the remedy for the meter above, so the chip carries the
+    // reading: it goes amber with the percentage once the window is tight.
+    private func compactChip(_ usage: ContextUsage?) -> some View {
+        let tight = usage?.isTight == true
+        let title = tight ? "Compact · \(usage?.percent ?? 0)%" : "Compact"
+        return chip(title, "arrow.down.right.and.arrow.up.left", tint: tight ? .orange : nil) {
+            send("/compact", note: "Compacting \(sessionName)")
+        }
+    }
+
+    private var moreChip: some View {
+        Menu {
+            Button {
+                send("/init", note: "Asked \(sessionName) to write CLAUDE.md")
+            } label: {
+                Label("Write CLAUDE.md  (/init)", systemImage: "doc.badge.plus")
+            }
+            Divider()
+            Button(role: .destructive) { confirmClear = true } label: {
+                Label("Clear conversation  (/clear)", systemImage: "trash")
+            }
+        } label: {
+            chipLabel("More", "ellipsis", tint: nil)
+        }
+        .disabled(acting)
+    }
+
+    private func chip(
+        _ title: String,
+        _ symbol: String,
+        tint: Color? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            chipLabel(title, symbol, tint: tint)
+        }
+        .buttonStyle(.plain)
+        .disabled(acting)
+    }
+
+    private func chipLabel(_ title: String, _ symbol: String, tint: Color?) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+            Text(title).font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(tint ?? Color(white: 0.78))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(Color(white: 0.13), in: Capsule())
+        .overlay(Capsule().stroke((tint ?? Color(white: 0.3)).opacity(tint == nil ? 1 : 0.5)))
+        .opacity(acting ? 0.5 : 1)
+    }
+
+    private func send(_ text: String, note: String) {
+        act(note) { api in try await api.sendText(sessionName, text: text) }
+    }
+
+    private func sendKeys(_ keys: [String], note: String) {
+        act(note) { api in try await api.sendKeys(sessionName, keys: keys) }
+    }
+
+    private func act(_ note: String, _ body: @escaping (APIClient) async throws -> Void) {
+        guard let api, !acting else { return }
+        acting = true
+        Task {
+            do {
+                try await body(api)
+                ToastCenter.shared.show(.success, note)
+                // The effect lands in the transcript (or in the pending list), so
+                // pull it rather than waiting for the safety-net poll.
+                requestRefresh()
+            } catch {
+                ToastCenter.shared.show(.error, "Couldn't reach \(sessionName)")
+            }
+            acting = false
         }
     }
 
@@ -205,6 +340,34 @@ struct ConversationView: View {
                 .padding(.vertical, 9)
                 .background(Self.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 .textSelection(.enabled)
+        }
+    }
+
+    // A prompt Claude has been handed but hasn't started: same bubble as a sent
+    // message, drawn hollow so it reads as not-yet-happened rather than as
+    // history. Whichever device queued it, every device shows it.
+    private func pendingRow(_ text: String) -> some View {
+        HStack {
+            Spacer(minLength: 44)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(text)
+                    .font(.callout)
+                    .foregroundStyle(Color(white: 0.72))
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            .fill(Self.accent.opacity(0.14))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            .strokeBorder(Self.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    )
+                    .textSelection(.enabled)
+                Label("queued", systemImage: "clock")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color(white: 0.5))
+            }
         }
     }
 

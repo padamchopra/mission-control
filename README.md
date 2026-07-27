@@ -76,9 +76,17 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   pinch-to-zoom, and touch or trackpad scrolling through tmux history.
 - **Agent-style composer** — type `@` to tag a project file or `/` to find an
   installed skill; suggestions follow the editor cursor rather than only the
-  end of the message. Sending to a session that's mid-turn queues the message —
-  Claude Code picks it up when the turn ends — and the composer says so, listing
-  what it has lined up instead of leaving you guessing whether it landed.
+  end of the message.
+- **Queued prompts** — sending to a session that's mid-turn queues the message;
+  Claude Code picks it up when the turn ends. The composer says so before you
+  send, and the queue itself appears as hollow bubbles at the end of the
+  conversation feed on *every* device, not just the one that typed it.
+- **Quick actions** — a chip row under the conversation: Stop while it's working
+  (the Escape you'd press in the terminal), Approve / Deny when it's waiting,
+  Continue when it's idle, and Compact — which shows the context percentage and
+  turns amber once the window is tight. `/init` and `/clear` sit behind the
+  overflow, the latter confirmed. Each chip is a whitelisted key or one fixed
+  slash command; there's no route from a chip to an arbitrary command.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
   the Mac and its path is sent so Claude can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
@@ -204,6 +212,13 @@ the full threat model and input-handling notes.
   `~/.claude/sessions/`. Local-only sessions have no web URL and the item is hidden.
 - **Uploaded media** lives under the OS temp directory, which macOS purges on its
   own — no manual cleanup.
+- **Queued prompts are only the ones sent through the app.** Claude Code keeps its
+  queue inside the TUI and never writes it to disk, so nothing can be read back
+  out of a transcript. The server instead records what *it* submitted while a
+  session was mid-turn, and drops each entry once that text shows up in the
+  transcript as a real turn. A prompt you type directly into the terminal on the
+  Mac is therefore invisible to the app until Claude picks it up, and an
+  interrupt (Escape) clears the record, since it clears Claude's queue too.
 - **Context meter window size.** Transcripts record which model a session runs but
   never its context window, and the 1M-token variants share a model id with the
   200k ones — so the meter assumes 200k and marks the figure with a `~`. If your

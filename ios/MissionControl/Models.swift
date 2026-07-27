@@ -140,6 +140,17 @@ struct Conversation: Decodable {
     var state: String?  // working | needs_input | idle | unknown
     var action: String? // live step label while working, e.g. "Reading Foo.swift"
     var context: ContextUsage?
+    var pending: [PendingMessage]?
+}
+
+/// A prompt queued behind the running turn. Claude Code keeps its queue in the
+/// TUI and never writes it to disk, so this comes from what the server sent —
+/// which also means a message queued on the Mac shows up on the phone.
+struct PendingMessage: Decodable, Identifiable {
+    let text: String
+    let at: TimeInterval
+
+    var id: String { "\(at)-\(text.prefix(32))" }
 }
 
 /// A session's live hook state on its own — the cheapest question the server
