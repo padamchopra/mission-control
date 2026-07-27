@@ -4,6 +4,7 @@ struct SessionListView: View {
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
     @State private var sessions: [TmuxSession] = []
+    @State private var pendingReload: Task<Void, Never>?
     @State private var workspaces: [Workspace] = []
     @State private var hasLoaded = false
     @State private var loadError: String?
@@ -38,6 +39,7 @@ struct SessionListView: View {
     #endif
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var store: ServerStore
+    @ObservedObject private var inbox = InboxStore.shared
     @Environment(\.openURL) private var openURL
 
     private var api: APIClient? {
@@ -57,6 +59,17 @@ struct SessionListView: View {
         }
         .task(id: serverURL + serverToken) {
             await autoRefresh()
+        }
+        // Live updates from the server's push channel. A state change patches
+        // the card in place; a change to the set of sessions needs the refetch,
+        // since only /sessions carries the pane preview and diff stat.
+        .onReceive(PushChannel.shared.sessionUpdates) { push in
+            guard push.serverURL == serverURL else { return }
+            apply(push)
+        }
+        .onReceive(PushChannel.shared.sessionListChanges) { url in
+            guard url == serverURL else { return }
+            requestReload()
         }
         .onOpenURL { url in
             if let config = PairingConfig(from: url) {
@@ -134,6 +147,9 @@ struct SessionListView: View {
         }
         .sheet(isPresented: $showNewSession) {
             NewSessionSheet(workspaces: workspaces, api: api, onCreated: { name in path = [name] })
+        }
+        .sheet(isPresented: $router.isInboxPresented) {
+            DecisionInboxView()
         }
     }
 
@@ -309,6 +325,14 @@ struct SessionListView: View {
                 }
             }
             Spacer()
+            Button { router.showInbox() } label: {
+                inboxLabel
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .liquidGlass(in: Circle())
+            .accessibilityLabel(inboxAccessibilityLabel)
+            .help("Decisions waiting on you (Shift-Command-D)")
             Button { showNewSession = true } label: {
                 Image(systemName: "plus")
                     .font(.body.weight(.semibold))
@@ -402,6 +426,10 @@ struct SessionListView: View {
             .toolbar {
                 if store.servers.count > 1 || store.active != nil {
                     ToolbarItem(placement: .topBarLeading) { serverSwitcher }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { router.showInbox() } label: { inboxLabel }
+                        .accessibilityLabel(inboxAccessibilityLabel)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showNewSession = true } label: {
@@ -615,6 +643,30 @@ struct SessionListView: View {
         }
     }
 
+    // The decision queue's entry point, badged with the count across every
+    // paired server — not just the one on screen — because a decision waiting
+    // on the other Mac is still waiting on you.
+    private var inboxLabel: some View {
+        Image(systemName: inbox.count > 0 ? "tray.full.fill" : "tray")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(inbox.count > 0 ? Color.orange : Color.primary)
+            .overlay(alignment: .topTrailing) {
+                if inbox.count > 0 {
+                    Text("\(inbox.count)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.orange, in: Capsule())
+                        .offset(x: 9, y: -8)
+                }
+            }
+    }
+
+    private var inboxAccessibilityLabel: String {
+        inbox.count > 0 ? "\(inbox.count) decisions waiting" : "Decisions"
+    }
+
     // One-glance fleet header shared by iPhone and Mac: who needs you / working /
     // idle. Each count is a tappable filter; tapping the active one clears it.
     private var fleetSummary: some View {
@@ -631,6 +683,13 @@ struct SessionListView: View {
                     .font(.caption2)
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+            }
+            // Drain them as a queue rather than opening each session in turn.
+            if needs > 0 {
+                Button("Review") { router.showInbox() }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.orange)
             }
         }
         .font(.caption)
@@ -787,11 +846,39 @@ struct SessionListView: View {
         }
     }
 
+    // The poll is a safety net once the server is pushing — it still catches
+    // what hooks can't see (a session started from a terminal, output landing
+    // in a plain shell) but no longer paces the UI. Against a server that
+    // doesn't push, it stays the frequent poll it has always been.
     private func autoRefresh() async {
         while !Task.isCancelled {
             await load()
-            try? await Task.sleep(for: .seconds(5))
+            let live = PushChannel.shared.isLive(serverURL)
+            try? await Task.sleep(for: .seconds(live ? 20 : 5))
         }
+    }
+
+    // Absorbs bursts: one reload is queued at a time, so a flurry of pushes
+    // (a worktree close stopping five sessions) costs a single refetch.
+    private func requestReload() {
+        guard pendingReload == nil else { return }
+        pendingReload = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            await load()
+            pendingReload = nil
+        }
+    }
+
+    // A pushed state lands on the card directly — no refetch, so the live
+    // action label tracks the agent tool-by-tool. Re-sorts because state is
+    // what triage order ranks on: a session that starts needing input has to
+    // rise to the top the moment it does.
+    private func apply(_ push: SessionPush) {
+        guard let index = sessions.firstIndex(where: { $0.name == push.session }) else { return }
+        sessions[index].state = push.state
+        sessions[index].detail = push.detail
+        sessions[index].currentAction = push.currentAction
+        sessions.sort(by: triageOrder)
     }
 
     private func load() async {
@@ -894,11 +981,19 @@ private struct SessionRow: View {
                     Text(action).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            if let diff = session.diffStat {
+            // The context chip only appears once the session is genuinely under
+            // pressure — a card that reports 12% every time teaches you to skip it.
+            let tightContext = session.context.flatMap { $0.isTight ? $0 : nil }
+            if session.diffStat != nil || tightContext != nil {
                 HStack(spacing: 6) {
-                    Text("+\(diff.adds)").foregroundStyle(.green)
-                    Text("−\(diff.dels)").foregroundStyle(.red)
-                    Text("· \(diff.files) file\(diff.files == 1 ? "" : "s")").foregroundStyle(.secondary)
+                    if let diff = session.diffStat {
+                        Text("+\(diff.adds)").foregroundStyle(.green)
+                        Text("−\(diff.dels)").foregroundStyle(.red)
+                        Text("· \(diff.files) file\(diff.files == 1 ? "" : "s")").foregroundStyle(.secondary)
+                    }
+                    if let tightContext {
+                        ContextChip(usage: tightContext)
+                    }
                 }
                 .font(.caption2.monospaced())
             }

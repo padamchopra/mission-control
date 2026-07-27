@@ -25,6 +25,7 @@ struct TmuxSession: Codable, Identifiable, Hashable {
     var notificationsMuted: Bool?
     var preview: String?
     var diffStat: DiffStatSummary?
+    var context: ContextUsage?
 
     var id: String { name }
     var resolvedState: SessionState { state ?? .unknown }
@@ -39,6 +40,30 @@ struct DiffStatSummary: Codable, Hashable {
     let files: Int
     let adds: Int
     let dels: Int
+}
+
+/// How full a session's context window is, parsed from the token accounting in
+/// its transcript. `limitEstimated` says the window size was inferred rather
+/// than proved — transcripts record the model but never its window size.
+struct ContextUsage: Codable, Hashable {
+    let tokens: Int
+    let limit: Int
+    var limitEstimated: Bool?
+    var model: String?
+    var compactions: Int?
+    var droppedTokens: Int?
+
+    var fraction: Double {
+        guard limit > 0 else { return 0 }
+        return min(Double(tokens) / Double(limit), 1)
+    }
+
+    var percent: Int { Int((fraction * 100).rounded()) }
+
+    /// Colour thresholds shared by every surface that draws the meter, so a
+    /// session reads the same on a fleet card as it does in the inspector.
+    var isTight: Bool { fraction >= 0.7 }
+    var isCritical: Bool { fraction >= 0.9 }
 }
 
 struct ModeResponse: Codable {
@@ -114,6 +139,53 @@ struct Conversation: Decodable {
     var entries: [ConversationEntry]
     var state: String?  // working | needs_input | idle | unknown
     var action: String? // live step label while working, e.g. "Reading Foo.swift"
+    var context: ContextUsage?
+}
+
+/// A session's live hook state on its own — the cheapest question the server
+/// answers, since it's a registry lookup with no tmux or git call behind it.
+struct SessionStateResponse: Decodable {
+    let state: SessionState
+    var detail: String?
+    var currentAction: String?
+}
+
+/// One decision waiting on you, from any server. Carries enough of the session's
+/// tail to decide inside the inbox instead of opening the session.
+struct InboxItem: Decodable, Identifiable {
+    let session: String
+    var detail: String?
+    let waitingSince: TimeInterval
+    var cwd: String?
+    var muted: Bool?
+    var pendingTool: PendingTool?
+    var question: ConversationQuestion?
+    var assistantText: String?
+    var diffStat: DiffStatSummary?
+
+    /// Set by the client after decoding: which server this came from, so the
+    /// inbox can act on the right one.
+    var serverID: String = ""
+    var serverName: String = ""
+    var serverURL: String = ""
+    var serverToken: String = ""
+
+    var id: String { "\(serverID)|\(session)" }
+    var waitingSinceDate: Date { Date(timeIntervalSince1970: waitingSince / 1000) }
+
+    struct PendingTool: Decodable {
+        var tool: String?
+        var verb: String?
+        var arg: String?
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case session, detail, waitingSince, cwd, muted, pendingTool, question, assistantText, diffStat
+    }
+}
+
+struct InboxResponse: Decodable {
+    let items: [InboxItem]
 }
 
 struct ConversationTodo: Decodable {

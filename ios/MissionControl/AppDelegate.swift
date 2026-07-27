@@ -5,11 +5,13 @@ import UserNotifications
 /// On the phone, notifications are delivered by the ntfy app (not this app),
 /// and tapping one opens a `missioncontrol://session/…` deep link that
 /// SessionListView handles — no notification permissions or push token needed.
-/// On the Mac (Catalyst) the app itself is the notification target: it holds a
-/// socket to each server's /notify/stream and shows native banners, which also
-/// tells the server to keep the phone quiet. There's also a launch-arg hook
-/// (MC_OPEN=<session>) used to open a session directly for screenshots / UI
-/// testing.
+/// On the Mac (Catalyst) the app itself is the notification target: it shows
+/// native banners, which also tells the server to keep the phone quiet.
+///
+/// Both platforms hold a socket to each server's /notify/stream for live
+/// session state; only the Mac asks to receive notifications over it. There's
+/// also a launch-arg hook (MC_OPEN=<session>) used to open a session directly
+/// for screenshots / UI testing.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
@@ -37,7 +39,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 .forEach { $0.titlebar?.titleVisibility = .hidden }
         }
         UNUserNotificationCenter.current().delegate = self
-        NotifyStreamManager.shared.activate()
+        NotifyStreamManager.shared.activate(presentingNotifications: true)
+        #else
+        // Live state only — the phone's banners come from ntfy, and asking for
+        // notification permission it never uses would be a prompt for nothing.
+        NotifyStreamManager.shared.activate(presentingNotifications: false)
         #endif
         return true
     }

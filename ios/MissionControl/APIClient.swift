@@ -19,6 +19,19 @@ struct APIClient {
         return try JSONDecoder().decode(SessionsResponse.self, from: data).sessions
     }
 
+    /// Every session on this server that's waiting on a decision, newest wait
+    /// last. Cheap when nothing is waiting — it reads transcripts only for the
+    /// sessions that are.
+    func inbox() async throws -> [InboxItem] {
+        let data = try await request("GET", "inbox", timeout: 20)
+        return try JSONDecoder().decode(InboxResponse.self, from: data).items
+    }
+
+    func sessionState(_ session: String) async throws -> SessionStateResponse {
+        let data = try await request("GET", "sessions/\(session)/state")
+        return try JSONDecoder().decode(SessionStateResponse.self, from: data)
+    }
+
     func sendText(_ session: String, text: String, submit: Bool = true) async throws {
         _ = try await request("POST", "sessions/\(session)/text", body: ["text": text, "submit": submit])
     }
@@ -268,10 +281,15 @@ struct APIClient {
         return components?.url
     }
 
-    func notifyWebSocketURL() -> URL? {
+    /// - Parameter notifies: whether this client renders notifications itself.
+    ///   The phone passes `false`: it wants the live-state pushes, but its
+    ///   banners come from ntfy, so the server must not treat it as a delivery
+    ///   target and go quiet on the phone.
+    func notifyWebSocketURL(notifies: Bool) -> URL? {
         let streamURL = baseURL.appendingPathComponent("notify/stream")
         var components = URLComponents(url: streamURL, resolvingAgainstBaseURL: false)
         components?.scheme = baseURL.scheme == "https" ? "wss" : "ws"
+        if !notifies { components?.queryItems = [URLQueryItem(name: "notify", value: "0")] }
         return components?.url
     }
 

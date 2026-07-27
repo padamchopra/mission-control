@@ -37,10 +37,15 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   status, streams panes over a PTY-backed WebSocket (feeds SwiftTerm), injects
   input and copy-mode scrolls via `tmux send-keys`, kills sessions, resolves
   per-session links (claude.ai / GitHub PR) and git worktrees, manages
-  workspaces, stores uploaded media, and sends notifications via ntfy.
+  workspaces, stores uploaded media, parses transcripts into the conversation
+  feed, the decision queue, and per-session context usage, and sends
+  notifications via ntfy.
 - **`server/hooks/mc-hook.sh`** — Claude Code hooks (SessionStart /
-  UserPromptSubmit / Notification / Stop) that report each session's state to the
-  server. Every Claude Code session running inside tmux reports automatically.
+  UserPromptSubmit / PreToolUse / PostToolUse / Notification / Stop / SessionEnd)
+  that report each session's state to the server. Every Claude Code session
+  running inside tmux reports automatically. Each event is pushed straight on to
+  the connected apps, so the UI tracks an agent as it works rather than polling
+  for changes.
 - **`ios/`** — the SwiftUI app (built with [XcodeGen](https://github.com/yonaskolb/XcodeGen)).
 - **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
 
@@ -50,6 +55,16 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   laptop) and switch between them from the top bar.
 - **Fleet view** — every session with a status chip (working / needs input /
   idle), a live output preview, and sessions waiting on you sorted to the top.
+- **Decision queue** — the tray in the top bar collects every session waiting on
+  you, across *every* paired server, and badges the count. Each entry carries the
+  ask, the tool call it's blocked on, the options if it asked a question, and what
+  the agent last said — enough to approve, deny, or reply without opening the
+  session. Acting advances to the next one. Shift-Command-D on the Mac.
+- **Context meter** — how full each session's context window is, read from the
+  token accounting in its transcript, with the number of times it has already
+  compacted and how much history that discarded. Shown above the conversation and
+  in the Mac inspector; fleet cards raise a chip only once a session is actually
+  under pressure.
 - **Repository workspaces** — each workspace is a Git repository's primary
   checkout. Mission Control discovers every linked worktree, groups sessions
   from any checkout together, and opens fresh shells in the primary checkout.
@@ -61,7 +76,9 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   pinch-to-zoom, and touch or trackpad scrolling through tmux history.
 - **Agent-style composer** — type `@` to tag a project file or `/` to find an
   installed skill; suggestions follow the editor cursor rather than only the
-  end of the message.
+  end of the message. Sending to a session that's mid-turn queues the message —
+  Claude Code picks it up when the turn ends — and the composer says so, listing
+  what it has lined up instead of leaving you guessing whether it landed.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
   the Mac and its path is sent so Claude can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
@@ -74,8 +91,8 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   arrive as native macOS banners and the phone stays quiet; quit it and pushes
   fall back to the phone automatically. The Mac uses a two-pane layout, supports
   Command-Return to send, Command-[ / Command-] to navigate history,
-  Command-K to jump directly to a session, and Command-Option-S to toggle the
-  sidebar. The terminal toolbar explicitly checks the current branch for an
+  Command-K to jump directly to a session, Shift-Command-D to open the decision
+  queue, and Command-Option-S to toggle the sidebar. The terminal toolbar explicitly checks the current branch for an
   open PR, then changes to a distinct green **Open PR** control when one exists.
 - **Action feedback** — success, information, and error toasts make connection,
   PR, terminal-scroll, and server-update outcomes visible without interrupting
@@ -165,10 +182,13 @@ transits their server, so it's kept terse (session name + short reason). For a
 fully private setup, self-host ntfy and set `ntfyServer` in
 `~/.mission-control/config.json` to your own server.
 
-If the Mac app is running, it holds a WebSocket to each paired server and the
-server delivers notifications there instead of ntfy — native banners on the Mac,
-nothing on the phone. Quit the Mac app (or let the connection drop) and
-notifications fall back to ntfy within about 30 seconds.
+Both apps hold a WebSocket to each paired server while they're in the
+foreground, but only the Mac app asks to receive notifications over it. So if
+the Mac app is running, the server delivers there instead of ntfy — native
+banners on the Mac, nothing on the phone. Quit the Mac app (or let the
+connection drop) and notifications fall back to ntfy within about 30 seconds.
+The phone's socket carries live session state only, and never diverts a
+notification away from ntfy.
 
 ## Security
 
@@ -184,6 +204,13 @@ the full threat model and input-handling notes.
   `~/.claude/sessions/`. Local-only sessions have no web URL and the item is hidden.
 - **Uploaded media** lives under the OS temp directory, which macOS purges on its
   own — no manual cleanup.
+- **Context meter window size.** Transcripts record which model a session runs but
+  never its context window, and the 1M-token variants share a model id with the
+  200k ones — so the meter assumes 200k and marks the figure with a `~`. If your
+  sessions run a larger window, set `contextLimit` in
+  `~/.mission-control/config.json`. Either way it self-corrects: a session whose
+  context passes the assumed limit is treated as a 1M one, and once a session
+  auto-compacts, that point *is* its real ceiling and the `~` disappears.
 - **Repositories on an external/removable volume** (e.g. `/Volumes/...`) need the
   server's `node` binary to have **Full Disk Access**. The server runs as a
   background launchd process, which macOS does *not* grant removable-volume access

@@ -4,7 +4,7 @@ import { WebSocketServer } from "ws";
 import { config } from "./config.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
-import { attachNotifyStream, broadcast } from "./notify.js";
+import { attachNotifyStream, broadcast, pushSessionList } from "./notify.js";
 import {
   createPullRequest,
   diffStatFor,
@@ -15,11 +15,12 @@ import {
   reviewComments,
   worktreeInfo,
 } from "./git.js";
+import { buildInbox } from "./inbox.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { attachStream } from "./stream.js";
-import { readConversation, resolveTranscriptPath } from "./transcript.js";
+import { readContextUsage, readConversation, resolveTranscriptPath } from "./transcript.js";
 import {
   addWorkspace,
   closeAllWorkspaceWorktrees,
@@ -146,18 +147,31 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { replies });
     }
 
+    // Every session that's waiting on a human decision, with the context needed
+    // to make it — the fleet's to-do queue in one request.
+    if (req.method === "GET" && url.pathname === "/inbox") {
+      return json(res, 200, { items: await buildInbox() });
+    }
+
     if (req.method === "GET" && url.pathname === "/sessions") {
       const sessions = await listSessions();
       return json(res, 200, {
-        sessions: await Promise.all(sessions.map(async (s) => ({
-          ...s,
-          ...(registry.view(s.name) ?? { state: "unknown" }),
-          // A short pane capture gives the fleet view useful context without
-          // streaming every terminal or retaining output anywhere else.
-          preview: (await capturePane(s.name, 1).catch(() => "")).trim(),
-          // Cached per directory, so the fleet poll stays cheap.
-          diffStat: await diffStatFor(s.panePath),
-        }))),
+        sessions: await Promise.all(sessions.map(async (s) => {
+          const entry = registry.view(s.name);
+          return {
+            ...s,
+            ...(entry ?? { state: "unknown" }),
+            // A short pane capture gives the fleet view useful context without
+            // streaming every terminal or retaining output anywhere else.
+            preview: (await capturePane(s.name, 1).catch(() => "")).trim(),
+            // Cached per directory, so the fleet poll stays cheap.
+            diffStat: await diffStatFor(s.panePath),
+            // Cached on transcript size, so an idle session costs a stat().
+            context: readContextUsage(
+              entry?.transcriptPath ?? resolveTranscriptPath(entry?.cwd, entry?.claudeSessionId),
+            ),
+          };
+        })),
       });
     }
 
@@ -168,6 +182,7 @@ const server = createServer(async (req, res) => {
         path: typeof body.path === "string" ? body.path : undefined,
         claude: body.claude === true,
       });
+      pushSessionList();
       return json(res, 200, { name });
     }
 
@@ -197,22 +212,31 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && parts[2] === "session") {
-        return json(res, 200, { name: await openSessionInWorkspace(id) });
+        const name = await openSessionInWorkspace(id);
+        pushSessionList();
+        return json(res, 200, { name });
       }
       if (req.method === "GET" && parts[2] === "dirty") {
         return json(res, 200, { dirty: await worktreeDirtyMap(id) });
       }
       if (req.method === "POST" && parts[2] === "task") {
         const body = await readJson(req);
-        return json(res, 200, { name: await createTaskSession(id, String(body.prompt ?? "")) });
+        const name = await createTaskSession(id, String(body.prompt ?? ""));
+        pushSessionList();
+        return json(res, 200, { name });
       }
+      // Closing a worktree also stops the tmux sessions living inside it.
       if (req.method === "POST" && parts[2] === "worktrees" && parts[3] === "close") {
         const body = await readJson(req);
-        return json(res, 200, await closeWorkspaceWorktree(id, String(body.path ?? ""), body.force === true));
+        const result = await closeWorkspaceWorktree(id, String(body.path ?? ""), body.force === true);
+        pushSessionList();
+        return json(res, 200, result);
       }
       if (req.method === "POST" && parts[2] === "worktrees" && parts[3] === "close-all") {
         const body = await readJson(req);
-        return json(res, 200, await closeAllWorkspaceWorktrees(id, body.force === true));
+        const result = await closeAllWorkspaceWorktrees(id, body.force === true);
+        pushSessionList();
+        return json(res, 200, result);
       }
     }
 
@@ -243,8 +267,20 @@ const server = createServer(async (req, res) => {
         if (conversation.available) {
           if (entry?.state) conversation.state = entry.state;
           if (entry?.currentAction) conversation.action = entry.currentAction;
+          conversation.context = readContextUsage(path);
         }
         return json(res, 200, conversation);
+      }
+      // The live hook state on its own, so a screen that needs only this (the
+      // composer, deciding whether a message will queue) doesn't pull the whole
+      // conversation or the whole fleet to find out.
+      if (req.method === "GET" && parts[2] === "state") {
+        const entry = registry.view(name);
+        return json(res, 200, {
+          state: entry?.state ?? "unknown",
+          detail: entry?.detail,
+          currentAction: entry?.currentAction,
+        });
       }
       if (req.method === "GET" && parts[2] === "notifications") {
         return json(res, 200, { muted: registry.view(name)?.notificationsMuted === true });
@@ -331,6 +367,7 @@ const server = createServer(async (req, res) => {
         const newName = String(body.name ?? "").trim();
         await renameSession(name, newName);
         registry.rename(name, newName);
+        pushSessionList();
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && parts[2] === "workspace") {
@@ -354,6 +391,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "DELETE" && parts.length === 2) {
         await killSession(name);
         registry.remove(name);
+        pushSessionList();
         return json(res, 200, { ok: true });
       }
     }
@@ -378,7 +416,11 @@ server.on("upgrade", (req, socket, head) => {
     return;
   }
   if (isNotify) {
-    wss.handleUpgrade(req, socket, head, (ws) => attachNotifyStream(ws));
+    // `notify=0` subscribes to live state without becoming a notification
+    // target — the phone's role, since its banners come from ntfy. Absent
+    // means yes, so an older desktop client keeps receiving them.
+    const notifies = url.searchParams.get("notify") !== "0";
+    wss.handleUpgrade(req, socket, head, (ws) => attachNotifyStream(ws, notifies));
     return;
   }
   const name = decodeURIComponent(parts[1]);

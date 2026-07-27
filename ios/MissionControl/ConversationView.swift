@@ -1,11 +1,14 @@
 import SwiftUI
 
-// maxY of the feed's bottom sentinel within the scroll coordinate space, and the
-// scroll viewport's height — together they tell us whether the user is scrolled
-// up (so the jump-to-latest button should show).
-private struct BottomOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+// Whether the feed is scrolled to its end, measured against the viewport height
+// below. Reported by the content container — not by a sentinel row, which the
+// LazyVStack unmounts once it leaves the render window, reporting "at bottom"
+// exactly when the user is furthest from it. Publishing the verdict rather than a
+// raw offset also keeps scrolling off the state-write path: it changes on
+// crossings, not on every frame.
+private struct AtBottomKey: PreferenceKey {
+    static var defaultValue = true
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = nextValue() }
 }
 
 private struct ViewportHeightKey: PreferenceKey {
@@ -50,22 +53,20 @@ struct ConversationView: View {
     @State private var failed = false
     @State private var expanded: Set<String> = []
     @State private var viewportHeight: CGFloat = 0
-    @State private var bottomMaxY: CGFloat = 0
+    @State private var isAtBottom = true
     @State private var planExpanded = false
+    @State private var pendingRefresh: Task<Void, Never>?
+    @State private var loading = false
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
     private static let accent = Color(red: 0.04, green: 0.52, blue: 1.0)
     private static let verbColor = Color(red: 0.42, green: 0.71, blue: 1.0)
     private static let scrollSpace = "convScroll"
-
-    // The bottom sentinel sits just below the viewport's lower edge while more
-    // content is scrolled off, so its maxY exceeding the viewport height (past a
-    // small slack) means the user has scrolled up.
-    private var isAtBottom: Bool {
-        guard viewportHeight > 0 else { return true }
-        return bottomMaxY <= viewportHeight + 60
-    }
+    // How far off the end still counts as "at bottom": enough that the button
+    // doesn't flash while the feed settles, small enough that one scrolled-off
+    // message brings it back.
+    private static let bottomSlack: CGFloat = 60
 
     var body: some View {
         Group {
@@ -86,12 +87,22 @@ struct ConversationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .task { await pollLoop() }
+        // Every hook event — a tool starting, a turn ending — means the
+        // transcript grew, so the feed follows the agent live instead of
+        // arriving up to a poll late.
+        .onReceive(PushChannel.shared.sessionUpdates) { push in
+            guard push.serverURL == serverURL, push.session == sessionName else { return }
+            requestRefresh()
+        }
     }
 
     private func feed(_ conversation: Conversation) -> some View {
         VStack(spacing: 0) {
             if !conversation.todos.isEmpty {
                 planBar(conversation.todos)
+            }
+            if let context = conversation.context {
+                contextBar(context)
             }
             ScrollViewReader { proxy in
                 ScrollView {
@@ -103,22 +114,26 @@ struct ConversationView: View {
                             workingRow(conversation.action).id("WORKING")
                         }
                         Color.clear.frame(height: 1).id("BOTTOM")
-                            .background(GeometryReader { geo in
-                                Color.clear.preference(
-                                    key: BottomOffsetKey.self,
-                                    value: geo.frame(in: .named(Self.scrollSpace)).maxY
-                                )
-                            })
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
+                    // The content's bottom edge sits below the viewport's while
+                    // anything is scrolled off, so maxY past the viewport height
+                    // means the user has scrolled up.
+                    .background(GeometryReader { geo in
+                        Color.clear.preference(
+                            key: AtBottomKey.self,
+                            value: viewportHeight <= 0
+                                || geo.frame(in: .named(Self.scrollSpace)).maxY <= viewportHeight + Self.bottomSlack
+                        )
+                    })
                 }
                 .coordinateSpace(name: Self.scrollSpace)
                 .scrollDismissesKeyboard(.interactively)
                 .background(GeometryReader { geo in
                     Color.clear.preference(key: ViewportHeightKey.self, value: geo.size.height)
                 })
-                .onPreferenceChange(BottomOffsetKey.self) { bottomMaxY = $0 }
+                .onPreferenceChange(AtBottomKey.self) { isAtBottom = $0 }
                 .onPreferenceChange(ViewportHeightKey.self) { viewportHeight = $0 }
                 .onChange(of: conversation.entries.count) { _, _ in
                     // Don't yank the user down while they're reading history; the
@@ -155,10 +170,12 @@ struct ConversationView: View {
                     .overlay(Circle().stroke(.white.opacity(0.15)))
             }
             .buttonStyle(.plain)
+            .contentShape(Circle())
             .padding(.trailing, 14)
             .padding(.bottom, 14)
             .transition(.scale.combined(with: .opacity))
             .accessibilityLabel("Jump to latest")
+            .help("Jump to latest")
         }
     }
 
@@ -494,6 +511,19 @@ struct ConversationView: View {
         }
     }
 
+    // Pinned under the plan for the same reason: how close this session is to
+    // compacting shouldn't depend on where you are in the feed.
+    private func contextBar(_ usage: ContextUsage) -> some View {
+        ContextMeter(usage: usage)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(white: 0.09))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color(white: 0.18)).frame(height: 0.5)
+            }
+    }
+
     private func progressBar(done: Int, total: Int, width: CGFloat) -> some View {
         let fraction = total > 0 ? CGFloat(done) / CGFloat(total) : 0
         return ZStack(alignment: .leading) {
@@ -563,17 +593,40 @@ struct ConversationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // Pushes drive the feed when the server sends them; this drops to a safety
+    // net that also covers what hooks don't report, like a transcript written
+    // by a session whose hooks aren't installed.
     private func pollLoop() async {
         await loadOnce()
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(3))
+            let live = PushChannel.shared.isLive(serverURL)
+            try? await Task.sleep(for: .seconds(live ? 15 : 3))
             if Task.isCancelled { break }
             await loadOnce()
         }
     }
 
+    // Tool calls arrive in bursts (a PreToolUse and PostToolUse for each), so
+    // queue at most one refetch at a time rather than one per event.
+    private func requestRefresh() {
+        guard pendingRefresh == nil else { return }
+        pendingRefresh = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            await loadOnce()
+            pendingRefresh = nil
+        }
+    }
+
     private func loadOnce() async {
         guard let api else { failed = true; return }
+        // A pushed refresh can land while the safety-net poll is still in
+        // flight. Skipping the overlap stops an older response from overwriting
+        // a newer one — which would drop the newest entry out of the feed and
+        // put it back a moment later. The fetch already running is delivering
+        // what the push announced anyway.
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
         do {
             conversation = try await api.conversation(sessionName)
             failed = false

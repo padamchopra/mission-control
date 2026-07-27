@@ -1,5 +1,6 @@
 import type { WebSocket } from "ws";
 import { config } from "./config.js";
+import type { RegistryEntry } from "./registry.js";
 
 export interface NotifyEvent {
   session: string;
@@ -11,42 +12,79 @@ export interface NotifyEvent {
 const THROTTLE_MS = 5 * 60_000;
 const lastSent = new Map<string, number>();
 
-// Desktop apps hold a WebSocket to /notify/stream while running. If any is
-// connected, notifications go to them (shown as native banners) instead of
-// ntfy — so the phone only buzzes when no desktop client is around. iOS can't
-// keep a background socket, so a connected socket really means "a desktop
-// app is open".
-const clients = new Set<WebSocket>();
+// Every client holds a WebSocket to /notify/stream while it's in the
+// foreground: it's the channel that pushes live session state, so clients
+// don't have to poll. Two roles ride on the same socket:
+//
+//   subscribers   — everyone, receives state pushes and settings sync.
+//   notifyTargets — clients that render notifications themselves (the desktop
+//                   app). If any is connected, notifications go there as
+//                   native banners instead of ntfy, so the phone only buzzes
+//                   when no desktop client is around.
+//
+// The phone connects with `?notify=0`: it wants the live data but its
+// notifications arrive via ntfy, so it must not count as a delivery target.
+const subscribers = new Set<WebSocket>();
+const notifyTargets = new Set<WebSocket>();
 const alive = new WeakSet<WebSocket>();
 
-export function attachNotifyStream(ws: WebSocket): void {
-  clients.add(ws);
+export function attachNotifyStream(ws: WebSocket, notifies: boolean): void {
+  subscribers.add(ws);
+  if (notifies) notifyTargets.add(ws);
   alive.add(ws);
   ws.on("pong", () => alive.add(ws));
-  ws.on("close", () => clients.delete(ws));
-  ws.on("error", () => clients.delete(ws));
+  const drop = () => {
+    subscribers.delete(ws);
+    notifyTargets.delete(ws);
+  };
+  ws.on("close", drop);
+  ws.on("error", drop);
+  // Announce that this server pushes state. A client talking to an older
+  // server never hears this and keeps polling fast, so it degrades instead of
+  // going quietly stale.
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "hello", push: true }));
 }
 
-// Push an arbitrary message to every connected desktop client. Used for live
-// settings sync (e.g. quick replies) so an edit on one device shows up on
-// another that's already open, without a poll. Unlike notifications this never
-// falls back to ntfy — a client that isn't connected just picks it up on its
-// next refresh.
+// Push an arbitrary message to every connected client. Used for live state and
+// settings sync (e.g. quick replies) so a change shows up on every open device
+// without a poll. Unlike notifications this never falls back to ntfy — a client
+// that isn't connected just picks it up on its next refresh.
 export function broadcast(payload: unknown): void {
-  if (clients.size === 0) return;
+  if (subscribers.size === 0) return;
   const text = JSON.stringify(payload);
-  for (const ws of clients) {
+  for (const ws of subscribers) {
     if (ws.readyState === ws.OPEN) ws.send(text);
   }
+}
+
+// A session's hook-driven state changed. Clients patch the session in place —
+// no refetch — so a fleet card's live label tracks the agent in real time.
+// Mirrors the registry exactly: an absent field means "cleared".
+export function pushSession(session: string, entry: RegistryEntry | undefined): void {
+  broadcast({
+    type: "session",
+    session,
+    state: entry?.state,
+    detail: entry?.detail,
+    currentAction: entry?.currentAction,
+  });
+}
+
+// The set of sessions changed (created, killed, renamed, or a new Claude
+// session started in one). Clients refetch the list, which carries the fields
+// only /sessions can produce — pane preview and diff stat.
+export function pushSessionList(): void {
+  broadcast({ type: "sessions" });
 }
 
 // A half-dead socket (slept laptop, dropped VPN) would swallow notifications:
 // still "connected" so ntfy is skipped, but nothing arrives. Ping regularly
 // and drop clients that stop ponging, so delivery falls back to the phone.
 setInterval(() => {
-  for (const ws of clients) {
+  for (const ws of subscribers) {
     if (!alive.has(ws)) {
-      clients.delete(ws);
+      subscribers.delete(ws);
+      notifyTargets.delete(ws);
       ws.terminate();
       continue;
     }
@@ -63,9 +101,9 @@ export async function sendNotification(evt: NotifyEvent): Promise<void> {
   if (now - (lastSent.get(throttleKey) ?? 0) < THROTTLE_MS) return;
   lastSent.set(throttleKey, now);
 
-  if (clients.size > 0) {
+  if (notifyTargets.size > 0) {
     const payload = JSON.stringify({ type: "notification", ...evt });
-    for (const ws of clients) {
+    for (const ws of notifyTargets) {
       if (ws.readyState === ws.OPEN) ws.send(payload);
     }
     return;

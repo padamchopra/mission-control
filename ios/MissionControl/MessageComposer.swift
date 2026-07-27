@@ -3,11 +3,16 @@ import SwiftUI
 
 struct MessageComposer: View {
     let sessionName: String
+    /// The session's live hook state. Claude Code already queues anything typed
+    /// while it's mid-turn — this is only so the composer can say so, instead of
+    /// leaving you wondering whether the message landed or was swallowed.
+    var sessionState: SessionState?
 
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
 
     @State private var text = ""
+    @State private var queued: [String] = []
     @State private var textHeight: CGFloat = 34
     @State private var attachments: [Attachment] = []
     @State private var pickerItems: [PhotosPickerItem] = []
@@ -38,6 +43,10 @@ struct MessageComposer: View {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
     }
 
+    /// Claude Code holds anything sent mid-turn and picks it up when the turn
+    /// ends, so sending now is queueing — worth saying out loud.
+    private var willQueue: Bool { sessionState == .working }
+
     var body: some View {
         VStack(spacing: 8) {
             if let errorText {
@@ -45,6 +54,15 @@ struct MessageComposer: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !queued.isEmpty {
+                queuedStrip
+            }
+            // Only once there's something to send. The placeholder already says
+            // "Queue a message", so an unconditional banner would just be a line
+            // of orange sitting there for the minutes an agent spends working.
+            if willQueue, canSend {
+                queueHint
             }
             if !attachments.isEmpty {
                 attachmentChips
@@ -74,6 +92,51 @@ struct MessageComposer: View {
             CameraPicker { image in addImages([image]) }
                 .ignoresSafeArea()
         }
+        // Once the turn ends, Claude has taken whatever was queued. Clearing on
+        // the way out of `working` can be a beat early when it goes straight into
+        // the next queued prompt, but nothing is lost — it's already delivered.
+        .onChange(of: sessionState) { _, state in
+            if state != .working { queued.removeAll() }
+        }
+    }
+
+    private var queueHint: some View {
+        Label("Claude is working — this will be queued until the turn ends.", systemImage: "clock")
+            .font(.caption2)
+            .foregroundStyle(.orange)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var queuedStrip: some View {
+        HStack(spacing: 8) {
+            Text("\(queued.count) queued")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.orange)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(queued.enumerated()), id: \.offset) { _, message in
+                        Text(message.replacingOccurrences(of: "\n", with: " "))
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.orange.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            // Only this device's view of the queue — Claude owns the real one, so
+            // let the user dismiss it if it ever looks wrong.
+            Button {
+                queued.removeAll()
+            } label: {
+                Image(systemName: "xmark.circle.fill").font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Hide queued messages")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @State private var photosPresented = false
@@ -155,7 +218,7 @@ struct MessageComposer: View {
             )
                 .frame(height: textHeight)
             if text.isEmpty {
-                Text("Message Claude…")
+                Text(willQueue ? "Queue a message for Claude…" : "Message Claude…")
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
@@ -265,12 +328,14 @@ struct MessageComposer: View {
             } else {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 30))
+                    .foregroundStyle(willQueue ? Color.orange : Color.accentColor)
             }
         }
         .frame(height: 34)
         .disabled(!canSend || sending)
         .keyboardShortcut(.return, modifiers: .command)
-        .help("Send message (Command-Return)")
+        .help(willQueue ? "Queue message (Command-Return)" : "Send message (Command-Return)")
+        .accessibilityLabel(willQueue ? "Queue message" : "Send message")
     }
 
     private var quickMenu: some View {
@@ -345,6 +410,7 @@ struct MessageComposer: View {
         sending = true
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let outgoing = attachments
+        let queueing = willQueue
         Task {
             do {
                 var paths: [String] = []
@@ -360,6 +426,12 @@ struct MessageComposer: View {
                 try await api.sendText(sessionName, text: body)
                 await MainActor.run {
                     recordHistory(trimmed)
+                    if queueing {
+                        let label = trimmed.isEmpty
+                            ? "\(outgoing.count) attachment\(outgoing.count == 1 ? "" : "s")"
+                            : trimmed
+                        queued.append(label)
+                    }
                     text = ""
                     cursorRange = NSRange(location: 0, length: 0)
                     attachments = []

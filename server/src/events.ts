@@ -1,5 +1,5 @@
 import { registry } from "./registry.js";
-import { sendNotification } from "./notify.js";
+import { pushSession, pushSessionList, sendNotification } from "./notify.js";
 
 export async function handleHookEvent(
   session: string,
@@ -80,6 +80,13 @@ export async function handleHookEvent(
     default:
       registry.update(session, base);
   }
+
+  // Every hook event moves the session's state, its live action label, or the
+  // transcript — push it so open clients repaint immediately instead of
+  // waiting out a poll. A session starting or ending can also add a row the
+  // fleet list has never seen, which only a refetch can fill in.
+  if (event === "SessionStart" || event === "SessionEnd") pushSessionList();
+  pushSession(session, registry.view(session));
 }
 
 function str(value: unknown): string | undefined {

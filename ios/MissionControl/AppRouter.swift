@@ -23,6 +23,7 @@ final class AppRouter: ObservableObject {
     @Published var openSession: String?
     @Published private(set) var historyRequest: HistoryRequest?
     @Published var isCommandPalettePresented = false
+    @Published var isInboxPresented = false
     @Published private(set) var sessionDeletion: SessionDeletion?
     @Published var terminalSearchSession: String?
     /// A view-level request because Catalyst's split-view visibility belongs to
@@ -39,6 +40,10 @@ final class AppRouter: ObservableObject {
 
     func showCommandPalette() {
         isCommandPalettePresented = true
+    }
+
+    func showInbox() {
+        isInboxPresented = true
     }
 
     func toggleSidebar() {

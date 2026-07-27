@@ -10,6 +10,12 @@ export interface Config {
   // The topic is a random, unguessable string — subscribe the ntfy app to it.
   ntfyServer: string;
   ntfyTopic: string;
+  // The context window the sessions on this Mac run with, for the context
+  // meter. Transcripts record the model but not its window size, and the 1M
+  // variants share a model id with the 200k ones — so a session running with a
+  // larger window has to be declared here. Sessions self-correct upward once
+  // they exceed this (or once one auto-compacts, which pins the real ceiling).
+  contextLimit: number;
 }
 
 export const configDir = join(homedir(), ".mission-control");
@@ -30,6 +36,7 @@ function load(): Config {
     token: typeof parsed.token === "string" && parsed.token.length >= 32 ? parsed.token : randomBytes(32).toString("hex"),
     ntfyServer: typeof parsed.ntfyServer === "string" && parsed.ntfyServer ? parsed.ntfyServer : "https://ntfy.sh",
     ntfyTopic: typeof parsed.ntfyTopic === "string" && parsed.ntfyTopic ? parsed.ntfyTopic : `mc-${randomBytes(9).toString("hex")}`,
+    contextLimit: Number(parsed.contextLimit) > 0 ? Number(parsed.contextLimit) : 200_000,
   };
   writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
   chmodSync(configFile, 0o600);

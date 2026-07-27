@@ -9,6 +9,9 @@ struct MissionControlApp: App {
     // Instantiated at launch so it observes the active server and does an initial
     // fetch before the composer's quick-reply menu is first opened.
     @StateObject private var quickReplies = QuickRepliesStore.shared
+    // Started at launch so the decision badge is accurate before the queue is
+    // ever opened — including for servers the fleet list isn't showing.
+    @StateObject private var inbox = InboxStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -18,10 +21,18 @@ struct MissionControlApp: App {
                 .environmentObject(servers)
                 .environmentObject(toasts)
                 .preferredColorScheme(.dark)
-                // The phone doesn't hold the notify socket (that's desktop-only),
-                // so pull the latest quick replies whenever it returns to front.
+                .task { inbox.activate() }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { Task { await quickReplies.refresh() } }
+                    guard phase == .active else { return }
+                    Task { await quickReplies.refresh() }
+                    inbox.requestRefresh()
+                    // iOS suspends the app and the push socket dies with it.
+                    // Re-open it now rather than waiting out the reconnect
+                    // backoff, which would leave the first seconds back in the
+                    // app running on stale state. The Mac keeps its socket.
+                    #if !targetEnvironment(macCatalyst)
+                    NotifyStreamManager.shared.reconnectNow()
+                    #endif
                 }
         }
         .commands {
@@ -42,6 +53,11 @@ struct MissionControlApp: App {
                     router.showCommandPalette()
                 }
                 .keyboardShortcut("k", modifiers: .command)
+
+                Button("Decisions…") {
+                    router.showInbox()
+                }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
             }
 
             CommandMenu("View") {

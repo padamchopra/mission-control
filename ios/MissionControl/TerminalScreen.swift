@@ -31,6 +31,9 @@ struct TerminalScreen: View {
     @State private var showSearch = false
     @State private var showPullRequest = false
     @State private var mode: SessionMode = .conversation
+    // Fetched once and then kept current by the push channel, so the composer
+    // knows whether a message will be queued in either view mode.
+    @State private var sessionState: SessionState?
     #if targetEnvironment(macCatalyst)
     @State private var showInspector = false
     #endif
@@ -63,7 +66,12 @@ struct TerminalScreen: View {
         .task(id: streamState) { await pollCopyMode() }
         .task { await loadClaudeLink() }
         .task { await loadNotificationPreference() }
+        .task { sessionState = (try? await api?.sessionState(sessionName))?.state }
         .task { presentRequestedSearchIfNeeded() }
+        .onReceive(PushChannel.shared.sessionUpdates) { push in
+            guard push.serverURL == serverURL, push.session == sessionName else { return }
+            sessionState = push.state
+        }
         .onChange(of: router.terminalSearchSession) { _, _ in
             presentRequestedSearchIfNeeded()
         }
@@ -152,7 +160,7 @@ struct TerminalScreen: View {
                     onShowTerminal: { mode = .terminal }
                 )
             }
-            MessageComposer(sessionName: sessionName)
+            MessageComposer(sessionName: sessionName, sessionState: sessionState)
         }
     }
 

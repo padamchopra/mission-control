@@ -12,6 +12,8 @@ struct SessionInspector: View {
     @State private var tab: Tab = .changes
     @State private var conversation: Conversation?
     @State private var checks: SessionChecks?
+    @State private var pendingRefresh: Task<Void, Never>?
+    @State private var refreshing = false
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
@@ -22,6 +24,13 @@ struct SessionInspector: View {
             }
             .pickerStyle(.segmented)
             .padding(12)
+            // Above the tabs, not inside one: context pressure applies to the
+            // session, not to whichever pane happens to be selected.
+            if let usage = conversation?.context {
+                ContextMeter(usage: usage)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 11)
+            }
             Divider().overlay(Color(white: 0.16))
             ScrollView {
                 VStack(alignment: .leading, spacing: 11) {
@@ -38,6 +47,10 @@ struct SessionInspector: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.07))
         .task { await pollLoop() }
+        .onReceive(PushChannel.shared.sessionUpdates) { push in
+            guard push.serverURL == serverURL, push.session == sessionName else { return }
+            requestRefresh()
+        }
     }
 
     // MARK: Changes
@@ -207,14 +220,30 @@ struct SessionInspector: View {
     private func pollLoop() async {
         await refresh()
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(4))
+            let live = PushChannel.shared.isLive(serverURL)
+            try? await Task.sleep(for: .seconds(live ? 20 : 4))
             if Task.isCancelled { break }
             await refresh()
         }
     }
 
+    // One queued refresh at a time — this pulls two endpoints, so a burst of
+    // tool calls must not turn into a burst of `gh` invocations.
+    private func requestRefresh() {
+        guard pendingRefresh == nil else { return }
+        pendingRefresh = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            await refresh()
+            pendingRefresh = nil
+        }
+    }
+
+    // Guarded so a pushed refresh overlapping the poll can't land an older
+    // response on top of a newer one.
     private func refresh() async {
-        guard let api else { return }
+        guard let api, !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
         if let fresh = try? await api.conversation(sessionName) { conversation = fresh }
         if let fresh = try? await api.checks(sessionName) { checks = fresh }
     }

@@ -1,6 +1,7 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { config } from "./config.js";
 
 // A single rendered item in the conversation feed. `kind` picks the renderer on
 // the client; the other fields are populated per kind.
@@ -57,12 +58,31 @@ export interface Conversation {
   // a "working" indicator. `action` is the current step label (e.g. "Reading x").
   state?: string; // working | needs_input | idle | unknown
   action?: string;
+  context?: ContextUsage;
+}
+
+// How full the session's context window is, and how much history it has already
+// burned through. Read from the token accounting Claude Code records on every
+// assistant message — the only place this exists, since nothing reports it live.
+export interface ContextUsage {
+  tokens: number; // context size of the most recent request
+  limit: number;
+  // True when `limit` is a guess rather than a number this session proved (by
+  // auto-compacting) or the operator declared. The client says so.
+  limitEstimated: boolean;
+  model?: string;
+  compactions: number;
+  droppedTokens: number; // history discarded by compaction, cumulative
 }
 
 // Transcripts grow without bound (tens of MB for long sessions), so we only ever
 // read a window from the end. Recent turns — the only thing the feed shows — live
 // there, and tool_use/tool_result pairs are adjacent so pairing survives the cut.
 const MAX_TAIL = 1_500_000;
+// The context meter only needs the newest token accounting, so it reads a much
+// smaller window than the feed does — it runs for every session on the fleet
+// poll, not just the one on screen.
+const USAGE_TAIL = 400_000;
 const MAX_TEXT = 4000;
 const MAX_THINK = 1200;
 const MAX_ARG = 200;
@@ -170,9 +190,81 @@ export function readConversation(path: string | undefined, limit = 120): Convers
   return { available: true, title, model, todos, entries: entries.slice(-limit) };
 }
 
-function tailLines(path: string): any[] {
+// Keyed by path + size: a transcript only ever grows, so an unchanged size means
+// an unchanged answer. That keeps the fleet poll to one stat() per idle session
+// instead of a read, however many clients are watching.
+const usageCache = new Map<string, ContextUsage>();
+const USAGE_CACHE_MAX = 200;
+
+export function readContextUsage(path: string | undefined): ContextUsage | undefined {
+  if (!path || !existsSync(path)) return undefined;
+  let size: number;
+  try {
+    size = statSync(path).size;
+  } catch {
+    return undefined;
+  }
+  const key = `${path}:${size}`;
+  const hit = usageCache.get(key);
+  if (hit) return hit;
+
+  let tokens = 0;
+  let peak = 0;
+  let model: string | undefined;
+  let compactions = 0;
+  let droppedTokens = 0;
+  // Where this session actually compacts. An automatic compaction is the window
+  // announcing itself, so it beats every guess below.
+  let autoCompactAt = 0;
+
+  for (const o of tailLines(path, USAGE_TAIL)) {
+    if (o?.type === "assistant") {
+      const usage = o.message?.usage;
+      if (!usage) continue;
+      const used =
+        num(usage.input_tokens) + num(usage.cache_read_input_tokens) + num(usage.cache_creation_input_tokens);
+      if (used > 0) {
+        tokens = used; // last one wins — the newest request's context
+        if (used > peak) peak = used;
+      }
+      if (typeof o.message?.model === "string") model = o.message.model;
+      continue;
+    }
+    if (o?.type === "system" && o.subtype === "compact_boundary") {
+      compactions += 1;
+      const meta = o.compactMetadata;
+      if (meta && typeof meta === "object") {
+        droppedTokens = Math.max(droppedTokens, num(meta.cumulativeDroppedTokens));
+        if (meta.trigger === "auto") autoCompactAt = Math.max(autoCompactAt, num(meta.preTokens));
+      }
+    }
+  }
+
+  if (tokens === 0) return undefined; // a transcript with no completed request yet
+
+  // Fall back through: proved > declared > inferred from what we've seen fit.
+  const declared = config.contextLimit;
+  const inferred = peak > declared ? 1_000_000 : declared;
+  const usage: ContextUsage = {
+    tokens,
+    limit: autoCompactAt > 0 ? autoCompactAt : inferred,
+    limitEstimated: autoCompactAt === 0,
+    model,
+    compactions,
+    droppedTokens,
+  };
+  if (usageCache.size >= USAGE_CACHE_MAX) usageCache.clear();
+  usageCache.set(key, usage);
+  return usage;
+}
+
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function tailLines(path: string, maxBytes = MAX_TAIL): any[] {
   const size = statSync(path).size;
-  const start = Math.max(0, size - MAX_TAIL);
+  const start = Math.max(0, size - maxBytes);
   const length = size - start;
   const fd = openSync(path, "r");
   let text: string;

@@ -2,24 +2,41 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// Desktop (Mac Catalyst) only: holds a WebSocket to every configured server's
-/// /notify/stream while the app runs. The server routes Claude notifications to
-/// these sockets — shown here as native banners — instead of ntfy, so the phone
-/// stays quiet whenever a desktop client is open. Reconnects patiently forever:
-/// the open socket itself is the presence signal.
+/// Holds a WebSocket to every configured server's /notify/stream. It carries two
+/// things: live session state, which both platforms use so the UI repaints the
+/// moment a hook fires instead of waiting out a poll, and — on the Mac only —
+/// Claude notifications, shown as native banners. The Mac's open socket is the
+/// presence signal that keeps the phone quiet, so the phone connects with
+/// `notifies: false` and stays on ntfy for its banners. Reconnects patiently
+/// forever.
 final class NotifyStreamManager: NSObject {
     static let shared = NotifyStreamManager()
 
     private var streams: [String: Task<Void, Never>] = [:]
     private var serversSubscription: AnyCancellable?
     private var recentlyPosted: [String: Date] = [:]
+    private var presentsNotifications = false
 
-    func activate() {
+    /// - Parameter presentingNotifications: true on the desktop, where this app
+    ///   is the notification target. The phone passes false — asking for
+    ///   notification permission it never uses would be a prompt for nothing.
+    func activate(presentingNotifications: Bool) {
         guard serversSubscription == nil else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        presentsNotifications = presentingNotifications
+        if presentingNotifications {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        }
         serversSubscription = ServerStore.shared.$servers
             .receive(on: DispatchQueue.main)
             .sink { [weak self] servers in self?.restart(servers) }
+    }
+
+    /// Drop and re-open every socket. The phone calls this when it returns to
+    /// the foreground: iOS suspends the app and the socket dies with it, and
+    /// waiting out the reconnect backoff would leave the first seconds back in
+    /// the app running on stale data.
+    func reconnectNow() {
+        Task { @MainActor in self.restart(ServerStore.shared.servers) }
     }
 
     private func restart(_ servers: [Server]) {
@@ -35,13 +52,15 @@ final class NotifyStreamManager: NSObject {
                 await receiveLoop(socket, server: server)
                 socket.cancel(with: .goingAway, reason: nil)
             }
+            await PushChannel.shared.markDown(server.url)
+            if Task.isCancelled { return }
             try? await Task.sleep(for: .seconds(20))
         }
     }
 
     private func openSocket(_ server: Server) -> URLSessionWebSocketTask? {
         guard let api = APIClient(urlString: server.url, token: server.token),
-              let url = api.notifyWebSocketURL() else { return nil }
+              let url = api.notifyWebSocketURL(notifies: presentsNotifications) else { return nil }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(server.token)", forHTTPHeaderField: "Authorization")
         let socket = URLSession.shared.webSocketTask(with: request)
@@ -65,14 +84,26 @@ final class NotifyStreamManager: NSObject {
 
     private func handle(_ data: Data, server: Server) async {
         // Notifications carry no `type` (or "notification"); other payloads —
-        // like live quick-reply edits — are tagged so we can route them.
+        // live state, list invalidations, quick-reply edits — are tagged.
         let type = (try? JSONDecoder().decode(WSEnvelope.self, from: data))?.type
         switch type {
+        case "hello":
+            // Only a server that greets us pushes state. Without this the
+            // client can't tell "nothing has changed" from "this server is too
+            // old to tell me", and would slow-poll its way into staleness.
+            await PushChannel.shared.markLive(server.url)
+        case "session":
+            if let push = try? JSONDecoder().decode(SessionPushPayload.self, from: data) {
+                await PushChannel.shared.emit(push.event(from: server))
+            }
+        case "sessions":
+            await PushChannel.shared.emitSessionListChange(server.url)
         case "quick-replies":
             if let push = try? JSONDecoder().decode(QuickRepliesPush.self, from: data) {
                 await QuickRepliesStore.shared.applyPushed(push.replies, for: server)
             }
         default:
+            guard presentsNotifications else { return }
             if let event = try? JSONDecoder().decode(NotifyEvent.self, from: data) {
                 await post(event)
             }
@@ -105,9 +136,61 @@ struct NotifyEvent: Codable {
     let highPriority: Bool
 }
 
+/// One session's hook-driven state, pushed the instant it changes. Mirrors the
+/// server registry, so a nil field means cleared — not "unchanged".
+struct SessionPush {
+    let serverURL: String
+    let session: String
+    let state: SessionState?
+    let detail: String?
+    let currentAction: String?
+}
+
+/// Where live updates surface for the rest of the app. Views subscribe to the
+/// subjects to repaint immediately, and read `isLive` to decide how hard to
+/// poll: a server that pushes needs only a slow safety net, while one that
+/// doesn't (an older build) keeps the frequent poll it has always had.
+@MainActor
+final class PushChannel: ObservableObject {
+    static let shared = PushChannel()
+
+    let sessionUpdates = PassthroughSubject<SessionPush, Never>()
+    let sessionListChanges = PassthroughSubject<String, Never>()
+    @Published private(set) var liveServers: Set<String> = []
+
+    private init() {}
+
+    func isLive(_ serverURL: String) -> Bool { liveServers.contains(serverURL) }
+
+    func markLive(_ serverURL: String) { liveServers.insert(serverURL) }
+
+    func markDown(_ serverURL: String) { liveServers.remove(serverURL) }
+
+    func emit(_ push: SessionPush) { sessionUpdates.send(push) }
+
+    func emitSessionListChange(_ serverURL: String) { sessionListChanges.send(serverURL) }
+}
+
 // Just enough to tell notify-stream message kinds apart before fully decoding.
 private struct WSEnvelope: Decodable {
     let type: String?
+}
+
+private struct SessionPushPayload: Decodable {
+    let session: String
+    let state: SessionState?
+    let detail: String?
+    let currentAction: String?
+
+    func event(from server: Server) -> SessionPush {
+        SessionPush(
+            serverURL: server.url,
+            session: session,
+            state: state,
+            detail: detail,
+            currentAction: currentAction
+        )
+    }
 }
 
 private struct QuickRepliesPush: Decodable {
