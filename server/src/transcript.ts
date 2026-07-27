@@ -64,6 +64,21 @@ export interface Conversation {
   // the transcript — Claude Code's queue never reaches disk — so these come
   // from what the server itself sent.
   pending?: PendingMessage[];
+  info?: SessionInfo;
+}
+
+/// How the session is configured, recorded by Claude Code on its own records as
+/// it goes. This is most of what `/status` and `/model` would print, except read
+/// straight from the transcript rather than by sending a command whose output
+/// only ever renders inside the TUI.
+export interface SessionInfo {
+  model?: string;
+  effort?: string; // reasoning effort: low | medium | high | xhigh | max
+  permissionMode?: string; // auto | plan | acceptEdits | bypassPermissions | …
+  mode?: string;
+  version?: string; // the Claude Code build running this session
+  gitBranch?: string;
+  slug?: string; // Claude Code's own generated name for the session
 }
 
 // How full the session's context window is, and how much history it has already
@@ -115,9 +130,25 @@ export function readConversation(path: string | undefined, limit = 120): Convers
   let todos: ConvTodo[] = [];
   let title: string | undefined;
   let model: string | undefined;
+  const info: SessionInfo = {};
   let seq = 0;
 
   for (const o of lines) {
+    // Configuration records ride alongside the conversation, and every record
+    // carries the build/branch it was written under. Latest wins throughout —
+    // these can change mid-session (a /model switch, a branch checkout).
+    if (typeof o?.version === "string") info.version = o.version;
+    if (typeof o?.gitBranch === "string" && o.gitBranch) info.gitBranch = o.gitBranch;
+    if (typeof o?.slug === "string" && o.slug) info.slug = o.slug;
+    if (o?.type === "mode" && typeof o.mode === "string") {
+      info.mode = o.mode;
+      continue;
+    }
+    if (o?.type === "permission-mode" && typeof o.permissionMode === "string") {
+      info.permissionMode = o.permissionMode;
+      continue;
+    }
+
     if (o?.type === "ai-title") {
       if (typeof o.aiTitle === "string" && o.aiTitle.trim()) title = o.aiTitle.trim();
       continue;
@@ -126,6 +157,7 @@ export function readConversation(path: string | undefined, limit = 120): Convers
     if (o?.type === "assistant") {
       const msg = o.message;
       if (typeof msg?.model === "string") model = msg.model;
+      if (typeof o.effort === "string") info.effort = o.effort;
       const content = Array.isArray(msg?.content) ? msg.content : [];
       for (const b of content) {
         if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) {
@@ -192,7 +224,8 @@ export function readConversation(path: string | undefined, limit = 120): Convers
     }
   }
 
-  return { available: true, title, model, todos, entries: entries.slice(-limit) };
+  if (model) info.model = model;
+  return { available: true, title, model, todos, entries: entries.slice(-limit), info };
 }
 
 // Keyed by path + size: a transcript only ever grows, so an unchanged size means

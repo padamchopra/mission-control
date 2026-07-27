@@ -141,6 +141,42 @@ struct Conversation: Decodable {
     var action: String? // live step label while working, e.g. "Reading Foo.swift"
     var context: ContextUsage?
     var pending: [PendingMessage]?
+    var info: SessionInfo?
+}
+
+/// How a session is configured — most of what `/status` and `/model` would
+/// print, read out of the transcript instead of by running a command whose
+/// output only ever renders inside the TUI.
+struct SessionInfo: Decodable {
+    var model: String?
+    var effort: String?
+    var permissionMode: String?
+    var mode: String?
+    var version: String?
+    var gitBranch: String?
+    var slug: String?
+
+    /// "claude-opus-5" reads as noise in a one-line panel; "Opus 5" doesn't.
+    var shortModel: String? {
+        guard let model else { return nil }
+        let stripped = model.hasPrefix("claude-") ? String(model.dropFirst("claude-".count)) : model
+        var parts = stripped.split(separator: "-").map(String.init)
+        // Drop a trailing date stamp: claude-haiku-4-5-20251001 → Haiku 4.5
+        if let last = parts.last, last.count == 8, Int(last) != nil { parts.removeLast() }
+        guard let family = parts.first else { return model }
+        let version = parts.dropFirst().joined(separator: ".")
+        return version.isEmpty ? family.capitalized : "\(family.capitalized) \(version)"
+    }
+
+    /// Only the modes worth flagging. "auto" is the default everyone runs.
+    var notablePermissionMode: String? {
+        switch permissionMode {
+        case "plan": return "Plan mode"
+        case "acceptEdits": return "Auto-accepting edits"
+        case "bypassPermissions": return "Permissions bypassed"
+        default: return nil
+        }
+    }
 }
 
 /// A prompt queued behind the running turn. Claude Code keeps its queue in the

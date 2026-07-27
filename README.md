@@ -64,7 +64,11 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   token accounting in its transcript, with the number of times it has already
   compacted and how much history that discarded. Shown above the conversation and
   in the Mac inspector; fleet cards raise a chip only once a session is actually
-  under pressure.
+  under pressure. Tap it for the rest of the session's configuration — model,
+  reasoning effort, permission mode, branch, Claude Code build — all read from
+  what Claude Code records as it goes, so none of it needs a slash command whose
+  output would only render inside the terminal. A session running in plan mode,
+  auto-accepting edits, or with permissions bypassed says so in orange.
 - **Repository workspaces** — each workspace is a Git repository's primary
   checkout. Mission Control discovers every linked worktree, groups sessions
   from any checkout together, and opens fresh shells in the primary checkout.
@@ -84,9 +88,11 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 - **Quick actions** — a chip row under the conversation: Stop while it's working
   (the Escape you'd press in the terminal), Approve / Deny when it's waiting,
   Continue when it's idle, and Compact — which shows the context percentage and
-  turns amber once the window is tight. `/init` and `/clear` sit behind the
-  overflow, the latter confirmed. Each chip is a whitelisted key or one fixed
-  slash command; there's no route from a chip to an arbitrary command.
+  turns amber once the window is tight. The overflow holds a model switcher
+  (`/model` takes the name directly, so each item is one deterministic command
+  rather than a picker you'd navigate blind), `/init`, and a confirmed `/clear`.
+  Each chip is a whitelisted key or one fixed slash command; there's no route
+  from a chip to an arbitrary command.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
   the Mac and its path is sent so Claude can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
@@ -212,6 +218,14 @@ the full threat model and input-handling notes.
   `~/.claude/sessions/`. Local-only sessions have no web URL and the item is hidden.
 - **Uploaded media** lives under the OS temp directory, which macOS purges on its
   own — no manual cleanup.
+- **What can't be rendered natively.** Most of what Claude Code's informational
+  slash commands print is recoverable without running them: the model, effort,
+  permission mode, branch and build all come off the transcript, and context size
+  comes off its token accounting. Two things genuinely can't. `/usage` (plan
+  rate-limit consumption) is fetched live from the API and cached nowhere on disk,
+  so there is nothing to read. `/context`'s breakdown by category — system prompt
+  vs. tools vs. MCP vs. messages — is computed in memory and never written down;
+  only the total survives, which is what the meter shows.
 - **Queued prompts are only the ones sent through the app.** Claude Code keeps its
   queue inside the TUI and never writes it to disk, so nothing can be read back
   out of a transcript. The server instead records what *it* submitted while a

@@ -59,6 +59,7 @@ struct ConversationView: View {
     @State private var loading = false
     @State private var acting = false
     @State private var confirmClear = false
+    @State private var infoExpanded = false
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
@@ -110,8 +111,8 @@ struct ConversationView: View {
             if !conversation.todos.isEmpty {
                 planBar(conversation.todos)
             }
-            if let context = conversation.context {
-                contextBar(context)
+            if conversation.context != nil || conversation.info != nil {
+                contextBar(conversation)
             }
             ScrollViewReader { proxy in
                 ScrollView {
@@ -223,8 +224,23 @@ struct ConversationView: View {
         }
     }
 
+    // `/model` normally opens a picker, which would be blind navigation from a
+    // phone — but it also takes the name directly, so each item here is one
+    // deterministic command. Aliases rather than pinned ids, so this doesn't go
+    // stale every time the lineup moves.
+    private static let modelAliases = ["default", "opus", "sonnet", "haiku"]
+
     private var moreChip: some View {
         Menu {
+            Menu {
+                ForEach(Self.modelAliases, id: \.self) { alias in
+                    Button(alias.capitalized) {
+                        send("/model \(alias)", note: "Switched \(sessionName) to \(alias)")
+                    }
+                }
+            } label: {
+                Label("Switch model  (/model)", systemImage: "cpu")
+            }
             Button {
                 send("/init", note: "Asked \(sessionName) to write CLAUDE.md")
             } label: {
@@ -675,16 +691,95 @@ struct ConversationView: View {
     }
 
     // Pinned under the plan for the same reason: how close this session is to
-    // compacting shouldn't depend on where you are in the feed.
-    private func contextBar(_ usage: ContextUsage) -> some View {
-        ContextMeter(usage: usage)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(white: 0.09))
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(Color(white: 0.18)).frame(height: 0.5)
+    // compacting shouldn't depend on where you are in the feed. Tapping it opens
+    // the rest of the session's configuration — model, effort, permission mode,
+    // branch, build — all of which Claude Code records as it goes, so none of it
+    // needs a slash command whose output would land in the terminal instead.
+    private func contextBar(_ conversation: Conversation) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.22)) { infoExpanded.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    if let usage = conversation.context {
+                        ContextMeter(usage: usage)
+                    } else {
+                        Text("Session")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color(white: 0.85))
+                        Spacer(minLength: 0)
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.5))
+                        .rotationEffect(.degrees(infoExpanded ? 0 : -90))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Session details")
+
+            if infoExpanded {
+                sessionDetails(conversation)
+            }
+        }
+        .background(Color(white: 0.09))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(white: 0.18)).frame(height: 0.5)
+        }
+    }
+
+    private func sessionDetails(_ conversation: Conversation) -> some View {
+        let info = conversation.info
+        let usage = conversation.context
+        return VStack(alignment: .leading, spacing: 7) {
+            // The one line here that's a warning rather than a fact.
+            if let mode = info?.notablePermissionMode {
+                Label(mode, systemImage: "exclamationmark.shield")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
+            detailRow("Model", info?.shortModel)
+            detailRow("Effort", info?.effort)
+            detailRow("Branch", info?.gitBranch)
+            if let usage {
+                detailRow("Context", "\(usage.tokens.formatted()) of \(usage.limit.formatted()) tokens")
+                if usage.limitEstimated == true {
+                    Text("Window size assumed — set contextLimit in the server's config.json if this session runs a larger one.")
+                        .font(.caption2)
+                        .foregroundStyle(Color(white: 0.45))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let compactions = usage.compactions, compactions > 0 {
+                    detailRow("Compacted", "\(compactions)× · \((usage.droppedTokens ?? 0).formatted()) tokens dropped")
+                }
+            }
+            detailRow("Claude Code", info?.version)
+            detailRow("Session", info?.slug)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func detailRow(_ label: String, _ value: String?) -> some View {
+        if let value, !value.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(Color(white: 0.45))
+                    .frame(width: 82, alignment: .leading)
+                Text(value)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(Color(white: 0.8))
+                    .textSelection(.enabled)
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private func progressBar(done: Int, total: Int, width: CGFloat) -> some View {
