@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { configDir } from "./config.js";
 import { run as exec } from "./run.js";
 import { agentCommand, type AgentKind } from "./agent.js";
-import { assertValidName, killSession, listSessions, sendText } from "./tmux.js";
+import { assertValidName, killSession, listSessions, newShellSession, sendText } from "./tmux.js";
 const workspacesFile = join(configDir, "workspaces.json");
 
 /** A workspace is a Git repository's primary checkout, never an arbitrary folder. */
@@ -298,6 +298,9 @@ export async function openSessionInWorkspace(id: string): Promise<string> {
 // paste, never as part of a shell command.
 export async function createTaskSession(id: string, prompt: string, agent: Exclude<AgentKind, "shell">): Promise<string> {
   const workspace = await workspaceByID(id);
+  // Resolve the executable before creating a branch or worktree. A launchd
+  // service often cannot see user-local installs such as ~/.local/bin/claude.
+  agentCommand(agent);
   const trimmed = prompt.trim();
   const slug =
     (trimmed || "task")
@@ -316,7 +319,7 @@ export async function createTaskSession(id: string, prompt: string, agent: Exclu
 
   const name = `${slug}-${suffix}`;
   assertValidName(name);
-  await exec("tmux", ["new-session", "-d", "-s", name, "-c", worktreePath, agentCommand(agent)!]);
+  await newShellSession({ name, path: worktreePath, agent });
   if (trimmed) {
     // Give the TUI a moment to start, then hand it the task through bracketed paste.
     setTimeout(() => {

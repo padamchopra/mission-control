@@ -137,7 +137,10 @@ struct SessionListView: View {
             )
         }
         .sheet(item: $taskWorkspace) { workspace in
-            TaskLauncherSheet(workspace: workspace, api: api, onLaunched: { name in path = [name] })
+            TaskLauncherSheet(workspace: workspace, api: api, onLaunched: { name in
+                path = [name]
+                requestReload()
+            })
         }
         .sheet(item: $prTarget) { session in
             PullRequestSheet(sessionName: session.name, api: api)
@@ -549,6 +552,7 @@ struct SessionListView: View {
     private var sessionList: some View {
         List {
             fleetSummary
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             ForEach(workspaces) { workspace in
@@ -705,7 +709,7 @@ struct SessionListView: View {
         }
         .font(.caption)
         .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     private func summaryStat(_ count: Int, _ label: String, _ color: Color, state: SessionState) -> some View {

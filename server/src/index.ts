@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { config } from "./config.js";
-import { agentKind, inferAgent, type AgentKind } from "./agent.js";
+import { AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, pushSession, pushSessionList } from "./notify.js";
@@ -270,10 +270,17 @@ const server = createServer(async (req, res) => {
         const body = await readJson(req);
         const requested = agentKind(body.agent, "claude");
         const agent: Exclude<AgentKind, "shell"> = requested === "codex" ? "codex" : "claude";
-        const name = await createTaskSession(id, String(body.prompt ?? ""), agent);
-        registry.update(name, { agent, state: "working" });
-        pushSessionList();
-        return json(res, 200, { name });
+        try {
+          const name = await createTaskSession(id, String(body.prompt ?? ""), agent);
+          registry.update(name, { agent, state: "working" });
+          pushSessionList();
+          return json(res, 200, { name });
+        } catch (error) {
+          if (error instanceof AgentUnavailableError) {
+            return json(res, 400, { error: error.message });
+          }
+          throw error;
+        }
       }
       // Closing a worktree also stops the tmux sessions living inside it.
       if (req.method === "POST" && parts[2] === "worktrees" && parts[3] === "close") {

@@ -65,7 +65,7 @@ struct TaskLauncherSheet: View {
                 dismiss()
                 if !name.isEmpty { onLaunched(name) }
             } catch {
-                toasts.show(.error, "Couldn't start the task. Check the repository on the server.")
+                toasts.show(.error, error.localizedDescription)
                 launching = false
             }
         }

@@ -176,10 +176,19 @@ export async function newShellSession(options: { name?: string; path?: string; a
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
     throw new Error("path is not a directory");
   }
-  const args = ["new-session", "-d", "-s", name, "-c", cwd];
   const command = agentCommand(options.agent ?? "shell");
-  if (command) args.push(command);
-  await exec("tmux", args);
+  await exec("tmux", ["new-session", "-d", "-s", name, "-c", cwd]);
+  if (command) {
+    try {
+      // Keep a failed startup visible in the fleet instead of letting tmux
+      // silently destroy the detached session as soon as the agent exits.
+      await exec("tmux", ["set-window-option", "-t", name, "remain-on-exit", "failed"]);
+      await exec("tmux", ["respawn-pane", "-k", "-t", name, "-c", cwd, shellQuote(command)]);
+    } catch (error) {
+      await killSession(name).catch(() => {});
+      throw error;
+    }
+  }
   return name;
 }
 
@@ -210,4 +219,8 @@ function tmuxWithStdin(args: string[], input: string): Promise<void> {
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(stderr || `tmux exited ${code}`))));
     child.stdin.end(input);
   });
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
