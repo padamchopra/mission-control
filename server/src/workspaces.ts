@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { configDir } from "./config.js";
 import { run as exec } from "./run.js";
 import { agentCommand, type AgentKind } from "./agent.js";
-import { assertValidName, killSession, listSessions, newShellSession, sendText } from "./tmux.js";
+import { assertValidName, killSession, listSessions, newShellSession, sendText, waitForAgentComposer } from "./tmux.js";
 const workspacesFile = join(configDir, "workspaces.json");
 
 /** A workspace is a Git repository's primary checkout, never an arbitrary folder. */
@@ -321,10 +321,10 @@ export async function createTaskSession(id: string, prompt: string, agent: Exclu
   assertValidName(name);
   await newShellSession({ name, path: worktreePath, agent });
   if (trimmed) {
-    // Give the TUI a moment to start, then hand it the task through bracketed paste.
-    setTimeout(() => {
-      sendText(name, trimmed, true).catch(() => {});
-    }, 2500);
+    // Delivery is part of the request: wait for the real composer instead of
+    // racing startup with a timer and silently discarding paste failures.
+    await waitForAgentComposer(name, agent);
+    await sendText(name, trimmed, true);
   }
   return name;
 }

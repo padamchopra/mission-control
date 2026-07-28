@@ -5,6 +5,7 @@ import { delimiter, isAbsolute, join } from "node:path";
 export type AgentKind = "shell" | "claude" | "codex";
 
 export class AgentUnavailableError extends Error {}
+export class AgentStartupError extends Error {}
 
 export function agentKind(value: unknown, fallback: AgentKind = "shell"): AgentKind {
   return value === "claude" || value === "codex" || value === "shell" ? value : fallback;

@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { config } from "./config.js";
-import { AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
+import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, pushSession, pushSessionList } from "./notify.js";
@@ -276,8 +276,9 @@ const server = createServer(async (req, res) => {
           pushSessionList();
           return json(res, 200, { name });
         } catch (error) {
-          if (error instanceof AgentUnavailableError) {
-            return json(res, 400, { error: error.message });
+          if (error instanceof AgentUnavailableError || error instanceof AgentStartupError) {
+            pushSessionList();
+            return json(res, 409, { error: error.message });
           }
           throw error;
         }

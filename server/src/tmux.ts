@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { agentCommand, type AgentKind } from "./agent.js";
+import { AgentStartupError, agentCommand, type AgentKind } from "./agent.js";
 import { run as exec } from "./run.js";
 // Must start with an alphanumeric/underscore so a name can never be read as a
 // tmux flag (leading "-") or a path segment ("."/".."/leading dot).
@@ -210,6 +210,21 @@ export async function capturePane(name: string, lines: number): Promise<string> 
   return stdout.replace(/\s+$/, "");
 }
 
+export async function waitForAgentComposer(name: string, agent: Exclude<AgentKind, "shell">, timeoutMs = 15_000): Promise<void> {
+  assertValidName(name);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { stdout: dead } = await exec("tmux", ["display-message", "-p", "-t", name, "#{pane_dead}"]);
+    if (dead.trim() === "1") {
+      throw new AgentStartupError(`${agentDisplayName(agent)} exited before accepting the task.`);
+    }
+    const pane = await capturePane(name, 40);
+    if (composerReady(pane, agent)) return;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new AgentStartupError(`${agentDisplayName(agent)} started, but its input composer did not become ready.`);
+}
+
 function tmuxWithStdin(args: string[], input: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn("tmux", args, { stdio: ["pipe", "ignore", "pipe"] });
@@ -223,4 +238,17 @@ function tmuxWithStdin(args: string[], input: string): Promise<void> {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function composerReady(pane: string, agent: Exclude<AgentKind, "shell">): boolean {
+  if (agent === "claude") {
+    return pane.includes("describe a task for a new session")
+      || (pane.includes("❯")
+        && (pane.includes("? for shortcuts") || pane.includes("enter to create") || pane.includes("esc to clear")));
+  }
+  return pane.includes("›") && pane.includes("/model to change");
+}
+
+function agentDisplayName(agent: Exclude<AgentKind, "shell">): string {
+  return agent === "claude" ? "Claude" : "Codex";
 }
