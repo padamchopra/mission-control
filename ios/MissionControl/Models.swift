@@ -1,5 +1,27 @@
 import Foundation
 
+enum AgentKind: String, Codable, CaseIterable, Identifiable {
+    case shell
+    case claude
+    case codex
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .shell: return "Shell"
+        case .claude: return "Claude"
+        case .codex: return "Codex"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .shell: return "terminal"
+        case .claude: return "sparkles"
+        case .codex: return "chevron.left.forwardslash.chevron.right"
+        }
+    }
+}
+
 enum SessionState: String, Codable {
     case working
     case needsInput = "needs_input"
@@ -19,6 +41,7 @@ struct TmuxSession: Codable, Identifiable, Hashable {
     let attachedClients: Int
     let paneCommand: String
     let panePath: String
+    var agent: AgentKind?
     var state: SessionState?
     var detail: String?
     var currentAction: String?
@@ -133,6 +156,7 @@ struct QuickRepliesResponse: Codable {
 // shells, or Claude sessions running without the Mission Control hooks).
 struct Conversation: Decodable {
     var available: Bool
+    var agent: AgentKind?
     var title: String?
     var model: String?
     var todos: [ConversationTodo]
@@ -179,6 +203,7 @@ struct SessionInfo: Decodable {
 
     /// Only the modes worth flagging. "auto" is the default everyone runs.
     var notablePermissionMode: String? {
+        if mode == "plan" { return "Plan mode" }
         switch permissionMode {
         case "plan": return "Plan mode"
         case "acceptEdits": return "Auto-accepting edits"
@@ -202,6 +227,7 @@ struct PendingMessage: Decodable, Identifiable {
 /// answers, since it's a registry lookup with no tmux or git call behind it.
 struct SessionStateResponse: Decodable {
     let state: SessionState
+    var agent: AgentKind?
     var detail: String?
     var currentAction: String?
 }

@@ -1,3 +1,4 @@
+import { agentKind, type AgentKind } from "./agent.js";
 import { registry } from "./registry.js";
 import { pushSession, pushSessionList, sendNotification } from "./notify.js";
 
@@ -5,10 +6,16 @@ export async function handleHookEvent(
   session: string,
   event: string,
   payload: Record<string, unknown>,
+  reportedAgent?: AgentKind,
 ): Promise<void> {
   const previous = registry.view(session);
+  const agent = agentKind(reportedAgent, previous?.agent ?? "claude");
+  const agentName = agent === "codex" ? "Codex" : agent === "claude" ? "Claude" : "Agent";
+  const sessionId = str(payload.session_id);
   const base = {
-    claudeSessionId: str(payload.session_id),
+    agent,
+    agentSessionId: sessionId,
+    claudeSessionId: agent === "claude" ? sessionId : undefined,
     transcriptPath: str(payload.transcript_path),
     cwd: str(payload.cwd),
   };
@@ -16,11 +23,11 @@ export async function handleHookEvent(
   switch (event) {
     case "SessionStart":
       registry.update(session, { ...base, state: "working", detail: "session started", currentAction: undefined });
-      registry.recordActivity(session, "Session started", "Claude session started");
+      registry.recordActivity(session, "Session started", `${agentName} session started`);
       break;
     case "UserPromptSubmit":
       registry.update(session, { ...base, state: "working", detail: undefined, currentAction: undefined });
-      registry.recordActivity(session, "Prompt submitted", "Claude is working");
+      registry.recordActivity(session, "Prompt submitted", `${agentName} is working`);
       break;
     // PreToolUse/PostToolUse give the fleet a live "what it's doing now" label.
     // They fire often, so they only patch state — never the activity log.
@@ -28,11 +35,23 @@ export async function handleHookEvent(
       registry.update(session, { ...base, state: "working", currentAction: toolLabel(payload) });
       break;
     case "PostToolUse":
-      registry.update(session, base);
+      registry.update(session, { ...base, currentAction: undefined });
       break;
     case "SessionEnd":
       registry.update(session, { ...base, state: "idle", detail: "session ended", currentAction: undefined });
       break;
+    case "PermissionRequest": {
+      const detail = approvalDetail(payload);
+      registry.update(session, { ...base, state: "needs_input", detail, currentAction: undefined });
+      const repeated = previous?.state === "needs_input" && previous.detail === detail;
+      if (!repeated) {
+        registry.recordActivity(session, "Needs input", detail);
+        if (!previous?.notificationsMuted) {
+          await sendNotification({ session, title: `${session} needs input`, message: detail, highPriority: true });
+        }
+      }
+      break;
+    }
     case "Notification": {
       const message = str(payload.message) ?? "";
       // Claude exposes the reason for a Notification hook. In particular,
@@ -56,7 +75,7 @@ export async function handleHookEvent(
         case "idle_prompt":
           registry.update(session, { ...base, state: "idle", detail: "waiting for your next prompt", currentAction: undefined });
           if (previous?.state !== "idle") {
-            registry.recordActivity(session, "Idle", "Claude is waiting for the next prompt");
+            registry.recordActivity(session, "Idle", `${agentName} is waiting for the next prompt`);
           }
           break;
         default:
@@ -71,7 +90,7 @@ export async function handleHookEvent(
       // A Stop hook is likewise sometimes repeated. A completed turn merits
       // one quiet update, never a stack of identical banners.
       if (previous?.state !== "idle") {
-        registry.recordActivity(session, "Turn finished", "Claude finished its turn");
+        registry.recordActivity(session, "Turn finished", `${agentName} finished its turn`);
         if (!previous?.notificationsMuted) {
           await sendNotification({ session, title: `${session} finished its turn`, message: "", highPriority: false });
         }
@@ -87,6 +106,15 @@ export async function handleHookEvent(
   // fleet list has never seen, which only a refetch can fill in.
   if (event === "SessionStart" || event === "SessionEnd") pushSessionList();
   pushSession(session, registry.view(session));
+}
+
+function approvalDetail(payload: Record<string, unknown>): string {
+  const input = payload.tool_input && typeof payload.tool_input === "object"
+    ? payload.tool_input as Record<string, unknown>
+    : {};
+  return str(input.description)
+    ?? (str(payload.tool_name) ? `${str(payload.tool_name)} needs approval` : undefined)
+    ?? "needs your approval";
 }
 
 function str(value: unknown): string | undefined {
@@ -107,6 +135,7 @@ function toolLabel(payload: Record<string, unknown>): string | undefined {
       return `Reading ${base(input.file_path)}`;
     case "Edit":
     case "MultiEdit":
+    case "apply_patch":
       return `Editing ${base(input.file_path)}`;
     case "Write":
       return `Writing ${base(input.file_path)}`;
@@ -121,6 +150,7 @@ function toolLabel(payload: Record<string, unknown>): string | undefined {
     case "Agent":
       return "Delegating to a subagent";
     case "TodoWrite":
+    case "update_plan":
       return "Updating the plan";
     case "WebFetch":
     case "WebSearch":

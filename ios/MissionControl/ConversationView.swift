@@ -17,7 +17,7 @@ private struct ViewportHeightKey: PreferenceKey {
 }
 
 /// Three dots that pulse in sequence — a lightweight "thinking" animation that
-/// reads as activity even before Claude produces any output.
+/// reads as activity even before the agent produces any output.
 private struct TypingIndicator: View {
     @State private var animating = false
 
@@ -39,7 +39,7 @@ private struct TypingIndicator: View {
     }
 }
 
-/// A native, phone-friendly rendering of a session's Claude Code transcript:
+/// A native, phone-friendly rendering of an agent transcript:
 /// user prompts, assistant text, collapsible reasoning, tool calls with inline
 /// diffs/output, and the live plan. It polls the server the same way the
 /// terminal reconnects — the transcript on the Mac stays the source of truth.
@@ -70,6 +70,7 @@ struct ConversationView: View {
     // doesn't flash while the feed settles, small enough that one scrolled-off
     // message brings it back.
     private static let bottomSlack: CGFloat = 60
+    private var agent: AgentKind { conversation?.agent ?? .claude }
 
     var body: some View {
         Group {
@@ -102,7 +103,7 @@ struct ConversationView: View {
                 send("/clear", note: "Cleared \(sessionName)")
             }
         } message: {
-            Text("Sends /clear. Claude loses the conversation's context — the transcript stays on disk, but the session starts fresh.")
+            Text("Sends /clear. \(agent.displayName) loses the conversation's context — the transcript stays on disk, but the session starts fresh.")
         }
     }
 
@@ -229,31 +230,44 @@ struct ConversationView: View {
         }
     }
 
-    // `/model` normally opens a picker, which would be blind navigation from a
-    // phone — but it also takes the name directly, so each item here is one
-    // deterministic command. Aliases rather than pinned ids, so this doesn't go
-    // stale every time the lineup moves.
+    // Claude accepts model aliases directly. Codex's lineup is dynamic, so open
+    // its own picker instead of baking model names into the app.
     private static let modelAliases = ["default", "opus", "sonnet", "haiku"]
 
     private var moreChip: some View {
         Menu {
-            Menu {
-                ForEach(Self.modelAliases, id: \.self) { alias in
-                    Button(alias.capitalized) {
-                        send("/model \(alias)", note: "Switched \(sessionName) to \(alias)")
+            if agent == .claude {
+                Menu {
+                    ForEach(Self.modelAliases, id: \.self) { alias in
+                        Button(alias.capitalized) {
+                            send("/model \(alias)", note: "Switched \(sessionName) to \(alias)")
+                        }
                     }
+                } label: {
+                    Label("Switch model  (/model)", systemImage: "cpu")
                 }
-            } label: {
-                Label("Switch model  (/model)", systemImage: "cpu")
+                Button {
+                    send("/init", note: "Asked \(sessionName) to write CLAUDE.md")
+                } label: {
+                    Label("Write CLAUDE.md  (/init)", systemImage: "doc.badge.plus")
+                }
+            } else if agent == .codex {
+                Button {
+                    send("/model", note: "Opened the model picker in \(sessionName)")
+                } label: {
+                    Label("Choose model  (/model)", systemImage: "cpu")
+                }
+                Button {
+                    send("/init", note: "Asked \(sessionName) to write AGENTS.md")
+                } label: {
+                    Label("Write AGENTS.md  (/init)", systemImage: "doc.badge.plus")
+                }
             }
-            Button {
-                send("/init", note: "Asked \(sessionName) to write CLAUDE.md")
-            } label: {
-                Label("Write CLAUDE.md  (/init)", systemImage: "doc.badge.plus")
-            }
-            Divider()
-            Button(role: .destructive) { confirmClear = true } label: {
-                Label("Clear conversation  (/clear)", systemImage: "trash")
+            if agent != .shell {
+                Divider()
+                Button(role: .destructive) { confirmClear = true } label: {
+                    Label("Clear conversation  (/clear)", systemImage: "trash")
+                }
             }
         } label: {
             chipLabel("More", "ellipsis", tint: nil)
@@ -960,7 +974,7 @@ struct ConversationView: View {
                     detailRow("Compacted", "\(compactions)× · \((usage.droppedTokens ?? 0).formatted()) tokens dropped")
                 }
             }
-            detailRow("Claude Code", info?.version)
+            detailRow(agent.displayName, info?.version)
             detailRow("Session", info?.slug)
         }
         .padding(.horizontal, 16)
@@ -1020,7 +1034,7 @@ struct ConversationView: View {
             Text("No conversation for this session")
                 .font(.headline)
                 .foregroundStyle(Color(white: 0.85))
-            Text("This looks like a shell session, or Claude Code is running without the Mission Control hooks. The live terminal has everything.")
+            Text("This looks like a shell session, or the agent is running without trusted Mission Control hooks. The live terminal has everything.")
                 .font(.callout)
                 .foregroundStyle(Color(white: 0.5))
                 .multilineTextAlignment(.center)

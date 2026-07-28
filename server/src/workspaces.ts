@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { configDir } from "./config.js";
 import { run as exec } from "./run.js";
+import { agentCommand, type AgentKind } from "./agent.js";
 import { assertValidName, killSession, listSessions, sendText } from "./tmux.js";
 const workspacesFile = join(configDir, "workspaces.json");
 
@@ -292,10 +293,10 @@ export async function openSessionInWorkspace(id: string): Promise<string> {
 }
 
 // Starts a whole new task: a fresh branch + linked worktree + tmux session with
-// Claude launched, and the task delivered as Claude's first message. Claude is
-// launched via a fixed argv ("claude"); the prompt is only ever delivered
-// through injection-safe bracketed paste, never as part of a shell command.
-export async function createTaskSession(id: string, prompt: string): Promise<string> {
+// the selected agent, and the task delivered as its first message. The agent is
+// a fixed executable; the prompt is delivered through injection-safe bracketed
+// paste, never as part of a shell command.
+export async function createTaskSession(id: string, prompt: string, agent: Exclude<AgentKind, "shell">): Promise<string> {
   const workspace = await workspaceByID(id);
   const trimmed = prompt.trim();
   const slug =
@@ -315,9 +316,9 @@ export async function createTaskSession(id: string, prompt: string): Promise<str
 
   const name = `${slug}-${suffix}`;
   assertValidName(name);
-  await exec("tmux", ["new-session", "-d", "-s", name, "-c", worktreePath, "claude"]);
+  await exec("tmux", ["new-session", "-d", "-s", name, "-c", worktreePath, agentCommand(agent)!]);
   if (trimmed) {
-    // Give Claude a moment to start, then hand it the task through bracketed paste.
+    // Give the TUI a moment to start, then hand it the task through bracketed paste.
     setTimeout(() => {
       sendText(name, trimmed, true).catch(() => {});
     }, 2500);

@@ -3,10 +3,10 @@ import SwiftUI
 
 struct MessageComposer: View {
     let sessionName: String
-    /// The session's live hook state. Claude Code already queues anything typed
-    /// while it's mid-turn — this is only so the composer can say so, instead of
-    /// leaving you wondering whether the message landed or was swallowed.
+    /// Claude Code queues anything typed while it's mid-turn. Codex treats input
+    /// as live steering, so the queue treatment is provider-specific.
     var sessionState: SessionState?
+    var agent: AgentKind?
 
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
@@ -44,7 +44,8 @@ struct MessageComposer: View {
 
     /// Claude Code holds anything sent mid-turn and picks it up when the turn
     /// ends, so sending now is queueing — worth saying out loud.
-    private var willQueue: Bool { sessionState == .working }
+    private var willQueue: Bool { agent == .claude && sessionState == .working }
+    private var agentName: String { (agent ?? .shell).displayName }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -179,7 +180,7 @@ struct MessageComposer: View {
             )
                 .frame(height: textHeight)
             if text.isEmpty {
-                Text(willQueue ? "Queue a message for Claude…" : "Message Claude…")
+                Text(willQueue ? "Queue a message for Claude…" : "Message \(agentName)…")
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)

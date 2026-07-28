@@ -1,6 +1,6 @@
 #!/bin/bash
 # Reverses deploy/setup.sh: stops the server, removes the LaunchAgent, the
-# ~/.mission-control directory, the Claude Code hook entries, and the
+# ~/.mission-control directory, the Claude Code and Codex hook entries, and the
 # tailscale serve rule. Leaves dependency tools (node, tmux, qrencode,
 # Tailscale) and this repo checkout in place.
 set -euo pipefail
@@ -43,6 +43,24 @@ for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
   else settings.hooks[event] = kept;
 }
 fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+EOF
+
+echo "==> Removing Codex hook entries"
+node - <<'EOF' || echo "    couldn't update ~/.codex/hooks.json — remove the mc-hook.sh entries manually"
+const fs = require("fs");
+const path = require("path");
+const hooksPath = path.join(process.env.HOME, ".codex", "hooks.json");
+if (!fs.existsSync(hooksPath)) process.exit(0);
+const config = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
+for (const [event, groups] of Object.entries(config.hooks ?? {})) {
+  const kept = groups.filter(
+    (group) => !(group.hooks ?? []).some((hook) => String(hook.command ?? "").includes("mc-hook.sh")),
+  );
+  if (kept.length !== groups.length) console.log(`   - ${event}`);
+  if (kept.length === 0) delete config.hooks[event];
+  else config.hooks[event] = kept;
+}
+fs.writeFileSync(hooksPath, JSON.stringify(config, null, 2) + "\n");
 EOF
 
 echo "==> Removing $MC_DIR (config, token, hook script, uploads, logs)"

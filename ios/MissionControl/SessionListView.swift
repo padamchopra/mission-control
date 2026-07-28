@@ -772,7 +772,7 @@ struct SessionListView: View {
             .accessibilityLabel("Manage repository worktrees")
             Menu {
                 Button { taskWorkspace = workspace } label: {
-                    Label("Start a task with Claude…", systemImage: "sparkles")
+                    Label("Start an agent task…", systemImage: "sparkles")
                 }
                 Button { Task { await openSession(in: workspace) } } label: {
                     Label("New shell session", systemImage: "terminal")
@@ -886,6 +886,7 @@ struct SessionListView: View {
     // rise to the top the moment it does.
     private func apply(_ push: SessionPush) {
         guard let index = sessions.firstIndex(where: { $0.name == push.session }) else { return }
+        if let agent = push.agent { sessions[index].agent = agent }
         sessions[index].state = push.state
         sessions[index].detail = push.detail
         sessions[index].currentAction = push.currentAction
@@ -983,7 +984,7 @@ private struct SessionRow: View {
                     stateChip
                 }
             }
-            Text("\(session.paneCommand) · \(session.lastOutputDate.formatted(.relative(presentation: .named)))")
+            Text("\((session.agent ?? .shell).displayName) · \(session.lastOutputDate.formatted(.relative(presentation: .named)))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if session.resolvedState == .working, let action = session.currentAction, !action.isEmpty {

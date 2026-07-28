@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Start a new tmux session from anywhere — in a chosen directory (or home),
-/// optionally launching Claude — without needing a saved workspace first.
+/// optionally launching a supported agent — without needing a saved workspace first.
 struct NewSessionSheet: View {
     let workspaces: [Workspace]
     let api: APIClient?
@@ -11,7 +11,7 @@ struct NewSessionSheet: View {
     @EnvironmentObject private var toasts: ToastCenter
     @State private var name = ""
     @State private var path = ""
-    @State private var launchClaude = true
+    @State private var agent: AgentKind = .claude
     @State private var creating = false
 
     var body: some View {
@@ -40,7 +40,12 @@ struct NewSessionSheet: View {
                     TextField("Name — optional", text: $name)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    Toggle("Launch Claude", isOn: $launchClaude)
+                    Picker("Start", selection: $agent) {
+                        ForEach(AgentKind.allCases) { kind in
+                            Label(kind.displayName, systemImage: kind.systemImage).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
             }
             .navigationTitle("New session")
@@ -63,13 +68,13 @@ struct NewSessionSheet: View {
         creating = true
         let chosenName = name
         let chosenPath = path
-        let claude = launchClaude
+        let chosenAgent = agent
         Task {
             do {
                 let created = try await api.createSession(
                     name: chosenName.isEmpty ? nil : chosenName,
                     path: chosenPath.isEmpty ? nil : chosenPath,
-                    claude: claude
+                    agent: chosenAgent
                 )
                 toasts.show(.success, created.isEmpty ? "Session started" : "Started \(created)")
                 dismiss()

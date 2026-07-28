@@ -5,7 +5,7 @@ import UserNotifications
 /// Holds a WebSocket to every configured server's /notify/stream. It carries two
 /// things: live session state, which both platforms use so the UI repaints the
 /// moment a hook fires instead of waiting out a poll, and — on the Mac only —
-/// Claude notifications, shown as native banners. The Mac's open socket is the
+/// Agent notifications, shown as native banners. The Mac's open socket is the
 /// presence signal that keeps the phone quiet, so the phone connects with
 /// `notifies: false` and stays on ntfy for its banners. Reconnects patiently
 /// forever.
@@ -141,6 +141,7 @@ struct NotifyEvent: Codable {
 struct SessionPush {
     let serverURL: String
     let session: String
+    let agent: AgentKind?
     let state: SessionState?
     let detail: String?
     let currentAction: String?
@@ -178,6 +179,7 @@ private struct WSEnvelope: Decodable {
 
 private struct SessionPushPayload: Decodable {
     let session: String
+    let agent: AgentKind?
     let state: SessionState?
     let detail: String?
     let currentAction: String?
@@ -186,6 +188,7 @@ private struct SessionPushPayload: Decodable {
         SessionPush(
             serverURL: server.url,
             session: session,
+            agent: agent,
             state: state,
             detail: detail,
             currentAction: currentAction

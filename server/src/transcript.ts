@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { config } from "./config.js";
+import type { AgentKind } from "./agent.js";
 import type { PendingMessage } from "./registry.js";
 
 // A single rendered item in the conversation feed. `kind` picks the renderer on
@@ -57,6 +57,7 @@ export interface ConvTodo {
 
 export interface Conversation {
   available: boolean;
+  agent?: AgentKind;
   title?: string;
   model?: string;
   todos: ConvTodo[];
@@ -144,6 +145,7 @@ export function readConversation(path: string | undefined, limit = 120): Convers
   if (!path || !existsSync(path)) return UNAVAILABLE;
 
   const lines = tailLines(path);
+  if (isCodexTranscript(path, lines)) return readCodexConversation(lines, limit);
   const entries: ConvEntry[] = [];
   const toolIndexById = new Map<string, number>();
   let todos: ConvTodo[] = [];
@@ -249,13 +251,106 @@ export function readConversation(path: string | undefined, limit = 120): Convers
   return { available: true, title, model, todos, entries: entries.slice(-limit), info };
 }
 
+function readCodexConversation(lines: any[], limit: number): Conversation {
+  const entries: ConvEntry[] = [];
+  const toolIndexById = new Map<string, number>();
+  const info: SessionInfo = {};
+  let todos: ConvTodo[] = [];
+  let title: string | undefined;
+  let model: string | undefined;
+  let seq = 0;
+
+  for (const record of lines) {
+    const payload = record?.payload;
+    if (record?.type === "session_meta") {
+      if (typeof payload?.cli_version === "string") info.version = payload.cli_version;
+      if (typeof payload?.git?.branch === "string") info.gitBranch = payload.git.branch;
+      continue;
+    }
+    if (record?.type === "turn_context") {
+      if (typeof payload?.model === "string") model = payload.model;
+      if (typeof payload?.effort === "string") info.effort = payload.effort;
+      if (typeof payload?.approval_policy === "string") info.permissionMode = payload.approval_policy;
+      const mode = payload?.collaboration_mode;
+      if (typeof mode === "string") info.mode = mode;
+      else if (typeof mode?.mode === "string") info.mode = mode.mode;
+      continue;
+    }
+    if (record?.type === "event_msg") {
+      if (payload?.type === "user_message" && typeof payload.message === "string" && payload.message.trim()) {
+        const text = clip(payload.message, MAX_TEXT);
+        if (!title) title = clip(text.split("\n")[0], 80);
+        entries.push({ id: `e${seq++}`, kind: "user", text });
+      } else if (payload?.type === "agent_message" && typeof payload.message === "string" && payload.message.trim()) {
+        entries.push({ id: `e${seq++}`, kind: "assistant", text: clip(payload.message, MAX_TEXT) });
+      }
+      continue;
+    }
+    if (record?.type !== "response_item") continue;
+
+    if (payload?.type === "reasoning" && Array.isArray(payload.summary)) {
+      const text = payload.summary
+        .map((item: any) => str(item?.text))
+        .filter(Boolean)
+        .join("\n");
+      if (text) entries.push({ id: `e${seq++}`, kind: "thinking", text: clip(text, MAX_THINK) });
+      continue;
+    }
+
+    if (payload?.type === "function_call" || payload?.type === "custom_tool_call") {
+      const input = codexToolInput(payload);
+      const name = str(payload.name) ?? "tool";
+      if (name === "update_plan") {
+        const parsed = extractTodos(input);
+        if (parsed.length) todos = parsed;
+        continue;
+      }
+      const desc = describeTool(name, input);
+      const entry: ConvEntry = {
+        id: `e${seq++}`,
+        kind: "tool",
+        tool: name,
+        verb: desc.verb,
+        arg: desc.arg,
+      };
+      if (desc.file) entry.file = desc.file;
+      if (desc.skill) entry.skill = desc.skill;
+      const callId = str(payload.call_id);
+      if (callId) toolIndexById.set(callId, entries.length);
+      entries.push(entry);
+      continue;
+    }
+
+    if (payload?.type === "function_call_output" || payload?.type === "custom_tool_call_output") {
+      const callId = str(payload.call_id);
+      const index = callId ? toolIndexById.get(callId) : undefined;
+      if (index == null || !entries[index]) continue;
+      const entry = entries[index];
+      entry.status = "ok";
+      const output = resultText(payload.output) ?? codexOutputText(payload.output);
+      if (output) entry.output = clip(output, MAX_OUTPUT);
+    }
+  }
+
+  if (model) info.model = model;
+  return {
+    available: true,
+    agent: "codex",
+    title,
+    model,
+    todos,
+    entries: entries.slice(-limit),
+    info,
+  };
+}
+
 // Keyed by path + size: a transcript only ever grows, so an unchanged size means
 // an unchanged answer. That keeps the fleet poll to one stat() per idle session
 // instead of a read, however many clients are watching.
 const usageCache = new Map<string, ContextUsage>();
 const USAGE_CACHE_MAX = 200;
 
-export function readContextUsage(path: string | undefined): ContextUsage | undefined {
+export function readContextUsage(path: string | undefined, declaredContextLimit = 200_000): ContextUsage | undefined {
   if (!path || !existsSync(path)) return undefined;
   let size: number;
   try {
@@ -272,11 +367,23 @@ export function readContextUsage(path: string | undefined): ContextUsage | undef
   let model: string | undefined;
   let compactions = 0;
   let droppedTokens = 0;
+  let codexLimit = 0;
+  const codex = isCodexTranscript(path);
   // Where this session actually compacts. An automatic compaction is the window
   // announcing itself, so it beats every guess below.
   let autoCompactAt = 0;
 
   for (const o of tailLines(path, USAGE_TAIL)) {
+    if (codex) {
+      if (o?.type === "turn_context" && typeof o.payload?.model === "string") model = o.payload.model;
+      if (o?.type === "event_msg" && o.payload?.type === "token_count") {
+        const used = num(o.payload?.info?.last_token_usage?.total_tokens);
+        if (used > 0) tokens = used;
+        codexLimit = Math.max(codexLimit, num(o.payload?.info?.model_context_window));
+      }
+      if (o?.type === "event_msg" && o.payload?.type === "context_compacted") compactions += 1;
+      continue;
+    }
     if (o?.type === "assistant") {
       const usage = o.message?.usage;
       if (!usage) continue;
@@ -301,8 +408,22 @@ export function readContextUsage(path: string | undefined): ContextUsage | undef
 
   if (tokens === 0) return undefined; // a transcript with no completed request yet
 
+  if (codex) {
+    const usage: ContextUsage = {
+      tokens,
+      limit: codexLimit || declaredContextLimit,
+      limitEstimated: codexLimit === 0,
+      model,
+      compactions,
+      droppedTokens: 0,
+    };
+    if (usageCache.size >= USAGE_CACHE_MAX) usageCache.clear();
+    usageCache.set(key, usage);
+    return usage;
+  }
+
   // Fall back through: proved > declared > inferred from what we've seen fit.
-  const declared = config.contextLimit;
+  const declared = declaredContextLimit;
   const inferred = peak > declared ? 1_000_000 : declared;
   const usage: ContextUsage = {
     tokens,
@@ -351,6 +472,34 @@ function tailLines(path: string, maxBytes = MAX_TAIL): any[] {
   return out;
 }
 
+function isCodexTranscript(path: string, lines: any[] = []): boolean {
+  return path.includes("/.codex/sessions/")
+    || lines.some((record) => record?.type === "session_meta" && record?.payload?.model_provider);
+}
+
+function codexToolInput(payload: any): Record<string, unknown> {
+  if (payload?.type === "function_call" && typeof payload.arguments === "string") {
+    try {
+      const parsed = JSON.parse(payload.arguments);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch {
+      return { input: payload.arguments };
+    }
+  }
+  if (payload?.input && typeof payload.input === "object" && !Array.isArray(payload.input)) {
+    return payload.input as Record<string, unknown>;
+  }
+  return typeof payload?.input === "string" ? { input: payload.input } : {};
+}
+
+function codexOutputText(output: unknown): string | undefined {
+  if (!Array.isArray(output)) return undefined;
+  const parts = output.map((item: any) =>
+    str(item?.text) ?? str(item?.content) ?? str(item?.output),
+  ).filter(Boolean);
+  return parts.length ? parts.join("\n") : undefined;
+}
+
 function describeTool(name: unknown, input: any): { verb: string; arg: string; file?: string; skill?: string } {
   const n = typeof name === "string" ? name : "tool";
   const inp = input && typeof input === "object" ? input : {};
@@ -365,6 +514,8 @@ function describeTool(name: unknown, input: any): { verb: string; arg: string; f
     case "NotebookEdit":
       return { verb: "Edited", arg: base(inp.notebook_path), file: str(inp.notebook_path) };
     case "Bash":
+    case "exec":
+    case "exec_command":
       return { verb: "Ran", arg: clip(str(inp.command) ?? str(inp.description) ?? "", MAX_ARG) };
     case "Grep":
       return { verb: "Searched", arg: clip(str(inp.pattern) ?? "", MAX_ARG) };
@@ -374,6 +525,7 @@ function describeTool(name: unknown, input: any): { verb: string; arg: string; f
       return { verb: "Listed", arg: base(inp.path) };
     case "Task":
     case "Agent":
+    case "spawn_agent":
       return { verb: "Delegated", arg: clip(str(inp.description) ?? str(inp.subagent_type) ?? "", MAX_ARG) };
     case "Skill":
       return { verb: "Skill", arg: clip(str(inp.skill) ?? "", MAX_ARG), skill: str(inp.skill) };
@@ -511,9 +663,16 @@ function applyNotes(questions: ConvQuestion[], annotations: unknown): void {
 }
 
 function extractTodos(input: any): ConvTodo[] {
-  const todos = input && Array.isArray(input.todos) ? input.todos : [];
+  const todos = input && Array.isArray(input.todos)
+    ? input.todos
+    : input && Array.isArray(input.plan)
+      ? input.plan
+      : [];
   return todos
-    .map((t: any) => ({ content: str(t?.content) ?? str(t?.activeForm) ?? "", status: str(t?.status) ?? "pending" }))
+    .map((t: any) => ({
+      content: str(t?.content) ?? str(t?.activeForm) ?? str(t?.step) ?? "",
+      status: str(t?.status) ?? "pending",
+    }))
     .filter((t: ConvTodo) => t.content.length > 0);
 }
 

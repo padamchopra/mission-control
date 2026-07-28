@@ -64,13 +64,14 @@ export function pushSession(session: string, entry: RegistryEntry | undefined): 
   broadcast({
     type: "session",
     session,
+    agent: entry?.agent,
     state: entry?.state,
     detail: entry?.detail,
     currentAction: entry?.currentAction,
   });
 }
 
-// The set of sessions changed (created, killed, renamed, or a new Claude
+// The set of sessions changed (created, killed, renamed, or a new agent
 // session started in one). Clients refetch the list, which carries the fields
 // only /sessions can produce — pane preview and diff stat.
 export function pushSessionList(): void {

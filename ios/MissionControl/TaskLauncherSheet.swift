@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Kick off a whole new task from anywhere: describe it, and the server creates
-/// a fresh branch + linked worktree + tmux session with Claude launched and the
+/// a fresh branch + linked worktree + tmux session with an agent launched and the
 /// task delivered as its first message.
 struct TaskLauncherSheet: View {
     let workspace: Workspace
@@ -11,21 +11,29 @@ struct TaskLauncherSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var toasts: ToastCenter
     @State private var prompt = ""
+    @State private var agent: AgentKind = .claude
     @State private var launching = false
     @FocusState private var focused: Bool
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Agent") {
+                    Picker("Agent", selection: $agent) {
+                        Label("Claude", systemImage: AgentKind.claude.systemImage).tag(AgentKind.claude)
+                        Label("Codex", systemImage: AgentKind.codex.systemImage).tag(AgentKind.codex)
+                    }
+                    .pickerStyle(.segmented)
+                }
                 Section {
-                    TextField("Describe the task for Claude…", text: $prompt, axis: .vertical)
+                    TextField("Describe the task for \(agent.displayName)…", text: $prompt, axis: .vertical)
                         .lineLimit(3 ... 8)
                         .focused($focused)
                         .autocorrectionDisabled()
                 } header: {
                     Text("New task in \(workspace.name)")
                 } footer: {
-                    Text("Creates a new branch and linked worktree, opens a tmux session, and launches Claude with this as its first message.")
+                    Text("Creates a new branch and linked worktree, opens a tmux session, and launches \(agent.displayName) with this as its first message.")
                 }
             }
             .navigationTitle("Start a task")
@@ -49,9 +57,10 @@ struct TaskLauncherSheet: View {
         guard let api else { return }
         launching = true
         let text = prompt
+        let chosenAgent = agent
         Task {
             do {
-                let name = try await api.createTask(workspaceID: workspace.id, prompt: text)
+                let name = try await api.createTask(workspaceID: workspace.id, prompt: text, agent: chosenAgent)
                 toasts.show(.success, name.isEmpty ? "Task started" : "Started \(name)")
                 dismiss()
                 if !name.isEmpty { onLaunched(name) }

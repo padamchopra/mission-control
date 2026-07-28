@@ -95,8 +95,12 @@ struct APIClient {
     }
 
     @discardableResult
-    func createSession(name: String?, path: String?, claude: Bool) async throws -> String {
-        var payload: [String: Any] = ["claude": claude]
+    func createSession(name: String?, path: String?, agent: AgentKind) async throws -> String {
+        var payload: [String: Any] = [
+            "agent": agent.rawValue,
+            // An older server can still launch Claude from the same request.
+            "claude": agent == .claude,
+        ]
         if let name, !name.isEmpty { payload["name"] = name }
         if let path, !path.isEmpty { payload["path"] = path }
         let data = try await request("POST", "sessions", body: payload, timeout: 30)
@@ -104,8 +108,13 @@ struct APIClient {
     }
 
     @discardableResult
-    func createTask(workspaceID: String, prompt: String) async throws -> String {
-        let data = try await request("POST", "workspaces/\(workspaceID)/task", body: ["prompt": prompt], timeout: 60)
+    func createTask(workspaceID: String, prompt: String, agent: AgentKind) async throws -> String {
+        let data = try await request(
+            "POST",
+            "workspaces/\(workspaceID)/task",
+            body: ["prompt": prompt, "agent": agent.rawValue],
+            timeout: 60
+        )
         return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
     }
 

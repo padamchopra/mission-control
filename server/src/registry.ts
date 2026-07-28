@@ -1,14 +1,17 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AgentKind } from "./agent.js";
 import { configDir } from "./config.js";
 
 export type SessionState = "working" | "needs_input" | "idle" | "unknown";
 
 export interface RegistryEntry {
+  agent?: AgentKind;
   state: SessionState;
   detail?: string;
   currentAction?: string;
   claudeSessionId?: string;
+  agentSessionId?: string;
   transcriptPath?: string;
   cwd?: string;
   notificationsMuted?: boolean;

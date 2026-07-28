@@ -1,13 +1,14 @@
 # Mission Control
 
 A native iOS remote for a fleet of [Claude Code](https://claude.com/claude-code)
-sessions running in `tmux` on your Mac. Check what every session is doing, get a
+and [Codex CLI](https://developers.openai.com/codex/cli) sessions running in
+`tmux` on your Mac. Check what every session is doing, get a
 push when one needs you, drop into a live terminal, and send a message (or a
 photo) — all over your private
 [Tailscale](https://tailscale.com) network.
 
-It replaces Claude Code's built-in remote control for people who run many
-long-lived sessions on one always-on machine. The design principle: **the source
+It gives people who run many long-lived coding-agent sessions one remote control
+on an always-on machine. The design principle: **the source
 of truth never leaves the Mac.** The terminal is streamed straight from
 `tmux attach`, and input is injected locally with `tmux send-keys` — so there's
 no mirrored state to go stale and no keystrokes to drop in a sync layer.
@@ -29,7 +30,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 └──────────────┘                           │    ├─ PTY ↔ WS streaming    │
       ▲                                    │    ├─ event registry        │
       │ ntfy push                          │    └─ ntfy notifier          │
-      └────────────────────────────────────│  hooks/ (Claude Code hooks) │
+      └────────────────────────────────────│  hooks/ (agent lifecycle)   │
                                            └─────────────────────────────┘
 ```
 
@@ -40,9 +41,8 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   workspaces, stores uploaded media, parses transcripts into the conversation
   feed, the decision queue, and per-session context usage, and sends
   notifications via ntfy.
-- **`server/hooks/mc-hook.sh`** — Claude Code hooks (SessionStart /
-  UserPromptSubmit / PreToolUse / PostToolUse / Notification / Stop / SessionEnd)
-  that report each session's state to the server. Every Claude Code session
+- **`server/hooks/mc-hook.sh`** — shared Claude Code and Codex lifecycle hooks
+  that report each session's state to the server. Every configured agent session
   running inside tmux reports automatically. Each event is pushed straight on to
   the connected apps, so the UI tracks an agent as it works rather than polling
   for changes.
@@ -60,7 +60,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   ask, the tool call it's blocked on, the options if it asked a question, and what
   the agent last said — enough to approve, deny, or reply without opening the
   session. Acting advances to the next one. Shift-Command-D on the Mac.
-- **Context meter** — how full each session's context window is, read from the
+- **Context meter** — how full each supported agent's context window is, read from the
   token accounting in its transcript, with the number of times it has already
   compacted and how much history that discarded. Shown above the conversation and
   in the Mac inspector; fleet cards raise a chip only once a session is actually
@@ -78,6 +78,8 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 - **Live terminal** — real `tmux attach` rendered by SwiftTerm, with a native
   input bar, a quick-key row (Esc / Tab / arrows / digits / Ctrl-C),
   pinch-to-zoom, and touch or trackpad scrolling through tmux history.
+- **Agent selection** — start a shell, Claude, or Codex session from anywhere.
+  Repository tasks can launch either agent in a fresh branch and linked worktree.
 - **Agent-style composer** — type `@` to tag a project file or `/` to find an
   installed skill; suggestions follow the editor cursor rather than only the
   end of the message.
@@ -94,7 +96,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   Each chip is a whitelisted key or one fixed slash command; there's no route
   from a chip to an arbitrary command.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
-  the Mac and its path is sent so Claude can read it.
+  the Mac and its path is sent so the active agent can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
   PR, search terminal history, review activity, mute or resume notifications,
   rename the session, save its repository as a workspace, or kill it (with an
@@ -119,6 +121,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 - A Mac that stays on, with [Homebrew](https://brew.sh), Node 20+, `tmux`, `git`,
   and the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — for the
   "view PR" action).
+- Claude Code and/or Codex CLI installed for whichever agents you want to run.
 - [Tailscale](https://tailscale.com) installed and logged in on both the Mac and
   your iPhone (same tailnet).
 - Xcode 16+ (a free Apple ID is enough to build on your own device — no paid
@@ -136,9 +139,15 @@ cd ~/mission-control
 ```
 
 The script builds the server, installs it as a launchd service (auto-starts on
-login), registers the Claude Code hooks, exposes the server on your tailnet with
+login), registers Claude Code hooks and Codex hooks when their CLIs are installed,
+exposes the server on your tailnet with
 `tailscale serve`, and prints a **pairing QR** plus the server URL and token.
 Reprint the QR anytime with `./deploy/show-pairing.sh`.
+
+Codex requires a one-time trust review for user-installed lifecycle hooks. Start
+Codex, run `/hooks`, and trust the Mission Control entries after setup. Until
+then, its live terminal works but enriched state, approvals, notifications, and
+the native conversation feed will not update.
 
 After this version is installed, future server updates can be started from the
 app on either iPhone or Mac: **Settings → Server maintenance → Update server**.

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { agentCommand, type AgentKind } from "./agent.js";
 import { run as exec } from "./run.js";
 // Must start with an alphanumeric/underscore so a name can never be read as a
 // tmux flag (leading "-") or a path segment ("."/".."/leading dot).
@@ -164,10 +165,10 @@ export async function paneCurrentPath(name: string): Promise<string | undefined>
   }
 }
 
-// Starts a detached session in any directory (default: home). Optionally
-// launches Claude via a fixed argv. Used by the top-level "New session" action,
-// independent of any saved workspace.
-export async function newShellSession(options: { name?: string; path?: string; claude?: boolean }): Promise<string> {
+// Starts a detached session in any directory (default: home), optionally with
+// one of the supported agents. The executable is selected from a fixed enum;
+// user input never becomes a command or argv element.
+export async function newShellSession(options: { name?: string; path?: string; agent?: AgentKind }): Promise<string> {
   const requested = options.name?.trim();
   const name = requested && requested.length > 0 ? requested : `session-${randomUUID().slice(0, 6)}`;
   assertValidName(name);
@@ -176,7 +177,8 @@ export async function newShellSession(options: { name?: string; path?: string; c
     throw new Error("path is not a directory");
   }
   const args = ["new-session", "-d", "-s", name, "-c", cwd];
-  if (options.claude) args.push("claude");
+  const command = agentCommand(options.agent ?? "shell");
+  if (command) args.push(command);
   await exec("tmux", args);
   return name;
 }

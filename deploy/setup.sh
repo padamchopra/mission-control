@@ -64,6 +64,39 @@ fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 EOF
 
+if command -v codex >/dev/null; then
+  echo "==> Registering Codex hooks (every tmux Codex session reports)"
+  node - <<'EOF'
+const fs = require("fs");
+const path = require("path");
+const hooksPath = path.join(process.env.HOME, ".codex", "hooks.json");
+const hookCmd = (event) => `$HOME/.mission-control/mc-hook.sh ${event} codex`;
+const events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "SessionEnd"];
+
+const config = fs.existsSync(hooksPath)
+  ? JSON.parse(fs.readFileSync(hooksPath, "utf8"))
+  : {};
+config.hooks = config.hooks ?? {};
+for (const event of events) {
+  const groups = (config.hooks[event] = config.hooks[event] ?? []);
+  const already = groups.some((group) =>
+    (group.hooks ?? []).some((hook) =>
+      String(hook.command ?? "").includes("mc-hook.sh") &&
+      String(hook.command ?? "").includes("codex"),
+    ),
+  );
+  if (!already) {
+    groups.push({ hooks: [{ type: "command", command: hookCmd(event), timeout: 3 }] });
+    console.log(`   + ${event}`);
+  }
+}
+fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
+fs.writeFileSync(hooksPath, JSON.stringify(config, null, 2) + "\n");
+EOF
+else
+  echo "==> Codex CLI not found; skipping Codex hook registration"
+fi
+
 echo "==> Installing launchd service"
 NODE_BIN="$(command -v node)"
 mkdir -p "$HOME/Library/LaunchAgents"
@@ -144,5 +177,9 @@ Notifications tap through to the session in Mission Control.
 
 Once the app is on your phone, turn off Claude Code remote control
 (remoteControlAtStartup: false) — Mission Control replaces it.
+
+Codex will ask you to review newly installed lifecycle hooks. In a Codex
+session, run /hooks once and trust the Mission Control entries so live state,
+conversation updates, and approval notifications can flow to the app.
 ============================================================
 SUMMARY

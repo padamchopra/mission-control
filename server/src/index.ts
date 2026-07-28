@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { config } from "./config.js";
+import { agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, pushSession, pushSessionList } from "./notify.js";
@@ -196,9 +197,11 @@ const server = createServer(async (req, res) => {
       return json(res, 200, {
         sessions: await Promise.all(sessions.map(async (s) => {
           const entry = registry.view(s.name);
+          const agent = inferAgent(s.paneCommand, entry?.agent);
           return {
             ...s,
             ...(entry ?? { state: "unknown" }),
+            agent,
             // A short pane capture gives the fleet view useful context without
             // streaming every terminal or retaining output anywhere else.
             preview: (await capturePane(s.name, 1).catch(() => "")).trim(),
@@ -207,6 +210,7 @@ const server = createServer(async (req, res) => {
             // Cached on transcript size, so an idle session costs a stat().
             context: readContextUsage(
               entry?.transcriptPath ?? resolveTranscriptPath(entry?.cwd, entry?.claudeSessionId),
+              config.contextLimit,
             ),
           };
         })),
@@ -215,11 +219,15 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/sessions") {
       const body = await readJson(req);
+      // `claude` is retained for older app builds. New clients send the
+      // provider-neutral `agent` value.
+      const agent = agentKind(body.agent, body.claude === true ? "claude" : "shell");
       const name = await newShellSession({
         name: typeof body.name === "string" ? body.name : undefined,
         path: typeof body.path === "string" ? body.path : undefined,
-        claude: body.claude === true,
+        agent,
       });
+      registry.update(name, { agent, state: agent === "shell" ? "unknown" : "working" });
       pushSessionList();
       return json(res, 200, { name });
     }
@@ -227,8 +235,9 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/events") {
       const session = url.searchParams.get("session") ?? "";
       const event = url.searchParams.get("event") ?? "";
+      const reportedAgent = agentKind(url.searchParams.get("agent"), "claude");
       assertValidName(session);
-      await handleHookEvent(session, event, await readJson(req));
+      await handleHookEvent(session, event, await readJson(req), reportedAgent);
       return json(res, 200, { ok: true });
     }
 
@@ -259,7 +268,10 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "POST" && parts[2] === "task") {
         const body = await readJson(req);
-        const name = await createTaskSession(id, String(body.prompt ?? ""));
+        const requested = agentKind(body.agent, "claude");
+        const agent: Exclude<AgentKind, "shell"> = requested === "codex" ? "codex" : "claude";
+        const name = await createTaskSession(id, String(body.prompt ?? ""), agent);
+        registry.update(name, { agent, state: "working" });
         pushSessionList();
         return json(res, 200, { name });
       }
@@ -303,9 +315,10 @@ const server = createServer(async (req, res) => {
         // Attach the live hook state so the feed can show a processing indicator.
         // Guarded on `available` so we never mutate the shared UNAVAILABLE object.
         if (conversation.available) {
+      conversation.agent = entry?.agent ?? conversation.agent ?? "claude";
           if (entry?.state) conversation.state = entry.state;
           if (entry?.currentAction) conversation.action = entry.currentAction;
-          conversation.context = readContextUsage(path);
+          conversation.context = readContextUsage(path, config.contextLimit);
           conversation.pending = reconcilePending(name, conversation);
           // Waiting on a human, but nothing in the transcript says what for —
           // an open question dialog, whose record Claude Code writes only once
@@ -328,6 +341,7 @@ const server = createServer(async (req, res) => {
         const entry = registry.view(name);
         return json(res, 200, {
           state: entry?.state ?? "unknown",
+          agent: entry?.agent,
           detail: entry?.detail,
           currentAction: entry?.currentAction,
         });
@@ -349,7 +363,12 @@ const server = createServer(async (req, res) => {
         // A prompt submitted mid-turn is queued by Claude Code, not run. Record
         // it so every connected client can show it as pending — not just the one
         // that sent it — and nudge them to look.
-        if (submit && text.trim() && registry.view(name)?.state === "working") {
+        if (
+          submit &&
+          text.trim() &&
+          registry.view(name)?.agent === "claude" &&
+          registry.view(name)?.state === "working"
+        ) {
           registry.addPending(name, text.trim());
           pushSession(name, registry.view(name));
         }

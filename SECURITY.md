@@ -1,6 +1,6 @@
 # Security model & review
 
-Mission Control drives a fleet of Claude Code sessions on a personal machine
+Mission Control drives a fleet of Claude Code and Codex sessions on a personal machine
 that may hold sensitive source and credentials, so the server is treated as
 security-relevant even though it's only meant to be reachable by its owner.
 
