@@ -1,5 +1,6 @@
 #if targetEnvironment(macCatalyst)
 import Darwin
+import AVKit
 import SwiftUI
 import UIKit
 
@@ -21,6 +22,10 @@ enum FlightDeckPalette {
     static let green = Color(red: 86 / 255, green: 197 / 255, blue: 138 / 255)
     static let red = Color(red: 217 / 255, green: 92 / 255, blue: 92 / 255)
     static let onAccent = Color(red: 20 / 255, green: 17 / 255, blue: 10 / 255)
+}
+
+private enum FlightDeckLayout {
+    static let indexWidth: CGFloat = 360
 }
 
 struct FlightDeckModalLayer<Content: View>: View {
@@ -396,6 +401,7 @@ struct FlightDeckView: View {
     @State private var workspaceShellStarting = false
     @State private var deviceMenuOpen = false
     @State private var connectionsAddRequest = 0
+    @State private var markingPullRequestIDs: Set<String> = []
 
     private var visibleAgents: [FlightDeckAgent] {
         guard let scopeServerID else { return deck.agents }
@@ -914,16 +920,20 @@ struct FlightDeckView: View {
                 eyebrow: inboxOnly ? "ALL DEVICES / ATTENTION" : "ALL DEVICES / ATTENTION",
                 agents: agents,
                 workspaces: visibleWorkspaces,
+                launchDevices: scopeServerID == nil
+                    ? servers.servers
+                    : servers.servers.filter { $0.id == scopeServerID },
+                requiresDeviceSelection: scopeServerID == nil,
                 selectedID: focusedAgent?.id,
                 onSelect: { select($0, preservingSection: inboxOnly) },
-                onNewSession: launchBestShell,
+                onNewSession: launchRootShell,
                 onNewShell: openShell,
                 onSnooze: inboxOnly ? { agent, date in
                     inbox.snooze(serverID: agent.server.id, session: agent.session.name, until: date)
                     toasts.show(.info, "Snoozed \(agent.session.name)")
                 } : nil
             )
-            .frame(width: 330)
+            .frame(width: FlightDeckLayout.indexWidth)
             .overlay(alignment: .leading) {
                 Rectangle().fill(FlightDeckPalette.border).frame(width: 1)
             }
@@ -962,7 +972,15 @@ struct FlightDeckView: View {
     private func inboxView(inspectorWidth: CGFloat) -> some View {
         let inboxIDs = Set(inbox.items.map(\.id))
         let agents = visibleAgents.filter { inboxIDs.contains($0.id) }
-        let pullRequests = visibleAttentionPullRequests
+        let attentionPullRequests = visibleAttentionPullRequests
+        let selectedPullRequest = selectedInboxItemID
+            .flatMap { selectedID in visiblePullRequests.first { "pr|\($0.id)" == selectedID } }
+        let pullRequests: [FlightDeckPullRequest]
+        if let selectedPullRequest, !attentionPullRequests.contains(where: { $0.id == selectedPullRequest.id }) {
+            pullRequests = [selectedPullRequest] + attentionPullRequests
+        } else {
+            pullRequests = attentionPullRequests
+        }
         let validIDs = Set(agents.map { "agent|\($0.id)" } + pullRequests.map { "pr|\($0.id)" })
         let focusedID = selectedInboxItemID.flatMap { validIDs.contains($0) ? $0 : nil }
             ?? pullRequests.first.map { "pr|\($0.id)" }
@@ -983,7 +1001,7 @@ struct FlightDeckView: View {
                     pullRequestAttention.snooze(pullRequest, until: date)
                 }
             )
-            .frame(width: 360)
+            .frame(width: FlightDeckLayout.indexWidth)
 
             if let pullRequest = pullRequests.first(where: { "pr|\($0.id)" == focusedID }) {
                 FlightDeckInboxPullRequestDetail(
@@ -991,7 +1009,7 @@ struct FlightDeckView: View {
                     agent: matchingAgent(for: pullRequest),
                     onOpenSession: { openSession(for: pullRequest) },
                     onLaunchShell: { launchShell(for: pullRequest) },
-                    onViewed: { pullRequestAttention.markViewed(pullRequest) },
+                    onViewed: { viewPullRequest(pullRequest) },
                     onSnooze: { pullRequestAttention.snooze(pullRequest, until: Date().addingTimeInterval(3600)) },
                     onOpenTerminal: { openSession(for: pullRequest) }
                 )
@@ -1055,11 +1073,11 @@ struct FlightDeckView: View {
             selectedID: selectedPullRequest?.id,
             onSelect: {
                 selectedPullRequestID = $0.id
-                pullRequestAttention.markViewed($0)
+                viewPullRequest($0)
             },
+            onViewed: { viewPullRequest($0) },
             onOpenSession: { openSession(for: $0) },
             onLaunchShell: { launchShell(for: $0) },
-            onMarkRead: { markPullRequestRead($0) },
             onRefresh: { Task { await deck.refresh(refreshPullRequests: true) } }
         )
     }
@@ -1135,9 +1153,16 @@ struct FlightDeckView: View {
         }
     }
 
-    private func markPullRequestRead(_ pullRequest: FlightDeckPullRequest) {
+    private func viewPullRequest(_ pullRequest: FlightDeckPullRequest) {
+        guard pullRequest.pullRequest.hasUnreadActivity else {
+            pullRequestAttention.markViewed(pullRequest)
+            return
+        }
+        guard !markingPullRequestIDs.contains(pullRequest.id) else { return }
         guard let api = APIClient(urlString: pullRequest.server.url, token: pullRequest.server.token) else { return }
+        markingPullRequestIDs.insert(pullRequest.id)
         Task {
+            defer { markingPullRequestIDs.remove(pullRequest.id) }
             do {
                 try await api.markPullRequestRead(
                     repository: pullRequest.pullRequest.repository,
@@ -1145,9 +1170,8 @@ struct FlightDeckView: View {
                 )
                 pullRequestAttention.markViewed(pullRequest)
                 await deck.refresh(refreshPullRequests: true)
-                toasts.show(.success, "Marked PR #\(pullRequest.pullRequest.number) as read")
             } catch {
-                toasts.show(.error, "Couldn't mark PR as read: \(error.localizedDescription)")
+                toasts.show(.error, "Couldn't sync GitHub read state: \(error.localizedDescription)")
             }
         }
     }
@@ -1191,32 +1215,8 @@ struct FlightDeckView: View {
         }
     }
 
-    private func launchBestShell() {
-        let selected = selectedAgent
-        let workspace = selected.flatMap { agent in
-            visibleWorkspaces.first { candidate in
-                candidate.server.id == agent.server.id && candidate.workspace.worktrees.contains { worktree in
-                    agent.session.panePath == worktree.path || agent.session.panePath.hasPrefix(worktree.path + "/")
-                }
-            }
-        } ?? selectedWorkspace
-
-        if let workspace {
-            let worktreePath = selected.flatMap { agent in
-                workspace.workspace.worktrees
-                    .sorted { $0.path.count > $1.path.count }
-                    .first { agent.session.panePath == $0.path || agent.session.panePath.hasPrefix($0.path + "/") }?
-                    .path
-            }
-            openShell(workspace, worktreePath ?? workspace.workspace.path)
-            return
-        }
-
-        let server = selected?.server
-            ?? scopeServerID.flatMap { id in servers.servers.first(where: { $0.id == id }) }
-            ?? servers.active
-            ?? servers.servers.first
-        guard let server, let api = APIClient(urlString: server.url, token: server.token) else {
+    private func launchRootShell(on server: Server) {
+        guard let api = APIClient(urlString: server.url, token: server.token) else {
             showConnections = true
             connectionsAddRequest += 1
             return
@@ -1355,13 +1355,16 @@ private struct FlightDeckQueue: View {
     let eyebrow: String
     let agents: [FlightDeckAgent]
     let workspaces: [FlightDeckWorkspace]
+    let launchDevices: [Server]
+    let requiresDeviceSelection: Bool
     let selectedID: String?
     let onSelect: (FlightDeckAgent) -> Void
-    let onNewSession: () -> Void
+    let onNewSession: (Server) -> Void
     let onNewShell: (FlightDeckWorkspace, String?) -> Void
     let onSnooze: ((FlightDeckAgent, Date) -> Void)?
 
     @State private var collapsed: Set<String> = []
+    @State private var launchDeviceMenuOpen = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1376,8 +1379,15 @@ private struct FlightDeckQueue: View {
                 if let agent = agents.first(where: { $0.id == selectedID }), onSnooze != nil {
                     snoozeMenu(agent)
                 }
-                Button("+") { onNewSession() }
+                Button("+") {
+                    if requiresDeviceSelection {
+                        launchDeviceMenuOpen.toggle()
+                    } else if let device = launchDevices.first {
+                        onNewSession(device)
+                    }
+                }
                     .buttonStyle(FlightDeckSquareButtonStyle())
+                    .help(requiresDeviceSelection ? "Choose a device for a root shell" : "Launch a root shell")
             }
             .padding(.horizontal, 22)
             .frame(height: 86)
@@ -1415,6 +1425,72 @@ private struct FlightDeckQueue: View {
             }
         }
         .background(FlightDeckPalette.surface)
+        .overlay(alignment: .topTrailing) {
+            if launchDeviceMenuOpen {
+                launchDeviceMenu
+                    .padding(.top, 72)
+                    .padding(.trailing, 22)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .zIndex(20)
+            }
+        }
+        .onChange(of: requiresDeviceSelection) { _, _ in launchDeviceMenuOpen = false }
+        .animation(.easeOut(duration: 0.14), value: launchDeviceMenuOpen)
+    }
+
+    private var launchDeviceMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("LAUNCH ROOT SHELL")
+                .font(.flightMono(7, weight: .bold))
+                .foregroundStyle(FlightDeckPalette.muted)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+
+            Divider().overlay(FlightDeckPalette.border)
+
+            if launchDevices.isEmpty {
+                Text("NO CONNECTED DEVICES")
+                    .font(.flightMono(7))
+                    .foregroundStyle(FlightDeckPalette.muted)
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+            } else {
+                ForEach(Array(launchDevices.enumerated()), id: \.element.id) { index, device in
+                    if index > 0 { Divider().overlay(FlightDeckPalette.border) }
+                    Button {
+                        launchDeviceMenuOpen = false
+                        onNewSession(device)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(FlightDeckPalette.green)
+                                .frame(width: 7, height: 7)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(device.name)
+                                    .font(.flightSans(10, weight: .semibold))
+                                    .foregroundStyle(FlightDeckPalette.text)
+                                    .lineLimit(1)
+                                Text(device.flightDeckCode)
+                                    .font(.flightMono(7))
+                                    .foregroundStyle(FlightDeckPalette.muted)
+                            }
+                            Spacer(minLength: 12)
+                            Text("LAUNCH →")
+                                .font(.flightMono(7, weight: .medium))
+                                .foregroundStyle(FlightDeckPalette.amber)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(width: 250, height: 50)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(width: 250)
+        .background(FlightDeckPalette.raised)
+        .overlay(Rectangle().stroke(FlightDeckPalette.amber.opacity(0.85)))
+        .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
     }
 
     private var groupedWorkspaces: [(workspace: FlightDeckWorkspace, agents: [FlightDeckAgent])] {
@@ -1569,9 +1645,9 @@ private struct FlightDeckPullRequestsView: View {
     let workspaces: [FlightDeckWorkspace]
     let selectedID: String?
     let onSelect: (FlightDeckPullRequest) -> Void
+    let onViewed: (FlightDeckPullRequest) -> Void
     let onOpenSession: (FlightDeckPullRequest) -> Void
     let onLaunchShell: (FlightDeckPullRequest) -> Void
-    let onMarkRead: (FlightDeckPullRequest) -> Void
     let onRefresh: () -> Void
 
     @State private var filter: FlightDeckPullRequestFilter = .all
@@ -1595,15 +1671,14 @@ private struct FlightDeckPullRequestsView: View {
 
             HStack(spacing: 0) {
                 pullRequestIndex
-                    .frame(width: 360)
+                    .frame(width: FlightDeckLayout.indexWidth)
 
                 if let selected {
                     FlightDeckPullRequestDetail(
                         item: selected,
                         agent: matchingAgent(for: selected),
                         onOpenSession: { onOpenSession(selected) },
-                        onLaunchShell: { onLaunchShell(selected) },
-                        onMarkRead: { onMarkRead(selected) }
+                        onLaunchShell: { onLaunchShell(selected) }
                     )
                 } else {
                     FlightDeckEmptyState(
@@ -1614,6 +1689,9 @@ private struct FlightDeckPullRequestsView: View {
             }
         }
         .background(FlightDeckPalette.background)
+        .task(id: selected?.id) {
+            if let selected { onViewed(selected) }
+        }
     }
 
     private var pageHeader: some View {
@@ -1991,6 +2069,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
         }
         .frame(minWidth: 844, maxWidth: .infinity, maxHeight: .infinity)
         .background(FlightDeckPalette.background)
+        .task(id: item.id) { onViewed() }
     }
 
     private var compactHeader: some View {
@@ -2264,6 +2343,8 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     .buttonStyle(FlightDeckAccentButtonStyle())
                 Button("TERMINAL", action: onOpenTerminal)
                     .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
+                Button("SNOOZE", action: onSnooze)
+                    .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
                 Spacer()
                 Text(agent?.session.name.uppercased() ?? "LIVE SESSION")
                     .font(.flightMono(6))
@@ -2408,9 +2489,12 @@ private struct FlightDeckPullRequestDetail: View {
     let agent: FlightDeckAgent?
     let onOpenSession: () -> Void
     let onLaunchShell: () -> Void
-    let onMarkRead: () -> Void
 
     @Environment(\.openURL) private var openURL
+    @State private var timeline: [PullRequestTimelineItem] = []
+    @State private var timelineLoading = true
+    @State private var timelineError: String?
+    @State private var reviewCutoff: String?
 
     private var pullRequest: AuthoredPullRequest { item.pullRequest }
     private var unreadComments: [PullRequestComment] { pullRequest.resolvedUnreadComments }
@@ -2428,6 +2512,10 @@ private struct FlightDeckPullRequestDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(FlightDeckPalette.background)
+        .task(id: item.id) {
+            reviewCutoff = pullRequest.unreadSince
+            await loadTimeline()
+        }
     }
 
     private var header: some View {
@@ -2449,9 +2537,6 @@ private struct FlightDeckPullRequestDetail: View {
                     .lineLimit(1)
             }
             Spacer()
-            if !unreadComments.isEmpty {
-                detailButton("MARK AS READ", color: FlightDeckPalette.amber, action: onMarkRead)
-            }
             detailButton("OPEN ON GITHUB ↗", color: FlightDeckPalette.secondary) {
                 if let url = URL(string: pullRequest.url) { openURL(url) }
             }
@@ -2501,123 +2586,204 @@ private struct FlightDeckPullRequestDetail: View {
     }
 
     private var reviewDetails: some View {
-        VStack(spacing: 20) {
-            HStack(spacing: 10) {
-                summaryMetric("REVIEW", reviewValue, reviewDetail, reviewAccent)
-                summaryMetric(
-                    "CHECKS",
-                    checksValue,
-                    checksDetail,
-                    pullRequest.failedCheckCount > 0 ? FlightDeckPalette.red : FlightDeckPalette.green
-                )
-                changesMetric
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 10) {
+                    summaryMetric("REVIEW", reviewValue, reviewDetail, reviewAccent)
+                    summaryMetric(
+                        "CHECKS",
+                        checksValue,
+                        checksDetail,
+                        pullRequest.failedCheckCount > 0 ? FlightDeckPalette.red : FlightDeckPalette.green
+                    )
+                    changesMetric
+                }
+                pullRequestDescription
+                pullRequestTimeline
             }
-
-            HStack(alignment: .top, spacing: 20) {
-                reviewActivity
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                checkRuns
-                    .frame(width: 290, alignment: .topLeading)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 26)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 26)
-        .padding(.vertical, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var reviewActivity: some View {
+    private var pullRequestDescription: some View {
         VStack(alignment: .leading, spacing: 12) {
-            flightLabel("NEW REVIEW ACTIVITY")
-            if unreadComments.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("NO UNREAD REVIEW ACTIVITY")
-                        .font(.flightMono(7, weight: .bold))
-                    Text("You are caught up on comments for this pull request.")
-                        .font(.flightSans(10))
-                        .foregroundStyle(FlightDeckPalette.secondary)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
-                .background(FlightDeckPalette.surface)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            flightLabel("DESCRIPTION")
+            if let body = pullRequest.body?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty {
+                PullRequestMarkdownBody(text: body)
             } else {
-                ForEach(Array(unreadComments.prefix(2))) { comment in
-                    reviewCard(comment)
-                }
-            }
-        }
-    }
-
-    private func reviewCard(_ comment: PullRequestComment) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            Text(String(comment.author.prefix(2)).uppercased())
-                .font(.flightMono(6))
-                .foregroundStyle(FlightDeckPalette.text)
-                .frame(width: 30, height: 30)
-                .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
-            VStack(alignment: .leading, spacing: 5) {
-                Text("\(comment.author) left a comment")
-                    .font(.flightSans(10, weight: .semibold))
-                    .foregroundStyle(FlightDeckPalette.text)
-                Text("“\(comment.body)”")
-                    .font(.flightSans(10))
-                    .foregroundStyle(FlightDeckPalette.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    if let path = comment.path {
-                        Text(path.split(separator: "/").last.map(String.init)?.uppercased() ?? path.uppercased())
-                    }
-                    Text(relativeTimestamp(comment.createdAt ?? ""))
-                }
-                .font(.flightMono(6))
-                .foregroundStyle(FlightDeckPalette.muted)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
-        .background(FlightDeckPalette.surface)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
-    }
-
-    private var checkRuns: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            flightLabel("CHECK RUNS")
-            if pullRequest.checks.isEmpty {
-                Text("NO CHECK RUNS")
+                Text("NO DESCRIPTION PROVIDED")
                     .font(.flightMono(7))
                     .foregroundStyle(FlightDeckPalette.muted)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                    .background(FlightDeckPalette.surface)
+                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            }
+        }
+    }
+
+    private var pullRequestTimeline: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                flightLabel("COMMITS & GITHUB ACTIVITY")
+                Spacer()
+                if !timelineLoading {
+                    Text("\(timeline.count) EVENTS")
+                        .font(.flightMono(6))
+                        .foregroundStyle(FlightDeckPalette.muted)
+                }
+            }
+
+            if timelineLoading {
+                HStack(spacing: 10) {
+                    ProgressView().tint(FlightDeckPalette.secondary)
+                    Text("LOADING PULL REQUEST HISTORY")
+                        .font(.flightMono(7))
+                        .foregroundStyle(FlightDeckPalette.muted)
+                }
+                .padding(16)
+            } else if let timelineError {
+                Text(timelineError.uppercased())
+                    .font(.flightMono(7))
+                    .foregroundStyle(FlightDeckPalette.red)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            } else if timeline.isEmpty {
+                Text("NO COMMITS OR GITHUB ACTIVITY FOUND")
+                    .font(.flightMono(7))
+                    .foregroundStyle(FlightDeckPalette.muted)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .overlay(Rectangle().stroke(FlightDeckPalette.border))
             } else {
                 VStack(spacing: 0) {
-                    ForEach(Array(pullRequest.checks.prefix(8))) { check in
-                        checkRow(check)
+                    ForEach(Array(timeline.enumerated()), id: \.element.id) { index, event in
+                        timelineRow(event, isLast: index == timeline.count - 1)
                     }
                 }
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
             }
         }
     }
 
-    private func checkRow(_ check: PullRequestCheck) -> some View {
-        HStack(spacing: 0) {
-            Text(check.state == "pass" ? "✓" : (check.state == "fail" ? "×" : "!"))
-                .foregroundStyle(checkColor(check.state))
-                .frame(width: 20, alignment: .leading)
-            Text(check.name.uppercased())
-                .foregroundStyle(FlightDeckPalette.text)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Text(check.state.uppercased())
-                .foregroundStyle(checkColor(check.state))
+    private func timelineRow(_ event: PullRequestTimelineItem, isLast: Bool) -> some View {
+        Button {
+            if let url = URL(string: event.url), !event.url.isEmpty { openURL(url) }
+        } label: {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(spacing: 0) {
+                    Text(timelineSymbol(event))
+                        .font(.flightMono(7, weight: .bold))
+                        .foregroundStyle(timelineColor(event))
+                        .frame(width: 30, height: 30)
+                        .background(FlightDeckPalette.background)
+                        .overlay(Rectangle().stroke(timelineColor(event).opacity(0.75)))
+                    if !isLast {
+                        Rectangle()
+                            .fill(FlightDeckPalette.border)
+                            .frame(width: 1)
+                            .frame(minHeight: 54)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(timelineTitle(event))
+                            .font(.flightSans(10, weight: .semibold))
+                            .foregroundStyle(FlightDeckPalette.text)
+                        if isNewTimelineEvent(event) {
+                            Text("NEW")
+                                .font(.flightMono(6, weight: .bold))
+                                .foregroundStyle(FlightDeckPalette.amber)
+                                .padding(.horizontal, 6)
+                                .frame(height: 18)
+                                .overlay(Rectangle().stroke(FlightDeckPalette.amber))
+                        }
+                        Spacer(minLength: 8)
+                        Text(relativeTimestamp(event.createdAt))
+                            .font(.flightMono(6))
+                            .foregroundStyle(FlightDeckPalette.muted)
+                    }
+                    if !event.body.isEmpty {
+                        Text(event.body)
+                            .font(.flightSans(10))
+                            .foregroundStyle(FlightDeckPalette.secondary)
+                            .lineLimit(event.kind == "commit" ? 3 : 5)
+                            .multilineTextAlignment(.leading)
+                    }
+                    if let path = event.path {
+                        Text("\(path)\(event.line.map { ":\($0)" } ?? "")")
+                            .font(.flightMono(6))
+                            .foregroundStyle(FlightDeckPalette.muted)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.bottom, isLast ? 0 : 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contentShape(Rectangle())
         }
-        .font(.flightMono(7))
-        .padding(.horizontal, 12)
-        .frame(height: 42)
-        .overlay(alignment: .bottom) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
+        .buttonStyle(.plain)
+        .disabled(event.url.isEmpty)
+    }
+
+    private func timelineTitle(_ event: PullRequestTimelineItem) -> String {
+        switch event.kind {
+        case "commit":
+            return "\(event.author) committed \(event.sha.map { String($0.prefix(7)) } ?? "changes")"
+        case "review_comment": return "\(event.author) commented on the diff"
+        case "comment": return "\(event.author) commented"
+        case "review":
+            switch event.state {
+            case "APPROVED": return "\(event.author) approved the pull request"
+            case "CHANGES_REQUESTED": return "\(event.author) requested changes"
+            case "DISMISSED": return "\(event.author)'s review was dismissed"
+            default: return "\(event.author) submitted a review"
+            }
+        default: return "GitHub activity"
+        }
+    }
+
+    private func timelineSymbol(_ event: PullRequestTimelineItem) -> String {
+        switch event.kind {
+        case "commit": return "⌁"
+        case "review": return event.state == "APPROVED" ? "✓" : "R"
+        default: return "C"
+        }
+    }
+
+    private func timelineColor(_ event: PullRequestTimelineItem) -> Color {
+        if event.kind == "commit" { return FlightDeckPalette.secondary }
+        if event.state == "APPROVED" { return FlightDeckPalette.green }
+        if event.state == "CHANGES_REQUESTED" { return FlightDeckPalette.red }
+        return FlightDeckPalette.amber
+    }
+
+    private func isNewTimelineEvent(_ event: PullRequestTimelineItem) -> Bool {
+        guard let reviewCutoff else { return false }
+        return event.createdAt > reviewCutoff
+    }
+
+    private func loadTimeline() async {
+        timelineLoading = true
+        timelineError = nil
+        guard let api = APIClient(urlString: item.server.url, token: item.server.token) else {
+            timelineLoading = false
+            timelineError = "Timeline unavailable"
+            return
+        }
+        do {
+            timeline = try await api.pullRequestTimeline(
+                repository: pullRequest.repository,
+                number: pullRequest.number
+            )
+        } catch {
+            timelineError = "Couldn't load GitHub timeline"
+        }
+        timelineLoading = false
     }
 
     private func summaryMetric(_ label: String, _ value: String, _ detail: String, _ accent: Color) -> some View {
@@ -2754,6 +2920,226 @@ private struct FlightDeckPullRequestDetail: View {
                 if !filled { Rectangle().stroke(FlightDeckPalette.strongBorder) }
             }
             .buttonStyle(.plain)
+    }
+}
+
+private struct PullRequestMarkdownBody: View {
+    private enum MediaKind {
+        case image
+        case video
+        case unknown
+    }
+
+    private enum Block: Identifiable {
+        case markdown(Int, String)
+        case media(Int, URL, MediaKind)
+
+        var id: Int {
+            switch self {
+            case let .markdown(id, _), let .media(id, _, _): return id
+            }
+        }
+    }
+
+    private let blocks: [Block]
+
+    init(text: String) {
+        blocks = Self.parse(text)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(blocks) { block in
+                switch block {
+                case let .markdown(_, text):
+                    MarkdownText(text: text, color: FlightDeckPalette.text)
+                case let .media(_, url, kind):
+                    PullRequestRemoteMedia(url: url, declaredKind: remoteKind(kind))
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FlightDeckPalette.surface)
+        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+    }
+
+    private func remoteKind(_ kind: MediaKind) -> PullRequestRemoteMedia.Kind {
+        switch kind {
+        case .image: return .image
+        case .video: return .video
+        case .unknown: return .unknown
+        }
+    }
+
+    private static func parse(_ text: String) -> [Block] {
+        var blocks: [Block] = []
+        var markdown: [String] = []
+        var nextID = 0
+        let visibleText = text.replacingOccurrences(
+            of: #"(?s)<!--.*?-->"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        func flushMarkdown() {
+            let value = markdown.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                blocks.append(.markdown(nextID, value))
+                nextID += 1
+            }
+            markdown.removeAll()
+        }
+
+        for line in visibleText.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let match = mediaMatch(trimmed) {
+                flushMarkdown()
+                blocks.append(.media(nextID, match.url, match.kind))
+                nextID += 1
+            } else {
+                markdown.append(line)
+            }
+        }
+        flushMarkdown()
+        return blocks
+    }
+
+    private static func mediaMatch(_ line: String) -> (url: URL, kind: MediaKind)? {
+        if let value = capture(#"^!\[[^\]]*\]\((https?://[^\s\)]+)(?:\s+[^\)]*)?\)$"#, in: line),
+           let url = URL(string: value) {
+            return (url, .image)
+        }
+        if let value = capture(#"^<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>.*$"#, in: line),
+           let url = URL(string: value) {
+            return (url, .image)
+        }
+        if let value = capture(#"^<video[^>]+src=[\"']([^\"']+)[\"'][^>]*>.*$"#, in: line),
+           let url = URL(string: value) {
+            return (url, .video)
+        }
+        guard line.range(of: #"^https?://\S+$"#, options: .regularExpression) != nil,
+              let url = URL(string: line) else { return nil }
+        let path = url.path.lowercased()
+        if [".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic"].contains(where: path.hasSuffix) {
+            return (url, .image)
+        }
+        if [".mp4", ".mov", ".m4v", ".webm"].contains(where: path.hasSuffix) {
+            return (url, .video)
+        }
+        return url.host?.contains("user-attachments") == true ? (url, .unknown) : nil
+    }
+
+    private static func capture(_ pattern: String, in value: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = expression.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: value) else { return nil }
+        return String(value[range])
+    }
+}
+
+private struct PullRequestRemoteMedia: View {
+    enum Kind {
+        case image
+        case video
+        case unknown
+    }
+
+    let url: URL
+    let declaredKind: Kind
+    @State private var resolvedKind: Kind?
+
+    var body: some View {
+        Group {
+            switch resolvedKind ?? declaredKind {
+            case .image: remoteImage
+            case .video: PullRequestVideoPlayer(url: url)
+            case .unknown: mediaPlaceholder
+            }
+        }
+        .task(id: url) {
+            if declaredKind == .unknown { await resolveKind() }
+        }
+    }
+
+    private var remoteImage: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case let .success(image):
+                Link(destination: url) {
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: 520)
+                }
+                .buttonStyle(.plain)
+            case .failure:
+                mediaLink("OPEN IMAGE ON GITHUB")
+            default:
+                ProgressView()
+                    .tint(FlightDeckPalette.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 140)
+            }
+        }
+        .background(FlightDeckPalette.background)
+        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+    }
+
+    private var mediaPlaceholder: some View {
+        HStack(spacing: 10) {
+            ProgressView().tint(FlightDeckPalette.secondary)
+            Text("LOADING ATTACHMENT")
+                .font(.flightMono(7))
+                .foregroundStyle(FlightDeckPalette.muted)
+        }
+        .frame(maxWidth: .infinity, minHeight: 96)
+        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+    }
+
+    private func mediaLink(_ title: String) -> some View {
+        Link(title, destination: url)
+            .font(.flightMono(7, weight: .semibold))
+            .foregroundStyle(FlightDeckPalette.secondary)
+            .frame(maxWidth: .infinity, minHeight: 72)
+            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+    }
+
+    private func resolveKind() async {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 15
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+            if contentType.hasPrefix("image/") {
+                resolvedKind = .image
+            } else if contentType.hasPrefix("video/") {
+                resolvedKind = .video
+            } else {
+                resolvedKind = .image
+            }
+        } catch {
+            resolvedKind = .image
+        }
+    }
+}
+
+private struct PullRequestVideoPlayer: View {
+    let url: URL
+    @State private var player: AVPlayer
+
+    init(url: URL) {
+        self.url = url
+        _player = State(initialValue: AVPlayer(url: url))
+    }
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .frame(maxWidth: .infinity, minHeight: 320, maxHeight: 520)
+            .background(Color.black)
+            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            .onDisappear { player.pause() }
     }
 }
 
@@ -3440,7 +3826,7 @@ private struct FlightDeckLoopsView: View {
                     .buttonStyle(FlightDeckAccentButtonStyle())
             }
             HStack(spacing: 0) {
-                loopIndex.frame(width: 360)
+                loopIndex.frame(width: FlightDeckLayout.indexWidth)
                 if let selected {
                     loopDetail(selected)
                 } else {
@@ -4038,7 +4424,7 @@ private struct FlightDeckConnectionsView: View {
             }
 
             HStack(spacing: 0) {
-                deviceIndex.frame(width: 330)
+                deviceIndex.frame(width: FlightDeckLayout.indexWidth)
                 connectionForm.frame(minWidth: 480, maxWidth: .infinity)
                 connectionInspector.frame(width: 300)
             }
@@ -4812,7 +5198,7 @@ private struct FlightDeckArchivesView: View {
                 subtitle: "Completed conversations stay out of the live queue until you need them"
             ) { EmptyView() }
             HStack(spacing: 0) {
-                archiveIndex.frame(width: 330)
+                archiveIndex.frame(width: FlightDeckLayout.indexWidth)
                 if let selected {
                     transcript(selected).frame(minWidth: 500, maxWidth: .infinity)
                     archiveInspector(selected).frame(width: 300)
@@ -5075,7 +5461,7 @@ private struct FlightDeckWorkspacesView: View {
             }
             HStack(spacing: 0) {
                 workspaceIndex
-                    .frame(width: 330)
+                    .frame(width: FlightDeckLayout.indexWidth)
                 if let selected {
                     workspaceDetail(selected)
                 } else {

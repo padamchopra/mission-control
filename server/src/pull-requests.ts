@@ -14,10 +14,26 @@ export interface PullRequestComment {
   line?: number | null;
 }
 
+export type PullRequestTimelineKind = "commit" | "comment" | "review" | "review_comment";
+
+export interface PullRequestTimelineItem {
+  id: string;
+  kind: PullRequestTimelineKind;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+  sha?: string | null;
+  state?: string | null;
+  path?: string | null;
+  line?: number | null;
+}
+
 export interface AuthoredPullRequest {
   url: string;
   number: number;
   title: string;
+  body: string;
   repository: string;
   headRefName: string;
   baseRefName: string;
@@ -65,7 +81,7 @@ async function pullRequestsForWorkspace(
 ): Promise<AuthoredPullRequest[]> {
   try {
     const fields = [
-      "url", "number", "title", "headRefName", "baseRefName", "isDraft", "reviewDecision", "author",
+      "url", "number", "title", "body", "headRefName", "baseRefName", "isDraft", "reviewDecision", "author",
       "updatedAt", "additions", "deletions", "changedFiles", "comments", "latestReviews", "statusCheckRollup",
     ].join(",");
     const { stdout } = await exec(
@@ -125,6 +141,7 @@ export function parseAuthoredPullRequests(
       url,
       number: numberValue(pr.number),
       title: stringValue(pr.title) || "Untitled pull request",
+      body: stringValue(pr.body),
       repository,
       headRefName,
       baseRefName: stringValue(pr.baseRefName),
@@ -279,6 +296,122 @@ export async function markPullRequestRead(repository: string, number: number): P
   await exec("gh", ["api", "--method", "PATCH", `notifications/threads/${attention.threadId}`], { timeout: 30_000 });
   cache = null;
   return true;
+}
+
+export async function pullRequestTimeline(repository: string, number: number): Promise<PullRequestTimelineItem[]> {
+  const base = `repos/${repository}`;
+  const [commits, comments, reviews, reviewComments] = await Promise.all([
+    timelineRequest(`${base}/pulls/${number}/commits`),
+    timelineRequest(`${base}/issues/${number}/comments`),
+    timelineRequest(`${base}/pulls/${number}/reviews`),
+    timelineRequest(`${base}/pulls/${number}/comments`),
+  ]);
+  return parsePullRequestTimeline(commits, comments, reviews, reviewComments);
+}
+
+async function timelineRequest(endpoint: string): Promise<string> {
+  try {
+    return (await exec("gh", ["api", endpoint, "--paginate", "--slurp"], { timeout: 30_000 })).stdout;
+  } catch {
+    return "[]";
+  }
+}
+
+export function parsePullRequestTimeline(
+  commitsRaw: string,
+  commentsRaw: string,
+  reviewsRaw: string,
+  reviewCommentsRaw: string,
+): PullRequestTimelineItem[] {
+  const commits = timelineEntries(commitsRaw).flatMap((value): PullRequestTimelineItem[] => {
+    const entry = asRecord(value);
+    const sha = stringValue(entry.sha);
+    const commit = asRecord(entry.commit);
+    const author = asRecord(entry.author);
+    const commitAuthor = asRecord(commit.author);
+    const createdAt = stringValue(commitAuthor.date);
+    const body = stringValue(commit.message);
+    if (!sha || !createdAt || !body) return [];
+    return [{
+      id: `commit:${sha}`,
+      kind: "commit",
+      author: stringValue(author.login) || stringValue(commitAuthor.name) || "GitHub user",
+      body,
+      createdAt,
+      url: stringValue(entry.html_url),
+      sha,
+    }];
+  });
+
+  const comments = timelineEntries(commentsRaw).flatMap((value): PullRequestTimelineItem[] => {
+    const entry = asRecord(value);
+    const id = numberValue(entry.id);
+    const user = asRecord(entry.user);
+    const createdAt = stringValue(entry.created_at);
+    const body = reviewCommentExcerpt(stringValue(entry.body));
+    if (!id || !createdAt || !body) return [];
+    return [{
+      id: `comment:${id}`,
+      kind: "comment",
+      author: stringValue(user.login) || "GitHub user",
+      body,
+      createdAt,
+      url: stringValue(entry.html_url),
+    }];
+  });
+
+  const reviews = timelineEntries(reviewsRaw).flatMap((value): PullRequestTimelineItem[] => {
+    const entry = asRecord(value);
+    const id = numberValue(entry.id);
+    const user = asRecord(entry.user);
+    const createdAt = stringValue(entry.submitted_at);
+    const state = stringValue(entry.state).toUpperCase();
+    const body = reviewCommentExcerpt(stringValue(entry.body));
+    if (!id || !createdAt || (!body && !["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(state))) return [];
+    return [{
+      id: `review:${id}`,
+      kind: "review",
+      author: stringValue(user.login) || "GitHub user",
+      body,
+      createdAt,
+      url: stringValue(entry.html_url),
+      state,
+      sha: stringValue(entry.commit_id) || null,
+    }];
+  });
+
+  const reviewComments = timelineEntries(reviewCommentsRaw).flatMap((value): PullRequestTimelineItem[] => {
+    const entry = asRecord(value);
+    const id = numberValue(entry.id);
+    const user = asRecord(entry.user);
+    const createdAt = stringValue(entry.created_at);
+    const body = reviewCommentExcerpt(stringValue(entry.body));
+    if (!id || !createdAt || !body) return [];
+    return [{
+      id: `review-comment:${id}`,
+      kind: "review_comment",
+      author: stringValue(user.login) || "GitHub user",
+      body,
+      createdAt,
+      url: stringValue(entry.html_url),
+      sha: stringValue(entry.commit_id) || null,
+      path: stringValue(entry.path) || null,
+      line: numberValue(entry.line) || numberValue(entry.original_line) || null,
+    }];
+  });
+
+  return [...commits, ...comments, ...reviews, ...reviewComments]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function timelineEntries(raw: string): unknown[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((page: unknown) => Array.isArray(page) ? page : [page]);
+  } catch {
+    return [];
+  }
 }
 
 function reviewCommentExcerpt(body: string): string {

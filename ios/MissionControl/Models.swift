@@ -155,6 +155,7 @@ struct AuthoredPullRequest: Codable, Identifiable, Hashable {
     let url: String
     let number: Int
     let title: String
+    var body: String?
     let repository: String
     let headRefName: String
     let baseRefName: String
@@ -196,6 +197,23 @@ struct PullRequestComment: Codable, Identifiable, Hashable {
     var path: String?
     var line: Int?
     var id: String { "\(author)|\(createdAt ?? "")|\(body.prefix(32))" }
+}
+
+struct PullRequestTimelineItem: Codable, Identifiable, Hashable {
+    let id: String
+    let kind: String
+    let author: String
+    let body: String
+    let createdAt: String
+    let url: String
+    var sha: String?
+    var state: String?
+    var path: String?
+    var line: Int?
+}
+
+struct PullRequestTimelineResponse: Codable {
+    let timeline: [PullRequestTimelineItem]
 }
 
 struct AuthoredPullRequestsResponse: Codable {

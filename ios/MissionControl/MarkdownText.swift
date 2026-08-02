@@ -22,6 +22,7 @@ struct MarkdownText: View {
     private enum Block {
         case heading(Int, String)
         case bullet(String)
+        case task(Bool, String)
         case ordered(String, String)
         case code(String)
         case table([String], [[String]], [TableAlignment])
@@ -54,6 +55,27 @@ struct MarkdownText: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("•").foregroundStyle(color.opacity(0.55))
                 Text(inline(content)).foregroundStyle(color).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.callout)
+        case let .task(checked, content):
+            HStack(alignment: .top, spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(checked ? color.opacity(0.14) : Color.clear)
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(checked ? color.opacity(0.8) : color.opacity(0.42), lineWidth: 1)
+                    if checked {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(color)
+                    }
+                }
+                .frame(width: 14, height: 14)
+                .padding(.top, 2)
+
+                Text(inline(content))
+                    .foregroundStyle(color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .font(.callout)
         case let .ordered(number, content):
@@ -214,7 +236,11 @@ struct MarkdownText: View {
                 blocks.append(.heading(heading.0, heading.1))
             } else if let bullet = bulletMatch(trimmed) {
                 flushParagraph()
-                blocks.append(.bullet(bullet))
+                if let task = taskMatch(bullet) {
+                    blocks.append(.task(task.checked, task.content))
+                } else {
+                    blocks.append(.bullet(bullet))
+                }
             } else if let ordered = orderedMatch(trimmed) {
                 flushParagraph()
                 blocks.append(.ordered(ordered.0, ordered.1))
@@ -300,6 +326,17 @@ struct MarkdownText: View {
             return String(line.dropFirst(marker.count))
         }
         return nil
+    }
+
+    private func taskMatch(_ content: String) -> (checked: Bool, content: String)? {
+        let characters = Array(content)
+        guard characters.count >= 3,
+              characters[0] == "[",
+              characters[2] == "]",
+              characters[1] == " " || characters[1] == "x" || characters[1] == "X",
+              characters.count == 3 || characters[3].isWhitespace else { return nil }
+        let label = String(characters.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        return (characters[1] != " ", label)
     }
 
     private func orderedMatch(_ line: String) -> (String, String)? {

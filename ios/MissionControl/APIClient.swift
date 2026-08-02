@@ -42,6 +42,19 @@ struct APIClient {
         )
     }
 
+    func pullRequestTimeline(repository: String, number: Int) async throws -> [PullRequestTimelineItem] {
+        let data = try await request(
+            "GET",
+            "pull-requests/timeline",
+            query: [
+                URLQueryItem(name: "repository", value: repository),
+                URLQueryItem(name: "number", value: String(number)),
+            ],
+            timeout: 45
+        )
+        return try JSONDecoder().decode(PullRequestTimelineResponse.self, from: data).timeline
+    }
+
     func sessionState(_ session: String) async throws -> SessionStateResponse {
         let data = try await request("GET", "sessions/\(session)/state")
         return try JSONDecoder().decode(SessionStateResponse.self, from: data)

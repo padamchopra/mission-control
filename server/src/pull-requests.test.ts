@@ -9,7 +9,7 @@ import type { Workspace } from "./workspaces.js";
 // test-only config isolated from the user's real Mission Control installation.
 process.env.HOME = mkdtempSync(join(tmpdir(), "mission-control-pr-test-"));
 
-const { parseAuthoredPullRequests, parseUnreadReviewComments } = await import("./pull-requests.js");
+const { parseAuthoredPullRequests, parsePullRequestTimeline, parseUnreadReviewComments } = await import("./pull-requests.js");
 
 const workspace: Workspace = {
   id: "workspace-1",
@@ -27,6 +27,7 @@ test("pull request parsing resolves its branch worktree and attention state", ()
     url: "https://github.com/acme/control/pull/42",
     number: 42,
     title: "Add the flight deck",
+    body: "## Summary\nAdds the flight deck.",
     headRefName: "feature/flight-deck",
     baseRefName: "main",
     isDraft: false,
@@ -48,6 +49,7 @@ test("pull request parsing resolves its branch worktree and attention state", ()
   const result = parseAuthoredPullRequests(raw, workspace, new Set(["acme/control#42"]));
   assert.equal(result.length, 1);
   assert.equal(result[0].repository, "acme/control");
+  assert.equal(result[0].body, "## Summary\nAdds the flight deck.");
   assert.equal(result[0].worktreePath, "/code/control-pr");
   assert.equal(result[0].authorLogin, "author");
   assert.equal(result[0].hasUnreadActivity, true);
@@ -106,4 +108,54 @@ test("unread review comments exclude bots, old activity, and raw markup", () => 
     path: "Sources/Inbox.swift",
     line: 42,
   }]);
+});
+
+test("pull request timeline interleaves commits and GitHub activity", () => {
+  const commits = JSON.stringify([[
+    {
+      sha: "abc123456789",
+      html_url: "https://github.com/acme/control/commit/abc123456789",
+      author: { login: "author" },
+      commit: { author: { date: "2026-08-02T10:00:00Z" }, message: "Add timeline\n\nShow every event." },
+    },
+  ]]);
+  const comments = JSON.stringify([[
+    {
+      id: 11,
+      html_url: "https://github.com/acme/control/pull/42#issuecomment-11",
+      user: { login: "reviewer" },
+      body: "Could we clarify this?",
+      created_at: "2026-08-02T10:10:00Z",
+    },
+  ]]);
+  const reviews = JSON.stringify([[
+    {
+      id: 12,
+      html_url: "https://github.com/acme/control/pull/42#pullrequestreview-12",
+      user: { login: "reviewer" },
+      body: "",
+      state: "APPROVED",
+      commit_id: "abc123456789",
+      submitted_at: "2026-08-02T10:20:00Z",
+    },
+  ]]);
+  const reviewComments = JSON.stringify([[
+    {
+      id: 13,
+      html_url: "https://github.com/acme/control/pull/42#discussion_r13",
+      user: { login: "reviewer" },
+      body: "<!-- hidden --> **Keep this stable.**",
+      created_at: "2026-08-02T10:15:00Z",
+      commit_id: "abc123456789",
+      path: "Sources/Timeline.swift",
+      line: 42,
+    },
+  ]]);
+
+  const result = parsePullRequestTimeline(commits, comments, reviews, reviewComments);
+  assert.deepEqual(result.map((item) => item.kind), ["review", "review_comment", "comment", "commit"]);
+  assert.equal(result[0].state, "APPROVED");
+  assert.equal(result[1].body, "Keep this stable.");
+  assert.equal(result[1].path, "Sources/Timeline.swift");
+  assert.equal(result[3].sha, "abc123456789");
 });

@@ -18,7 +18,7 @@ import {
   worktreeInfo,
 } from "./git.js";
 import { buildInbox } from "./inbox.js";
-import { listAuthoredPullRequests, markPullRequestRead } from "./pull-requests.js";
+import { listAuthoredPullRequests, markPullRequestRead, pullRequestTimeline } from "./pull-requests.js";
 import { createLoop, deleteLoop, listLoops, runLoop, startLoopScheduler, updateLoop } from "./loops.js";
 import { highlightedIndex, parsePanePrompt } from "./prompt.js";
 import { questionBroker } from "./questions.js";
@@ -231,6 +231,14 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "repository and pull request number are required" });
       }
       return json(res, 200, { marked: await markPullRequestRead(repository, number) });
+    }
+    if (req.method === "GET" && url.pathname === "/pull-requests/timeline") {
+      const repository = String(url.searchParams.get("repository") ?? "").trim();
+      const number = Number(url.searchParams.get("number"));
+      if (!/^[^/\s]+\/[^/\s]+$/.test(repository) || !Number.isInteger(number) || number <= 0) {
+        return json(res, 400, { error: "repository and pull request number are required" });
+      }
+      return json(res, 200, { timeline: await pullRequestTimeline(repository, number) });
     }
 
     if (req.method === "GET" && url.pathname === "/sessions") {
