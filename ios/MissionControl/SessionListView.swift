@@ -438,47 +438,25 @@ struct SessionListView: View {
         }
     }
 
+    #if !targetEnvironment(macCatalyst)
     private var chromeLayer: some View {
-        content
-            .navigationTitle("Mission Control")
-            .toolbar {
-                if store.servers.count > 1 || store.active != nil {
-                    ToolbarItem(placement: .topBarLeading) { serverSwitcher }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { router.showInbox() } label: { inboxLabel }
-                        .accessibilityLabel(inboxAccessibilityLabel)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showNewSession = true } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("New session")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showBroadcast = true } label: {
-                        Image(systemName: "megaphone")
-                    }
-                    .disabled(sessions.isEmpty)
-                    .accessibilityLabel("Broadcast a message")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showServers = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                }
-            }
-            .navigationDestination(for: String.self) { name in
-                TerminalScreen(sessionName: name)
-            }
-            #if !targetEnvironment(macCatalyst)
-            .sheet(isPresented: $showServers) {
-                ServersView()
-            }
-            #endif
+        MobileFlightDeckView(
+            sessions: sessions,
+            workspaces: workspaces,
+            loadError: loadError,
+            hasLoaded: hasLoaded,
+            onRefresh: { await load() },
+            onOpenSession: { name in path = [name] },
+            onShowConnections: { showServers = true }
+        )
+        .navigationDestination(for: String.self) { name in
+            TerminalScreen(sessionName: name)
+        }
+        .sheet(isPresented: $showServers) {
+            ServersView()
+        }
     }
+    #endif
 
     private var killPresented: Binding<Bool> {
         Binding(get: { pendingKill != nil }, set: { if !$0 { pendingKill = nil } })
