@@ -42,6 +42,8 @@ struct TerminalScreen: View {
     @State private var showActivity = false
     @State private var showSearch = false
     @State private var showPullRequest = false
+    @State private var showSessionStatus = false
+    @State private var sessionSnapshot: TmuxSession?
     @State private var mode: SessionMode
     // Fetched once and then kept current by the push channel, so the composer
     // knows whether Claude will queue a message in either view mode.
@@ -50,6 +52,8 @@ struct TerminalScreen: View {
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var toasts: ToastCenter
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var servers = ServerStore.shared
 
     init(sessionName: String, flightPresentation: FlightDeckSessionPresentation? = nil) {
         self.sessionName = sessionName
@@ -68,7 +72,7 @@ struct TerminalScreen: View {
         #if targetEnvironment(macCatalyst)
             .background(FlightDeckPalette.background)
         #else
-            .background(Color.black)
+            .background(MobileFlightDeckPalette.background)
         #endif
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
@@ -82,6 +86,9 @@ struct TerminalScreen: View {
                 }
             }
         }
+        #if !targetEnvironment(macCatalyst)
+        .toolbar(.hidden, for: .navigationBar)
+        #endif
         .task(id: streamState) { await pollCopyMode() }
         .task { await loadClaudeLink() }
         .task { await loadNotificationPreference() }
@@ -89,6 +96,7 @@ struct TerminalScreen: View {
             let response = try? await api?.sessionState(sessionName)
             sessionState = response?.state
             agent = response?.agent
+            sessionSnapshot = (try? await api?.sessions())?.first { $0.name == sessionName }
         }
         .task { presentRequestedSearchIfNeeded() }
         .onReceive(PushChannel.shared.sessionUpdates) { push in
@@ -110,6 +118,17 @@ struct TerminalScreen: View {
         }
         .sheet(isPresented: $showPullRequest) {
             PullRequestSheet(sessionName: sessionName, api: api)
+        }
+        .fullScreenCover(isPresented: $showSessionStatus) {
+            MobileSessionStatusView(
+                sessionName: sessionName,
+                api: api,
+                initialState: sessionState,
+                initialAgent: agent,
+                onArchive: { showArchiveConfirmation = true },
+                onOpenTerminal: { mode = .terminal }
+            )
+            .preferredColorScheme(.dark)
         }
         .alert("Save repository as workspace", isPresented: $showSaveWorkspace) {
             TextField("Name", text: $workspaceName)
@@ -303,6 +322,8 @@ struct TerminalScreen: View {
             #if targetEnvironment(macCatalyst)
             flightSessionHeader
             if mode == .terminal { flightContextStrip }
+            #else
+            mobileSessionHeader
             #endif
             if mode == .terminal { connectionBanner }
             #if !targetEnvironment(macCatalyst)
@@ -437,17 +458,75 @@ struct TerminalScreen: View {
 
     #endif
 
-    private var modeBar: some View {
-        Picker("View", selection: $mode) {
-            Text("Conversation").tag(SessionMode.conversation)
-            Text("Terminal").tag(SessionMode.terminal)
+    #if !targetEnvironment(macCatalyst)
+    private var mobileSessionHeader: some View {
+        HStack(spacing: 0) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.mobileDeckSans(17, weight: .semibold))
+                    .foregroundStyle(MobileFlightDeckPalette.amber)
+                    .frame(width: 58, height: 58)
+            }
+            .buttonStyle(.plain)
+            VStack(spacing: 2) {
+                Text(sessionName)
+                    .font(.mobileDeckSans(16, weight: .bold))
+                    .foregroundStyle(MobileFlightDeckPalette.text)
+                    .lineLimit(1)
+                Text(mobileSessionMetadata)
+                    .font(.mobileDeckMono(9))
+                    .foregroundStyle(MobileFlightDeckPalette.muted)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            sessionMenu
+                .frame(width: 58, height: 58)
+                .foregroundStyle(MobileFlightDeckPalette.secondary)
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-        .background(Color.black)
+        .frame(height: 58)
+        .background(MobileFlightDeckPalette.background)
+        .overlay(alignment: .bottom) { Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1) }
     }
+
+    private var mobileSessionMetadata: String {
+        let device = servers.active?.name.uppercased() ?? "DEVICE"
+        let kind = (agent ?? sessionSnapshot?.agent ?? .shell).displayName.uppercased()
+        return "\(device) · \(kind) · \(mobileStateLabel)"
+    }
+
+    private var mobileStateLabel: String {
+        switch sessionState ?? sessionSnapshot?.resolvedState ?? .unknown {
+        case .working: return "TASK"
+        case .needsInput: return "NEEDS INPUT"
+        case .idle: return "IDLE"
+        case .unknown: return "LIVE"
+        }
+    }
+
+    private var modeBar: some View {
+        HStack(spacing: 0) {
+            mobileModeButton("Conversation", .conversation)
+            mobileModeButton("Terminal", .terminal)
+        }
+        .padding(3)
+        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(MobileFlightDeckPalette.background)
+        .overlay(alignment: .bottom) { Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1) }
+    }
+
+    private func mobileModeButton(_ title: String, _ target: SessionMode) -> some View {
+        Button { mode = target } label: {
+            Text(title)
+                .font(.mobileDeckSans(11, weight: mode == target ? .bold : .regular))
+                .foregroundStyle(mode == target ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.secondary)
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .background(mode == target ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
 
     // The live terminal plus its scroll affordance and quick-keys row. Mounted
     // only in terminal mode, so switching to Conversation tears the PTY down
@@ -492,6 +571,13 @@ struct TerminalScreen: View {
             } label: {
                 Label("Pull request", systemImage: "arrow.triangle.pull")
             }
+            #if !targetEnvironment(macCatalyst)
+            Button {
+                showSessionStatus = true
+            } label: {
+                Label("Session status", systemImage: "gauge.with.dots.needle.50percent")
+            }
+            #endif
             Button {
                 renameText = sessionName
                 showRename = true
@@ -542,7 +628,12 @@ struct TerminalScreen: View {
                 Label("Kill session", systemImage: "xmark.octagon")
             }
         } label: {
+            #if targetEnvironment(macCatalyst)
             Image(systemName: "ellipsis.circle")
+            #else
+            Image(systemName: "ellipsis")
+                .font(.mobileDeckSans(16, weight: .bold))
+            #endif
         }
     }
 
@@ -754,7 +845,8 @@ struct TerminalScreen: View {
         .background(FlightDeckPalette.surface)
         .overlay(alignment: .top) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
         #else
-        .background(.black.opacity(0.9))
+        .background(MobileFlightDeckPalette.surface)
+        .overlay(alignment: .top) { Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1) }
         #endif
     }
 
@@ -773,12 +865,14 @@ struct TerminalScreen: View {
                 .padding(.horizontal, 10)
                 .frame(height: 30)
                 .overlay(Rectangle().stroke(accent ? FlightDeckPalette.amber.opacity(0.65) : FlightDeckPalette.border))
-                #else
-                .font(.system(.footnote, design: .monospaced).weight(.semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8))
-                #endif
+            #else
+                .font(.mobileDeckMono(8, weight: .semibold))
+                .foregroundStyle(accent ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent ? MobileFlightDeckPalette.amber.opacity(0.6) : MobileFlightDeckPalette.border))
+            #endif
         }
         .buttonStyle(.plain)
         .accessibilityLabel(key == "backspace" ? "Backspace" : label)

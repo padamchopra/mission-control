@@ -67,9 +67,6 @@ struct MessageComposer: View {
             suggestionPicker
             HStack(alignment: .center, spacing: 10) {
                 attachMenu
-                #if !targetEnvironment(macCatalyst)
-                quickMenu
-                #endif
                 inputField
                 sendButton
             }
@@ -82,7 +79,8 @@ struct MessageComposer: View {
         #else
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.black)
+        .background(MobileFlightDeckPalette.surface)
+        .overlay(alignment: .top) { Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1) }
         #endif
         .photosPicker(isPresented: photosPresentedBinding, selection: $pickerItems, matching: .any(of: [.images, .videos]))
         .onChange(of: pickerItems) { _, items in
@@ -182,9 +180,11 @@ struct MessageComposer: View {
                 .frame(width: 36, height: 36)
                 .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
             #else
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 30))
-                .foregroundStyle(.secondary)
+            Image(systemName: "plus")
+                .font(.mobileDeckSans(17))
+                .foregroundStyle(MobileFlightDeckPalette.secondary)
+                .frame(width: 36, height: 36)
+                .overlay(Circle().stroke(MobileFlightDeckPalette.border))
             #endif
         }
         #if targetEnvironment(macCatalyst)
@@ -217,7 +217,9 @@ struct MessageComposer: View {
         .background(FlightDeckPalette.chrome)
         .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
         #else
-        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 18))
+        .frame(minHeight: 40)
+        .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 19))
+        .overlay(RoundedRectangle(cornerRadius: 19).stroke(MobileFlightDeckPalette.border))
         #endif
     }
 
@@ -332,16 +334,18 @@ struct MessageComposer: View {
                     .frame(width: 52, height: 40)
                     .background(FlightDeckPalette.amber)
                 #else
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundStyle(willQueue ? Color.orange : Color.accentColor)
+                Image(systemName: "arrow.up")
+                    .font(.mobileDeckSans(17, weight: .bold))
+                    .foregroundStyle(MobileFlightDeckPalette.onAccent)
+                    .frame(width: 40, height: 40)
+                    .background(MobileFlightDeckPalette.amber, in: Circle())
                 #endif
             }
         }
         #if targetEnvironment(macCatalyst)
         .frame(width: 52, height: 40)
         #else
-        .frame(height: 34)
+        .frame(width: 40, height: 40)
         #endif
         .disabled(!canSend || sending)
         .keyboardShortcut(.return, modifiers: .command)

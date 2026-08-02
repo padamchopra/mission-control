@@ -73,8 +73,8 @@ struct ConversationView: View {
     private static let accent = FlightDeckPalette.amber
     private static let verbColor = FlightDeckPalette.amber
     #else
-    private static let accent = Color(red: 0.04, green: 0.52, blue: 1.0)
-    private static let verbColor = Color(red: 0.42, green: 0.71, blue: 1.0)
+    private static let accent = MobileFlightDeckPalette.amber
+    private static let verbColor = MobileFlightDeckPalette.green
     #endif
     private static let scrollSpace = "convScroll"
     // How far off the end still counts as "at bottom": enough that the button
@@ -103,7 +103,7 @@ struct ConversationView: View {
         #if targetEnvironment(macCatalyst)
         .background(FlightDeckPalette.background)
         #else
-        .background(Color.black)
+        .background(MobileFlightDeckPalette.background)
         #endif
         .task { await pollLoop() }
         // Every hook event — a tool starting, a turn ending — means the
@@ -275,13 +275,13 @@ struct ConversationView: View {
         #if targetEnvironment(macCatalyst)
         .background(FlightDeckPalette.surface)
         #else
-        .background(Color(white: 0.05))
+        .background(MobileFlightDeckPalette.surface)
         #endif
         .overlay(alignment: .top) {
             #if targetEnvironment(macCatalyst)
             Rectangle().fill(FlightDeckPalette.border).frame(height: 1)
             #else
-            Rectangle().fill(Color(white: 0.16)).frame(height: 0.5)
+            Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1)
             #endif
         }
     }

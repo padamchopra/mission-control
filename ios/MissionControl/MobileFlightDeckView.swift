@@ -1,7 +1,7 @@
 #if !targetEnvironment(macCatalyst)
 import SwiftUI
 
-private enum MobileFlightDeckPalette {
+enum MobileFlightDeckPalette {
     static let background = Color(red: 11 / 255, green: 13 / 255, blue: 14 / 255)
     static let surface = Color(red: 21 / 255, green: 25 / 255, blue: 27 / 255)
     static let raised = Color(red: 32 / 255, green: 35 / 255, blue: 29 / 255)
@@ -18,7 +18,7 @@ private enum MobileFlightDeckPalette {
     static let onAccent = Color(red: 20 / 255, green: 17 / 255, blue: 10 / 255)
 }
 
-private extension Font {
+extension Font {
     static func mobileDeckSans(_ size: CGFloat, weight: Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .default)
     }
@@ -66,6 +66,9 @@ struct MobileFlightDeckView: View {
     @State private var showArchives = false
     @State private var showConnections = false
     @State private var showDeviceDoctor = false
+    @State private var showAddWorkspace = false
+    @State private var selectedWorkspace: Workspace?
+    @State private var selectedLoop: MissionLoop?
     @State private var loops: [MissionLoop] = []
     @State private var archives: [ArchivedChat] = []
     @State private var pullRequests: [AuthoredPullRequest] = []
@@ -177,6 +180,57 @@ struct MobileFlightDeckView: View {
         .fullScreenCover(isPresented: $showDeviceDoctor) {
             MobileDeviceDoctorView(server: servers.active, sessions: sessions, workspaces: workspaces, onClose: { showDeviceDoctor = false })
                 .preferredColorScheme(.dark)
+        }
+        .fullScreenCover(item: $selectedWorkspace) { workspace in
+            MobileWorkspaceDetailView(
+                workspace: workspace,
+                sessions: sessions,
+                api: activeAPI,
+                deviceName: servers.active?.name ?? "Device",
+                onChanged: { await onRefresh() },
+                onOpenSession: { session in
+                    selectedWorkspace = nil
+                    onOpenSession(session)
+                }
+            )
+            .preferredColorScheme(.dark)
+        }
+        .fullScreenCover(isPresented: $showAddWorkspace) {
+            MobileAddWorkspaceView(
+                sessions: sessions,
+                workspaces: workspaces,
+                api: activeAPI,
+                deviceName: servers.active?.name ?? "Device",
+                onSaved: { await onRefresh() },
+                onOpenSession: { session in
+                    showAddWorkspace = false
+                    onOpenSession(session)
+                }
+            )
+            .preferredColorScheme(.dark)
+        }
+        .fullScreenCover(item: $selectedLoop) { loop in
+            MobileLoopDetailView(
+                loop: loop,
+                workspaces: workspaces,
+                api: activeAPI,
+                deviceName: servers.active?.name ?? "Device",
+                onUpdated: { updated in
+                    if let index = loops.firstIndex(where: { $0.id == updated.id }) {
+                        loops[index] = updated
+                    }
+                    selectedLoop = updated
+                },
+                onDeleted: {
+                    loops.removeAll { $0.id == loop.id }
+                    selectedLoop = nil
+                },
+                onOpenSession: { session in
+                    selectedLoop = nil
+                    onOpenSession(session)
+                }
+            )
+            .preferredColorScheme(.dark)
         }
     }
 
@@ -372,29 +426,51 @@ struct MobileFlightDeckView: View {
     private var workspacesContent: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Saved repositories")
+                        .font(.mobileDeckSans(16, weight: .semibold))
+                    Spacer()
+                    Button { showAddWorkspace = true } label: {
+                        Image(systemName: "plus")
+                            .font(.mobileDeckSans(16, weight: .bold))
+                            .foregroundStyle(MobileFlightDeckPalette.onAccent)
+                            .frame(width: 38, height: 38)
+                            .background(MobileFlightDeckPalette.amber, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add workspace")
+                }
                 if workspaces.isEmpty {
                     quietState("No workspaces", "Save a repository to launch work from your phone.")
                 } else {
                     ForEach(workspaces) { workspace in
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text(workspace.name)
-                                    .font(.mobileDeckSans(16, weight: .semibold))
-                                Spacer()
-                                Text("\(workspace.worktrees.count) TREES")
-                                    .font(.mobileDeckMono(8))
-                                    .foregroundStyle(MobileFlightDeckPalette.muted)
+                        Button { selectedWorkspace = workspace } label: {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Text(workspace.name)
+                                        .font(.mobileDeckSans(16, weight: .semibold))
+                                    Spacer()
+                                    Text("\(workspace.worktrees.count) CHECKOUTS")
+                                        .font(.mobileDeckMono(8))
+                                        .foregroundStyle(MobileFlightDeckPalette.muted)
+                                }
+                                Text(workspace.path)
+                                    .font(.mobileDeckMono(9))
+                                    .foregroundStyle(MobileFlightDeckPalette.secondary)
+                                    .lineLimit(1)
+                                HStack(spacing: 12) {
+                                    mobileSignal("\(workspace.worktrees.filter(\.dirty).count) DIRTY", workspace.worktrees.contains(where: \.dirty) ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.muted)
+                                    mobileSignal(workspace.origin == nil ? "LOCAL" : "REMOTE", MobileFlightDeckPalette.green)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.mobileDeckSans(10, weight: .bold))
+                                        .foregroundStyle(MobileFlightDeckPalette.muted)
+                                }
                             }
-                            Text(workspace.path)
-                                .font(.mobileDeckMono(9))
-                                .foregroundStyle(MobileFlightDeckPalette.secondary)
-                                .lineLimit(1)
-                            HStack(spacing: 12) {
-                                mobileSignal("\(workspace.worktrees.filter(\.dirty).count) DIRTY", workspace.worktrees.contains(where: \.dirty) ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.muted)
-                                mobileSignal(workspace.origin == nil ? "LOCAL" : "REMOTE", MobileFlightDeckPalette.green)
-                            }
+                            .padding(14)
+                            .contentShape(Rectangle())
                         }
-                        .padding(14)
+                        .buttonStyle(.plain)
                         .mobileDeckCard(radius: 14)
                     }
                 }
@@ -411,31 +487,38 @@ struct MobileFlightDeckView: View {
                     quietState("No recurring loops", supplementaryLoading ? "Loading scheduled work…" : "Recurring agent tasks will appear here.")
                 } else {
                     ForEach(loops) { loop in
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Circle()
-                                    .fill(loop.enabled ? MobileFlightDeckPalette.green : MobileFlightDeckPalette.muted)
-                                    .frame(width: 8, height: 8)
-                                Text(loop.name)
-                                    .font(.mobileDeckSans(16, weight: .semibold))
-                                Spacer()
-                                Text(loop.enabled ? "ACTIVE" : "PAUSED")
-                                    .font(.mobileDeckMono(8))
-                                    .foregroundStyle(loop.enabled ? MobileFlightDeckPalette.green : MobileFlightDeckPalette.muted)
+                        Button { selectedLoop = loop } label: {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Circle()
+                                        .fill(loop.enabled ? (loop.lastError == nil ? MobileFlightDeckPalette.green : MobileFlightDeckPalette.red) : MobileFlightDeckPalette.muted)
+                                        .frame(width: 8, height: 8)
+                                    Text(loop.name)
+                                        .font(.mobileDeckSans(16, weight: .semibold))
+                                    Spacer()
+                                    Text(loop.enabled ? (loop.lastError == nil ? "HEALTHY" : "FAILED") : "PAUSED")
+                                        .font(.mobileDeckMono(8))
+                                        .foregroundStyle(loop.enabled ? (loop.lastError == nil ? MobileFlightDeckPalette.green : MobileFlightDeckPalette.red) : MobileFlightDeckPalette.muted)
+                                }
+                                Text(loop.prompt)
+                                    .font(.mobileDeckSans(12))
+                                    .foregroundStyle(MobileFlightDeckPalette.secondary)
+                                    .lineLimit(2)
+                                HStack {
+                                    Text("\(loop.workspaceName.uppercased()) · \(loop.agent.displayName.uppercased())")
+                                    Spacer()
+                                    Text(loop.schedule.summary.uppercased())
+                                    Image(systemName: "chevron.right")
+                                        .font(.mobileDeckSans(9, weight: .bold))
+                                        .foregroundStyle(MobileFlightDeckPalette.muted)
+                                }
+                                .font(.mobileDeckMono(8))
+                                .foregroundStyle(MobileFlightDeckPalette.muted)
                             }
-                            Text(loop.prompt)
-                                .font(.mobileDeckSans(12))
-                                .foregroundStyle(MobileFlightDeckPalette.secondary)
-                                .lineLimit(2)
-                            HStack {
-                                Text(loop.workspaceName.uppercased())
-                                Spacer()
-                                Text(loop.schedule.summary.uppercased())
-                            }
-                            .font(.mobileDeckMono(8))
-                            .foregroundStyle(MobileFlightDeckPalette.muted)
+                            .padding(14)
+                            .contentShape(Rectangle())
                         }
-                        .padding(14)
+                        .buttonStyle(.plain)
                         .mobileDeckCard(radius: 14)
                     }
                 }
@@ -902,7 +985,7 @@ private struct MobileDeviceDoctorView: View {
     }
 }
 
-private func mobileDetailHeader(
+func mobileDetailHeader(
     title: String,
     subtitle: String,
     trailing: String,
@@ -935,7 +1018,7 @@ private func mobileDetailHeader(
     .overlay(alignment: .bottom) { Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1) }
 }
 
-private extension View {
+extension View {
     func mobileDoctorButton(primary: Bool) -> some View {
         font(.mobileDeckSans(13, weight: .bold))
             .foregroundStyle(primary ? MobileFlightDeckPalette.onAccent : MobileFlightDeckPalette.text)
@@ -1630,7 +1713,7 @@ private struct MobilePullRequestDetailView: View {
     }
 }
 
-private extension View {
+extension View {
     func mobileDeckCard(radius: CGFloat) -> some View {
         background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).stroke(MobileFlightDeckPalette.border))
@@ -1689,7 +1772,7 @@ private func initials(_ name: String) -> String {
     return letters.isEmpty ? String(name.prefix(2)).uppercased() : letters.uppercased()
 }
 
-private func relativeMobileTime(_ seconds: TimeInterval) -> String {
+func relativeMobileTime(_ seconds: TimeInterval) -> String {
     let elapsed = max(Date().timeIntervalSince1970 - seconds, 0)
     if elapsed < 60 { return "NOW" }
     if elapsed < 3600 { return "\(Int(elapsed / 60))M" }
