@@ -26,4 +26,25 @@ struct PairingConfig {
         guard let url = URL(string: string) else { return nil }
         self.init(from: url)
     }
+
+    var pairingURL: URL? {
+        var components = URLComponents()
+        components.scheme = "missioncontrol"
+        components.host = "configure"
+        components.queryItems = [
+            URLQueryItem(name: "url", value: url),
+            URLQueryItem(name: "token", value: token)
+        ]
+        return components.url
+    }
+
+    var pairingLink: String {
+        pairingURL?.absoluteString ?? ""
+    }
+}
+
+extension Server {
+    var pairingLink: String {
+        PairingConfig(url: url, token: token).pairingLink
+    }
 }

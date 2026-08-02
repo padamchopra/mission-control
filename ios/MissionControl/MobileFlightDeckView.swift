@@ -821,6 +821,7 @@ private struct MobileConnectionsView: View {
     let onAddConnection: () -> Void
     let onOpenDoctor: () -> Void
     let onClose: () -> Void
+    @State private var sharingServer: Server?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -891,11 +892,22 @@ private struct MobileConnectionsView: View {
                                 .font(.mobileDeckMono(10))
                                 .foregroundStyle(MobileFlightDeckPalette.secondary)
                                 .lineLimit(1)
+                            Button {
+                                sharingServer = selected
+                            } label: {
+                                Label("Share device setup", systemImage: "qrcode")
+                                    .font(.mobileDeckSans(13, weight: .bold))
+                                    .foregroundStyle(MobileFlightDeckPalette.onAccent)
+                                    .frame(maxWidth: .infinity, minHeight: 42)
+                                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+
                             Button("Open Device Doctor", action: onOpenDoctor)
-                                .font(.mobileDeckSans(13, weight: .bold))
-                                .foregroundStyle(MobileFlightDeckPalette.onAccent)
+                                .font(.mobileDeckSans(13, weight: .semibold))
+                                .foregroundStyle(MobileFlightDeckPalette.secondary)
                                 .frame(maxWidth: .infinity, minHeight: 42)
-                                .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.border))
                                 .buttonStyle(.plain)
                         }
                         .padding(15)
@@ -907,6 +919,11 @@ private struct MobileConnectionsView: View {
         }
         .foregroundStyle(MobileFlightDeckPalette.text)
         .background(MobileFlightDeckPalette.background.ignoresSafeArea())
+        .sheet(item: $sharingServer) { server in
+            PairingShareSheet(server: server)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
     }
 }
 

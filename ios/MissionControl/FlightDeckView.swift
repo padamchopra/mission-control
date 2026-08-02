@@ -4380,6 +4380,7 @@ private struct FlightDeckConnectionsView: View {
     @State private var updating = false
     @State private var showAddOptions = false
     @State private var localSetupState: FlightDeckLocalSetupState?
+    @State private var sharingServer: Server?
 
     private enum ConnectionHealth {
         case unknown, checking, online, offline
@@ -4442,7 +4443,14 @@ private struct FlightDeckConnectionsView: View {
             if !testing && !adding { health = newHealth }
         }
         .overlay {
-            if showAddOptions || localSetupState != nil {
+            if let server = sharingServer {
+                FlightDeckModalLayer(onDismiss: { sharingServer = nil }) {
+                    FlightDeckPairingShareView(
+                        server: server,
+                        onClose: { sharingServer = nil }
+                    )
+                }
+            } else if showAddOptions || localSetupState != nil {
                 FlightDeckModalLayer(onDismiss: {
                     showAddOptions = false
                     if localSetupState?.canDismiss == true { localSetupState = nil }
@@ -4650,6 +4658,8 @@ private struct FlightDeckConnectionsView: View {
 
             if let selected, !adding {
                 VStack(spacing: 10) {
+                    Button("SHARE DEVICE SETUP") { sharingServer = selected }
+                        .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.amber))
                     Button(updating ? "UPDATING…" : "UPDATE SERVER") { showUpdateConfirmation = true }
                         .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
                         .disabled(updating)
@@ -4825,6 +4835,83 @@ private struct FlightDeckConnectionsView: View {
 
     private var removalPresented: Binding<Bool> {
         Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } })
+    }
+}
+
+private struct FlightDeckPairingShareView: View {
+    let server: Server
+    let onClose: () -> Void
+
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    flightLabel("FLEET / SHARE SECURE LINK")
+                    Text("Set up another device")
+                        .font(.flightSans(24, weight: .bold))
+                }
+                Spacer()
+                Button("CLOSE", action: onClose)
+                    .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
+            }
+            .padding(24)
+            .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
+
+            HStack(alignment: .top, spacing: 26) {
+                PairingQRCodeView(
+                    pairingLink: server.pairingLink,
+                    accessibilityName: server.name
+                )
+                .frame(width: 230, height: 230)
+                .clipShape(Rectangle())
+
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        flightLabel("DEVICE / \(server.flightDeckCode)")
+                        Text(server.name)
+                            .font(.flightSans(18, weight: .bold))
+                        Text(server.url)
+                            .font(.flightMono(8))
+                            .foregroundStyle(FlightDeckPalette.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "lock.shield")
+                            .foregroundStyle(FlightDeckPalette.amber)
+                        Text("THIS QR CODE AND LINK CONTAIN THE SERVER ACCESS TOKEN. ONLY SHARE THEM WITH A DEVICE YOU TRUST.")
+                            .font(.flightMono(8, weight: .semibold))
+                            .foregroundStyle(FlightDeckPalette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(14)
+                    .background(FlightDeckPalette.raised)
+                    .overlay(Rectangle().stroke(FlightDeckPalette.amber))
+
+                    Button(copied ? "PAIRING LINK COPIED" : "COPY PAIRING LINK", action: copyPairingLink)
+                        .buttonStyle(FlightDeckAccentButtonStyle())
+                        .disabled(server.pairingLink.isEmpty)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(24)
+        }
+        .frame(width: 680)
+        .background(FlightDeckPalette.background)
+        .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
+        .shadow(color: .black.opacity(0.5), radius: 30, y: 18)
+        .preferredColorScheme(.dark)
+    }
+
+    private func copyPairingLink() {
+        UIPasteboard.general.string = server.pairingLink
+        copied = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            copied = false
+        }
     }
 }
 

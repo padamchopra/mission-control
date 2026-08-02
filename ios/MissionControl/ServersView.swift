@@ -15,6 +15,7 @@ struct ServersView: View {
     @State private var renameText = ""
     @State private var showUpdateConfirmation = false
     @State private var isUpdatingServer = false
+    @State private var sharingServer: Server?
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -51,6 +52,11 @@ struct ServersView: View {
                 ManualServerForm { name, url, token in
                     store.addOrUpdate(url: url, token: token, name: name)
                 }
+            }
+            .sheet(item: $sharingServer) { server in
+                PairingShareSheet(server: server)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
             .alert("Rename server", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $renameText)
@@ -154,19 +160,35 @@ struct ServersView: View {
     }
 
     private func serverRow(_ server: Server) -> some View {
-        Button {
-            store.activeID = server.id
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(server.name).foregroundStyle(.primary)
-                    Text(server.url).font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            Button {
+                store.activeID = server.id
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(server.name).foregroundStyle(.primary)
+                        Text(server.url).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if server.id == store.activeID {
+                        Image(systemName: "checkmark").foregroundStyle(.tint)
+                    }
                 }
-                Spacer()
-                if server.id == store.activeID {
-                    Image(systemName: "checkmark").foregroundStyle(.tint)
-                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+
+            Button {
+                sharingServer = server
+            } label: {
+                Image(systemName: "qrcode")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+                    .background(.thinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share setup for \(server.name)")
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { store.remove(server.id) } label: {
@@ -179,6 +201,12 @@ struct ServersView: View {
                 Label("Rename", systemImage: "pencil")
             }
             .tint(.gray)
+            Button {
+                sharingServer = server
+            } label: {
+                Label("Share setup", systemImage: "qrcode")
+            }
+            .tint(.blue)
         }
     }
 
