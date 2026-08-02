@@ -808,7 +808,7 @@ struct TerminalScreen: View {
 /// read-only so tapping the transcript never competes with the dedicated input
 /// field or raises SwiftTerm's accessory keyboard.
 private final class ReadOnlyTerminalView: TerminalView {
-    var onUserScroll: ((CGFloat) -> Void)?
+    var onAccessibilityScroll: ((UIAccessibilityScrollDirection) -> Bool)?
 
     override var canBecomeFirstResponder: Bool {
         #if targetEnvironment(macCatalyst)
@@ -818,16 +818,9 @@ private final class ReadOnlyTerminalView: TerminalView {
         #endif
     }
 
-    // Catalyst's trackpad scroll is ultimately applied by UIScrollView as an
-    // offset change. Observing that concrete effect is more reliable than a
-    // second gesture recognizer competing with SwiftTerm's built-in one.
-    override var contentOffset: CGPoint {
-        didSet {
-            let state = panGestureRecognizer.state
-            guard state == .began || state == .changed,
-                  abs(contentOffset.y - oldValue.y) > 0.01 else { return }
-            onUserScroll?(contentOffset.y - oldValue.y)
-        }
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        if onAccessibilityScroll?(direction) == true { return true }
+        return super.accessibilityScroll(direction)
     }
 }
 
@@ -879,12 +872,12 @@ private struct TerminalContainer: UIViewRepresentable {
         // Pan-to-scroll: translate finger travel into tmux copy-mode line scrolls,
         // coalescing rapid movement into one in-flight request at a time.
         private let lineHeight: CGFloat = 16
-        private var unconsumedNativeScroll: CGFloat = 0
+        private var panEmittedTranslation: CGFloat = 0
         private var pendingLines = 0
         private var scrollInFlight = false
-        private var reportedScrollGesture = false
         private var reportedNoHistory = false
         private var pinchBaseFontSize: CGFloat = 13
+        private weak var scrollGesture: UIPanGestureRecognizer?
 
         init(_ parent: TerminalContainer) {
             self.parent = parent
@@ -898,19 +891,28 @@ private struct TerminalContainer: UIViewRepresentable {
             stream.onStateChange = { [weak self] state in
                 self?.parent.streamState = state
             }
-            // TerminalView is a UIScrollView. Configure its native recognizer
-            // for pointer input, then observe its user-driven content offset.
-            let pan = view.panGestureRecognizer
-            pan.maximumNumberOfTouches = 2
-            pan.allowedScrollTypesMask = [.continuous, .discrete]
-            pan.allowedTouchTypes = [
+            // SwiftTerm's own UIScrollView has no local history: the attached
+            // tmux client only streams the visible pane, so its content offset
+            // cannot drive scrollback. A separate pan recognizer receives both
+            // touch pans and Catalyst's trackpad/wheel scroll events and forwards
+            // their translation to tmux copy-mode instead.
+            let scroll = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan))
+            scroll.maximumNumberOfTouches = 2
+            scroll.allowedScrollTypesMask = [.continuous, .discrete]
+            scroll.allowedTouchTypes = [
                 NSNumber(value: UITouch.TouchType.direct.rawValue),
                 NSNumber(value: UITouch.TouchType.indirectPointer.rawValue),
             ]
+            scroll.cancelsTouchesInView = false
+            scroll.delegate = self
+            view.addGestureRecognizer(scroll)
+            scrollGesture = scroll
             view.alwaysBounceVertical = true
             view.allowMouseReporting = false
-            (view as? ReadOnlyTerminalView)?.onUserScroll = { [weak self] delta in
-                self?.handleNativeScroll(delta)
+            view.isAccessibilityElement = true
+            view.accessibilityLabel = "Terminal transcript"
+            (view as? ReadOnlyTerminalView)?.onAccessibilityScroll = { [weak self] direction in
+                self?.handleAccessibilityScroll(direction) ?? false
             }
 
             let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
@@ -944,7 +946,10 @@ private struct TerminalContainer: UIViewRepresentable {
         }
 
         func detach() {
-            (terminalView as? ReadOnlyTerminalView)?.onUserScroll = nil
+            if let scrollGesture {
+                terminalView?.removeGestureRecognizer(scrollGesture)
+            }
+            (terminalView as? ReadOnlyTerminalView)?.onAccessibilityScroll = nil
             stream.disconnect()
         }
 
@@ -982,19 +987,40 @@ private struct TerminalContainer: UIViewRepresentable {
             }
         }
 
-        private func handleNativeScroll(_ offsetDelta: CGFloat) {
-            if !reportedScrollGesture {
-                reportedScrollGesture = true
-                parent.onToast(.info, "Trackpad scroll offset received")
+        @objc private func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
+            switch recognizer.state {
+            case .began:
+                panEmittedTranslation = 0
+            case .changed, .ended:
+                let translationY = recognizer.translation(in: recognizer.view).y
+                let unemitted = translationY - panEmittedTranslation
+                let lines = Int(unemitted / lineHeight)
+                if lines != 0 {
+                    panEmittedTranslation += CGFloat(lines) * lineHeight
+                    // Moving toward the bottom of the view reveals older output.
+                    pendingLines += lines
+                    flushScroll()
+                }
+                if recognizer.state == .ended { panEmittedTranslation = 0 }
+            case .cancelled, .failed:
+                panEmittedTranslation = 0
+            default:
+                break
             }
-            // Increasing UIScrollView's offset moves toward newer output.
-            // Invert it for tmux's copy-mode directions.
-            unconsumedNativeScroll -= offsetDelta
-            let lines = Int(unconsumedNativeScroll / lineHeight)
-            guard lines != 0 else { return }
-            unconsumedNativeScroll -= CGFloat(lines) * lineHeight
-            pendingLines += lines
+        }
+
+        private func handleAccessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+            let linesPerPage = max((terminalView?.getTerminal().rows ?? 24) / 2, 1)
+            switch direction {
+            case .up:
+                pendingLines += linesPerPage
+            case .down:
+                pendingLines -= linesPerPage
+            default:
+                return false
+            }
             flushScroll()
+            return true
         }
 
         private func flushScroll() {

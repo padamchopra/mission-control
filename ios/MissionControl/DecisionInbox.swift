@@ -283,9 +283,6 @@ struct DecisionInboxView: View {
         .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
     }
 
-    // The options are shown, not offered: picking a specific one is arrow-key
-    // navigation in the session's own prompt, so anything but the default
-    // belongs in the terminal. Approve takes the highlighted default.
     private func questionBlock(_ question: ConversationQuestion) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(question.question)
@@ -303,7 +300,7 @@ struct DecisionInboxView: View {
                 }
             }
             if !question.options.isEmpty {
-                Text("Approve takes option 1. Open the session to pick another.")
+                Text("Open the session to choose and submit an answer.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -352,6 +349,9 @@ struct DecisionInboxView: View {
         HStack(spacing: 8) {
             if acting.contains(item.id) {
                 ProgressView().controlSize(.small)
+            } else if item.questionRequestId != nil {
+                Button("Answer") { open(item) }
+                    .tint(.orange)
             } else {
                 Button("Approve") { respond(item, keys: ["enter"], note: "Approved \(item.session)") }
                     .tint(.green)
@@ -435,6 +435,7 @@ private extension InboxItem {
             waitingSince: session.lastOutputAt * 1000,
             cwd: session.panePath,
             muted: session.notificationsMuted,
+            questionRequestId: session.interactionRequestId,
             diffStat: session.diffStat
         )
     }

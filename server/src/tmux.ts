@@ -157,6 +157,13 @@ const SCROLL_X_COMMAND: Record<Exclude<ScrollAction, "bottom">, string> = {
   top: "history-top",
 };
 
+export function paneScrollIsAvailable(state: string, action: ScrollAction): boolean {
+  const [inMode, , histSize] = state.trim().split(FIELD_SEP);
+  if (inMode === "1") return true;
+  if (Number(histSize) === 0) return false;
+  return action !== "down" && action !== "page-down";
+}
+
 // Scrolls the tmux pane's own history via copy-mode, driven by send-keys — the
 // only path that works here, since the attached client keeps no local scrollback.
 // "up"/"down" scroll `lines` lines (for the pan gesture); "bottom" cancels
@@ -172,17 +179,13 @@ export async function scroll(name: string, action: ScrollAction, lines = 1): Pro
     return paneInCopyMode(name);
   }
   // Entering copy-mode when there's nothing to scroll just freezes the pane at
-  // [0/0]: alternate-screen TUIs (vim, less) have no tmux scrollback, and a
-  // fresh pane has no history yet. Skip instead of trapping the view there.
+  // [0/0]. Trust tmux's history size rather than `alternate_on`: full-screen
+  // agents can use the alternate screen and still have real tmux history.
   const { stdout: state } = await exec("tmux", [
     "display-message", "-p", "-t", name,
     ["#{pane_in_mode}", "#{alternate_on}", "#{history_size}"].join(FIELD_SEP),
   ]);
-  const [inMode, altOn, histSize] = state.trim().split(FIELD_SEP);
-  if (inMode !== "1") {
-    if (altOn === "1" || Number(histSize) === 0) return false;
-    if (action === "down" || action === "page-down") return false; // already at the live prompt
-  }
+  if (!paneScrollIsAvailable(state, action)) return false;
   // -e auto-exits copy-mode when scrolled back to the bottom.
   await exec("tmux", ["copy-mode", "-e", "-t", name]);
   const command = SCROLL_X_COMMAND[action];

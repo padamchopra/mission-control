@@ -52,11 +52,15 @@ const settings = fs.existsSync(settingsPath)
 settings.hooks = settings.hooks ?? {};
 for (const event of events) {
   const groups = (settings.hooks[event] = settings.hooks[event] ?? []);
-  const already = groups.some((g) =>
-    (g.hooks ?? []).some((h) => String(h.command ?? "").includes("mc-hook.sh")),
-  );
-  if (!already) {
-    groups.push({ hooks: [{ type: "command", command: hookCmd(event) }] });
+  const existing = groups.flatMap((g) => g.hooks ?? [])
+    .find((h) => String(h.command ?? "").includes("mc-hook.sh"));
+  if (existing) {
+    // AskUserQuestion keeps this hook open while a remote client answers.
+    if (event === "PreToolUse") existing.timeout = 3600;
+  } else {
+    const hook = { type: "command", command: hookCmd(event) };
+    if (event === "PreToolUse") hook.timeout = 3600;
+    groups.push({ hooks: [hook] });
     console.log(`   + ${event}`);
   }
 }

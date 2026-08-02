@@ -145,6 +145,8 @@ struct SessionPush {
     let state: SessionState?
     let detail: String?
     let currentAction: String?
+    let interactionKind: String?
+    let interactionRequestId: String?
 }
 
 /// Where live updates surface for the rest of the app. Views subscribe to the
@@ -183,6 +185,8 @@ private struct SessionPushPayload: Decodable {
     let state: SessionState?
     let detail: String?
     let currentAction: String?
+    let interactionKind: String?
+    let interactionRequestId: String?
 
     func event(from server: Server) -> SessionPush {
         SessionPush(
@@ -191,7 +195,9 @@ private struct SessionPushPayload: Decodable {
             agent: agent,
             state: state,
             detail: detail,
-            currentAction: currentAction
+            currentAction: currentAction,
+            interactionKind: interactionKind,
+            interactionRequestId: interactionRequestId
         )
     }
 }

@@ -6,6 +6,7 @@ struct Server: Codable, Identifiable, Hashable {
     var name: String
     var url: String
     var token: String
+    var deviceID: String? = nil
 
     static func defaultName(for url: String) -> String {
         guard let host = URLComponents(string: url)?.host else { return "Server" }
@@ -61,15 +62,22 @@ final class ServerStore: ObservableObject {
     /// Adds a server (or updates the token if the URL already exists) and makes
     /// it active. Returns the server.
     @discardableResult
-    func addOrUpdate(url: String, token: String, name: String? = nil) -> Server {
+    func addOrUpdate(url: String, token: String, name: String? = nil, deviceID: String? = nil) -> Server {
         if let index = servers.firstIndex(where: { $0.url == url }) {
             servers[index].token = token
             if let name { servers[index].name = name }
+            if let deviceID { servers[index].deviceID = deviceID }
             activeID = servers[index].id
             persist()
             return servers[index]
         }
-        let server = Server(id: UUID().uuidString, name: name ?? Server.defaultName(for: url), url: url, token: token)
+        let server = Server(
+            id: UUID().uuidString,
+            name: name ?? Server.defaultName(for: url),
+            url: url,
+            token: token,
+            deviceID: deviceID
+        )
         servers.append(server)
         activeID = server.id
         persist()
@@ -89,11 +97,12 @@ final class ServerStore: ObservableObject {
         persist()
     }
 
-    func update(_ id: String, name: String, url: String, token: String) {
+    func update(_ id: String, name: String, url: String, token: String, deviceID: String?) {
         guard let index = servers.firstIndex(where: { $0.id == id }) else { return }
         servers[index].name = name
         servers[index].url = url
         servers[index].token = token
+        servers[index].deviceID = deviceID
         persist()
         syncActive()
     }

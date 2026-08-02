@@ -182,6 +182,9 @@ private struct FlightDeckArchive: Identifiable {
 
 private extension Server {
     var flightDeckCode: String {
+        if let custom = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            return String(custom.prefix(8)).uppercased()
+        }
         let components = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
         if components.count > 1 {
             return components.compactMap(\.first).prefix(4).map(String.init).joined().uppercased()
@@ -198,10 +201,11 @@ private final class FlightDeckStore: ObservableObject {
     @Published private(set) var pullRequests: [FlightDeckPullRequest] = []
     @Published private(set) var archives: [FlightDeckArchive] = []
     @Published private(set) var errors: [String: String] = [:]
+    @Published private(set) var checkedServerIDs: Set<String> = []
     @Published private(set) var loading = false
     private var refreshGeneration = 0
 
-    func refresh() async {
+    func refresh(refreshPullRequests: Bool = false) async {
         refreshGeneration += 1
         let generation = refreshGeneration
         let servers = ServerStore.shared.servers
@@ -212,6 +216,7 @@ private final class FlightDeckStore: ObservableObject {
             pullRequests = []
             archives = []
             errors = [:]
+            checkedServerIDs = []
             return
         }
 
@@ -230,7 +235,7 @@ private final class FlightDeckStore: ObservableObject {
                     // contribute no loops until updated.
                     let loops = (try? await api.loops()) ?? []
                     let archives = (try? await api.archives()) ?? []
-                    let pullRequests = (try? await api.authoredPullRequests()) ?? []
+                    let pullRequests = (try? await api.authoredPullRequests(refresh: refreshPullRequests)) ?? []
                     return (server, sessions, workspaces, loops, archives, pullRequests, nil)
                 } catch {
                     return (server, [], [], [], [], [], error.localizedDescription)
@@ -264,6 +269,7 @@ private final class FlightDeckStore: ObservableObject {
         pullRequests = Self.deduplicatedPullRequests(nextPullRequests)
         archives = nextArchives.sorted { $0.archive.archivedAt > $1.archive.archivedAt }
         errors = nextErrors
+        checkedServerIDs = Set(servers.map(\.id))
         loading = false
     }
 
@@ -517,7 +523,7 @@ struct FlightDeckView: View {
 
     private var titleBar: some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: 220)
+            Color.clear.frame(width: 280)
 
             Text("MISSION CONTROL // LIVE OPERATIONS")
                 .font(.flightMono(10, weight: .bold))
@@ -536,7 +542,7 @@ struct FlightDeckView: View {
             }
             .font(.flightMono(9))
             .foregroundStyle(FlightDeckPalette.secondary)
-            .frame(width: 220, alignment: .trailing)
+            .frame(width: 280, alignment: .trailing)
             .lineLimit(1)
             .padding(.trailing, 18)
         }
@@ -873,7 +879,11 @@ struct FlightDeckView: View {
     @ViewBuilder
     private func sectionContent(inspectorWidth: CGFloat) -> some View {
         if showConnections {
-            FlightDeckConnectionsView(addRequest: connectionsAddRequest)
+            FlightDeckConnectionsView(
+                addRequest: connectionsAddRequest,
+                serverErrors: deck.errors,
+                checkedServerIDs: deck.checkedServerIDs
+            )
         } else if showingArchives {
             archivesView
         } else {
@@ -962,6 +972,7 @@ struct FlightDeckView: View {
             FlightDeckInboxQueue(
                 agents: agents,
                 pullRequests: pullRequests,
+                workspaces: visibleWorkspaces,
                 selectedID: focusedID,
                 onSelectAgent: { selectedInboxItemID = "agent|\($0.id)" },
                 onSelectPullRequest: { selectedInboxItemID = "pr|\($0.id)" },
@@ -1040,6 +1051,7 @@ struct FlightDeckView: View {
         FlightDeckPullRequestsView(
             pullRequests: visiblePullRequests,
             agents: visibleAgents,
+            workspaces: visibleWorkspaces,
             selectedID: selectedPullRequest?.id,
             onSelect: {
                 selectedPullRequestID = $0.id
@@ -1047,7 +1059,8 @@ struct FlightDeckView: View {
             },
             onOpenSession: { openSession(for: $0) },
             onLaunchShell: { launchShell(for: $0) },
-            onRefresh: { Task { await deck.refresh() } }
+            onMarkRead: { markPullRequestRead($0) },
+            onRefresh: { Task { await deck.refresh(refreshPullRequests: true) } }
         )
     }
 
@@ -1089,11 +1102,7 @@ struct FlightDeckView: View {
     }
 
     private func matchingAgent(for pullRequest: FlightDeckPullRequest) -> FlightDeckAgent? {
-        guard let path = pullRequest.pullRequest.worktreePath else { return nil }
-        return deck.agents.first { agent in
-            agent.server.id == pullRequest.server.id &&
-                (agent.session.panePath == path || agent.session.panePath.hasPrefix(path + "/"))
-        }
+        pullRequestMatchingAgent(for: pullRequest, agents: deck.agents, workspaces: deck.workspaces)
     }
 
     private func openSession(for pullRequest: FlightDeckPullRequest) {
@@ -1122,6 +1131,23 @@ struct FlightDeckView: View {
                 }
             } catch {
                 toasts.show(.error, "Couldn't launch PR shell: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func markPullRequestRead(_ pullRequest: FlightDeckPullRequest) {
+        guard let api = APIClient(urlString: pullRequest.server.url, token: pullRequest.server.token) else { return }
+        Task {
+            do {
+                try await api.markPullRequestRead(
+                    repository: pullRequest.pullRequest.repository,
+                    number: pullRequest.pullRequest.number
+                )
+                pullRequestAttention.markViewed(pullRequest)
+                await deck.refresh(refreshPullRequests: true)
+                toasts.show(.success, "Marked PR #\(pullRequest.pullRequest.number) as read")
+            } catch {
+                toasts.show(.error, "Couldn't mark PR as read: \(error.localizedDescription)")
             }
         }
     }
@@ -1392,13 +1418,13 @@ private struct FlightDeckQueue: View {
     }
 
     private var groupedWorkspaces: [(workspace: FlightDeckWorkspace, agents: [FlightDeckAgent])] {
-        workspaces.compactMap { workspace in
+        workspaces.map { workspace in
             let matches = agents.filter { agent in
                 agent.server.id == workspace.server.id && workspace.workspace.worktrees.contains { worktree in
                     agent.session.panePath == worktree.path || agent.session.panePath.hasPrefix(worktree.path + "/")
                 }
             }
-            return matches.isEmpty ? nil : (workspace, matches)
+            return (workspace, matches)
         }
     }
 
@@ -1540,10 +1566,12 @@ private enum FlightDeckPullRequestFilter: String, CaseIterable, Identifiable {
 private struct FlightDeckPullRequestsView: View {
     let pullRequests: [FlightDeckPullRequest]
     let agents: [FlightDeckAgent]
+    let workspaces: [FlightDeckWorkspace]
     let selectedID: String?
     let onSelect: (FlightDeckPullRequest) -> Void
     let onOpenSession: (FlightDeckPullRequest) -> Void
     let onLaunchShell: (FlightDeckPullRequest) -> Void
+    let onMarkRead: (FlightDeckPullRequest) -> Void
     let onRefresh: () -> Void
 
     @State private var filter: FlightDeckPullRequestFilter = .all
@@ -1574,7 +1602,8 @@ private struct FlightDeckPullRequestsView: View {
                         item: selected,
                         agent: matchingAgent(for: selected),
                         onOpenSession: { onOpenSession(selected) },
-                        onLaunchShell: { onLaunchShell(selected) }
+                        onLaunchShell: { onLaunchShell(selected) },
+                        onMarkRead: { onMarkRead(selected) }
                     )
                 } else {
                     FlightDeckEmptyState(
@@ -1658,10 +1687,7 @@ private struct FlightDeckPullRequestsView: View {
     }
 
     private func matchingAgent(for item: FlightDeckPullRequest) -> FlightDeckAgent? {
-        guard let path = item.pullRequest.worktreePath else { return nil }
-        return agents.first {
-            $0.server.id == item.server.id && ($0.session.panePath == path || $0.session.panePath.hasPrefix(path + "/"))
-        }
+        pullRequestMatchingAgent(for: item, agents: agents, workspaces: workspaces)
     }
 
     private func pullRequestRow(_ item: FlightDeckPullRequest, selected: Bool) -> some View {
@@ -1679,13 +1705,13 @@ private struct FlightDeckPullRequestsView: View {
                         .foregroundStyle(FlightDeckPalette.text)
                         .lineLimit(1)
                     Spacer()
-                    Text("#\(pullRequest.number)")
+                    Text(verbatim: "#\(pullRequest.number)")
                         .font(.flightMono(6))
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
 
                 HStack(spacing: 7) {
-                    compactStatusPill(pullRequest.isDraft ? "DRAFT" : "READY", pullRequest.isDraft ? FlightDeckPalette.secondary : FlightDeckPalette.green)
+                    compactStatusPill(pullRequestStatusLabel(pullRequest, compact: true), pullRequestStatusColor(pullRequest))
                     if pullRequest.failedCheckCount > 0 {
                         rowMeta("\(pullRequest.failedCheckCount) CHECKS FAILING", FlightDeckPalette.red)
                     } else if unreadCount > 0 {
@@ -1717,13 +1743,7 @@ private struct FlightDeckPullRequestsView: View {
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, minHeight: selected ? 106 : 100, alignment: .leading)
         }
-        .buttonStyle(.plain)
-        .background(selected ? FlightDeckPalette.raised : FlightDeckPalette.surface)
-        .overlay(alignment: .leading) {
-            if selected { Rectangle().fill(FlightDeckPalette.amber).frame(width: 3) }
-        }
-        .overlay(alignment: .bottom) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
-        .contentShape(Rectangle())
+        .flightDeckIndexRow(selected: selected)
     }
 
     private func filterLabel(_ option: FlightDeckPullRequestFilter) -> String {
@@ -1790,6 +1810,7 @@ private struct FlightDeckPullRequestsView: View {
 private struct FlightDeckInboxQueue: View {
     let agents: [FlightDeckAgent]
     let pullRequests: [FlightDeckPullRequest]
+    let workspaces: [FlightDeckWorkspace]
     let selectedID: String?
     let onSelectAgent: (FlightDeckAgent) -> Void
     let onSelectPullRequest: (FlightDeckPullRequest) -> Void
@@ -1845,7 +1866,7 @@ private struct FlightDeckInboxQueue: View {
                             .font(.flightSans(12, weight: .semibold))
                             .lineLimit(1)
                         Spacer(minLength: 8)
-                        Text("#\(item.pullRequest.number)")
+                        Text(verbatim: "#\(item.pullRequest.number)")
                             .font(.flightMono(7, weight: .semibold))
                             .foregroundStyle(FlightDeckPalette.muted)
                     }
@@ -1923,10 +1944,7 @@ private struct FlightDeckInboxQueue: View {
     }
 
     private func matchingAgent(for item: FlightDeckPullRequest) -> FlightDeckAgent? {
-        guard let path = item.pullRequest.worktreePath else { return nil }
-        return agents.first {
-            $0.server.id == item.server.id && ($0.session.panePath == path || $0.session.panePath.hasPrefix(path + "/"))
-        }
+        pullRequestMatchingAgent(for: item, agents: agents, workspaces: workspaces)
     }
 }
 
@@ -2390,6 +2408,7 @@ private struct FlightDeckPullRequestDetail: View {
     let agent: FlightDeckAgent?
     let onOpenSession: () -> Void
     let onLaunchShell: () -> Void
+    let onMarkRead: () -> Void
 
     @Environment(\.openURL) private var openURL
 
@@ -2417,8 +2436,8 @@ private struct FlightDeckPullRequestDetail: View {
                 HStack(spacing: 9) {
                     flightLabel("SELECTED PR / #\(pullRequest.number)")
                     smallStatusPill(
-                        pullRequest.isDraft ? "DRAFT" : "READY FOR REVIEW",
-                        pullRequest.isDraft ? FlightDeckPalette.secondary : FlightDeckPalette.green
+                        pullRequestStatusLabel(pullRequest),
+                        pullRequestStatusColor(pullRequest)
                     )
                 }
                 Text(pullRequest.title)
@@ -2430,6 +2449,9 @@ private struct FlightDeckPullRequestDetail: View {
                     .lineLimit(1)
             }
             Spacer()
+            if !unreadComments.isEmpty {
+                detailButton("MARK AS READ", color: FlightDeckPalette.amber, action: onMarkRead)
+            }
             detailButton("OPEN ON GITHUB ↗", color: FlightDeckPalette.secondary) {
                 if let url = URL(string: pullRequest.url) { openURL(url) }
             }
@@ -2488,12 +2510,7 @@ private struct FlightDeckPullRequestDetail: View {
                     checksDetail,
                     pullRequest.failedCheckCount > 0 ? FlightDeckPalette.red : FlightDeckPalette.green
                 )
-                summaryMetric(
-                    "CHANGES",
-                    "\(pullRequest.changedFiles) files",
-                    "+\(pullRequest.additions) −\(pullRequest.deletions)",
-                    FlightDeckPalette.green
-                )
+                changesMetric
             }
 
             HStack(alignment: .top, spacing: 20) {
@@ -2617,6 +2634,30 @@ private struct FlightDeckPullRequestDetail: View {
                 .font(.flightMono(6))
                 .foregroundStyle(accent)
                 .lineLimit(1)
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+    }
+
+    private var changesMetric: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("CHANGES")
+                .font(.flightMono(6))
+                .foregroundStyle(FlightDeckPalette.muted)
+            Text("\(pullRequest.changedFiles) files")
+                .font(.flightSans(14, weight: .bold))
+                .foregroundStyle(FlightDeckPalette.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            HStack(spacing: 5) {
+                Text("+\(pullRequest.additions)")
+                    .foregroundStyle(FlightDeckPalette.green)
+                Text("−\(pullRequest.deletions)")
+                    .foregroundStyle(FlightDeckPalette.red)
+            }
+            .font(.flightMono(6))
+            .lineLimit(1)
         }
         .padding(13)
         .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
@@ -2941,6 +2982,38 @@ private func inboxReason(_ pullRequest: AuthoredPullRequest) -> String {
     }
     if pullRequest.hasUnreadActivity { return "New comments and review activity" }
     return "Pull request update"
+}
+
+private func pullRequestStatusLabel(_ pullRequest: AuthoredPullRequest, compact: Bool = false) -> String {
+    if pullRequest.isDraft { return "DRAFT" }
+    switch pullRequest.reviewDecision {
+    case "APPROVED": return "APPROVED"
+    case "CHANGES_REQUESTED": return compact ? "CHANGES" : "CHANGES REQUESTED"
+    default: return compact ? "READY" : "READY FOR REVIEW"
+    }
+}
+
+private func pullRequestStatusColor(_ pullRequest: AuthoredPullRequest) -> Color {
+    if pullRequest.isDraft { return FlightDeckPalette.secondary }
+    return pullRequest.reviewDecision == "CHANGES_REQUESTED" ? FlightDeckPalette.red : FlightDeckPalette.green
+}
+
+private func pullRequestMatchingAgent(
+    for pullRequest: FlightDeckPullRequest,
+    agents: [FlightDeckAgent],
+    workspaces: [FlightDeckWorkspace]
+) -> FlightDeckAgent? {
+    guard let pullRequestPath = pullRequest.pullRequest.worktreePath else { return nil }
+    return agents.first { agent in
+        guard agent.server.id == pullRequest.server.id else { return false }
+        let deepestContainingWorktree = workspaces
+            .filter { $0.server.id == agent.server.id }
+            .flatMap(\.workspace.worktrees)
+            .map(\.path)
+            .filter { agent.session.panePath == $0 || agent.session.panePath.hasPrefix($0 + "/") }
+            .max { $0.count < $1.count }
+        return deepestContainingWorktree == pullRequestPath
+    }
 }
 
 private func checkColor(_ state: String) -> Color {
@@ -3901,12 +3974,15 @@ private struct FlightDeckLoopEditor: View {
 
 private struct FlightDeckConnectionsView: View {
     let addRequest: Int
+    let serverErrors: [String: String]
+    let checkedServerIDs: Set<String>
 
     @ObservedObject private var store = ServerStore.shared
     @EnvironmentObject private var toasts: ToastCenter
     @AppStorage("localDeviceServerID") private var localDeviceServerID = ""
 
     @State private var name = ""
+    @State private var deviceID = ""
     @State private var url = ""
     @State private var token = ""
     @State private var adding = false
@@ -3926,7 +4002,7 @@ private struct FlightDeckConnectionsView: View {
             switch self {
             case .unknown: return "NOT CHECKED"
             case .checking: return "CHECKING"
-            case .online: return "ONLINE"
+            case .online: return "CONNECTED"
             case .offline: return "OFFLINE"
             }
         }
@@ -3976,6 +4052,9 @@ private struct FlightDeckConnectionsView: View {
             if request > 0 { showAddOptions = true }
         }
         .onChange(of: store.activeID) { _, _ in loadSelected() }
+        .onChange(of: selectedFleetHealth) { _, newHealth in
+            if !testing && !adding { health = newHealth }
+        }
         .overlay {
             if showAddOptions || localSetupState != nil {
                 FlightDeckModalLayer(onDismiss: {
@@ -4069,13 +4148,14 @@ private struct FlightDeckConnectionsView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(store.servers) { server in
+                        let rowHealth = connectionHealth(for: server)
                         Button {
                             adding = false
                             store.activeID = server.id
                         } label: {
                             HStack(spacing: 12) {
                                 Rectangle()
-                                    .fill(server.id == store.activeID && health == .online ? FlightDeckPalette.green : FlightDeckPalette.muted)
+                                    .fill(rowHealth.color)
                                     .frame(width: 8, height: 8)
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(server.name)
@@ -4118,6 +4198,11 @@ private struct FlightDeckConnectionsView: View {
             .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
 
             connectionField("DEVICE NAME", placeholder: "My MacBook Pro", text: $name)
+            connectionField(
+                "DEVICE ID",
+                placeholder: selected?.flightDeckCode ?? "MP",
+                text: $deviceID
+            )
             connectionField("SERVER URL", placeholder: "https://device.tailnet.ts.net", text: $url)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -4229,6 +4314,7 @@ private struct FlightDeckConnectionsView: View {
     private func beginAdd() {
         adding = true
         name = ""
+        deviceID = ""
         url = ""
         token = ""
         health = .unknown
@@ -4237,27 +4323,30 @@ private struct FlightDeckConnectionsView: View {
     private func loadSelected() {
         guard let server = selected else {
             name = ""
+            deviceID = ""
             url = ""
             token = ""
             health = .unknown
             return
         }
         name = server.name
+        deviceID = server.deviceID ?? ""
         url = server.url
         token = server.token
-        health = .unknown
+        health = selectedFleetHealth
     }
 
     private func save() {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDeviceID = normalizedDeviceID
         let cleanURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
         if adding {
-            store.addOrUpdate(url: cleanURL, token: token, name: cleanName)
+            store.addOrUpdate(url: cleanURL, token: token, name: cleanName, deviceID: cleanDeviceID)
             adding = false
             toasts.show(.success, "Added \(cleanName)")
             Task { await testConnection() }
         } else if let selected {
-            store.update(selected.id, name: cleanName, url: cleanURL, token: token)
+            store.update(selected.id, name: cleanName, url: cleanURL, token: token, deviceID: cleanDeviceID)
             toasts.show(.success, "Saved connection settings")
         }
     }
@@ -4315,6 +4404,20 @@ private struct FlightDeckConnectionsView: View {
         } catch {
             health = .offline
         }
+    }
+
+    private var selectedFleetHealth: ConnectionHealth {
+        selected.map(connectionHealth(for:)) ?? .unknown
+    }
+
+    private var normalizedDeviceID: String? {
+        let trimmed = deviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(8)).uppercased()
+    }
+
+    private func connectionHealth(for server: Server) -> ConnectionHealth {
+        guard checkedServerIDs.contains(server.id) else { return .unknown }
+        return serverErrors[server.id] == nil ? .online : .offline
     }
 
     private func updateServer() async {
@@ -5315,9 +5418,18 @@ struct FlightDeckOutlineButtonStyle: ButtonStyle {
     }
 }
 
+private struct FlightDeckIndexRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.72 : 1)
+    }
+}
+
 private extension View {
     func flightDeckIndexRow(selected: Bool) -> some View {
-        buttonStyle(.plain)
+        buttonStyle(FlightDeckIndexRowButtonStyle())
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(selected ? FlightDeckPalette.raised : FlightDeckPalette.surface)
             .overlay(alignment: .leading) {

@@ -10,6 +10,8 @@ export interface RegistryEntry {
   state: SessionState;
   detail?: string;
   currentAction?: string;
+  interactionKind?: "ask_user_question";
+  interactionRequestId?: string;
   claudeSessionId?: string;
   agentSessionId?: string;
   transcriptPath?: string;

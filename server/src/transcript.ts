@@ -82,6 +82,13 @@ export interface Conversation {
   // The same pane, parsed into a question when it reads like a choice — so the
   // client can render its normal card, with the highlighted option marked.
   promptQuestion?: ConvQuestion;
+  // A live AskUserQuestion intercepted by the blocking PreToolUse hook. Unlike
+  // `promptQuestion`, this is the provider's exact structured input and carries
+  // the request id needed to answer without driving the terminal cursor.
+  activeQuestion?: {
+    requestId: string;
+    questions: ConvQuestion[];
+  };
 }
 
 /// How the session is configured, recorded by Claude Code on its own records as

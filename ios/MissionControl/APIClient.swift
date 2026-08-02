@@ -33,6 +33,15 @@ struct APIClient {
         return try JSONDecoder().decode(AuthoredPullRequestsResponse.self, from: data).pullRequests
     }
 
+    func markPullRequestRead(repository: String, number: Int) async throws {
+        _ = try await request(
+            "POST",
+            "pull-requests/read",
+            body: ["repository": repository, "number": number],
+            timeout: 45
+        )
+    }
+
     func sessionState(_ session: String) async throws -> SessionStateResponse {
         let data = try await request("GET", "sessions/\(session)/state")
         return try JSONDecoder().decode(SessionStateResponse.self, from: data)
@@ -52,6 +61,17 @@ struct APIClient {
     /// question.
     func chooseOption(_ session: String, index: Int) async throws {
         _ = try await request("POST", "sessions/\(session)/choose", body: ["index": index])
+    }
+
+    /// Answers an intercepted AskUserQuestion through its stable provider id.
+    /// Keys are the exact question strings Claude supplied; values are the
+    /// selected label(s), matching Claude Code's hook updatedInput contract.
+    func answerQuestion(_ session: String, requestId: String, answers: [String: String]) async throws {
+        _ = try await request(
+            "POST",
+            "sessions/\(session)/question",
+            body: ["requestId": requestId, "answers": answers]
+        )
     }
 
     func snapshot(_ session: String, lines: Int = 1_200) async throws -> String {

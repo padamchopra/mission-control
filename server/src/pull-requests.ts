@@ -23,6 +23,7 @@ export interface AuthoredPullRequest {
   baseRefName: string;
   isDraft: boolean;
   reviewDecision: string;
+  authorLogin: string;
   updatedAt: string;
   additions: number;
   deletions: number;
@@ -64,7 +65,7 @@ async function pullRequestsForWorkspace(
 ): Promise<AuthoredPullRequest[]> {
   try {
     const fields = [
-      "url", "number", "title", "headRefName", "baseRefName", "isDraft", "reviewDecision",
+      "url", "number", "title", "headRefName", "baseRefName", "isDraft", "reviewDecision", "author",
       "updatedAt", "additions", "deletions", "changedFiles", "comments", "latestReviews", "statusCheckRollup",
     ].join(",");
     const { stdout } = await exec(
@@ -129,6 +130,7 @@ export function parseAuthoredPullRequests(
       baseRefName: stringValue(pr.baseRefName),
       isDraft: Boolean(pr.isDraft),
       reviewDecision: stringValue(pr.reviewDecision).toUpperCase(),
+      authorLogin: stringValue(asRecord(pr.author).login),
       updatedAt: stringValue(pr.updatedAt) || new Date(0).toISOString(),
       additions: numberValue(pr.additions),
       deletions: numberValue(pr.deletions),
@@ -183,6 +185,7 @@ function parseComments(commentsValue: unknown, reviewsValue: unknown): PullReque
 }
 
 interface PullRequestAttention {
+  threadId: string;
   lastReadAt: string | null;
   updatedAt: string | null;
 }
@@ -202,6 +205,7 @@ async function unreadPullRequestAttention(): Promise<Map<string, PullRequestAtte
       const match = apiURL.match(/\/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)/);
       if (!match) continue;
       result.set(pullRequestKey(match[1], Number(match[2])), {
+        threadId: stringValue(notification.id),
         lastReadAt: stringValue(notification.last_read_at) || null,
         updatedAt: stringValue(notification.updated_at) || null,
       });
@@ -223,7 +227,7 @@ async function fetchUnreadReviewComments(
       ["api", `repos/${pullRequest.repository}/pulls/${pullRequest.number}/comments`, "--paginate", "--slurp"],
       { cwd: workspace.path, timeout: 30_000 },
     );
-    return parseUnreadReviewComments(stdout, attention.lastReadAt, attention.updatedAt);
+    return parseUnreadReviewComments(stdout, attention.lastReadAt, attention.updatedAt, pullRequest.authorLogin);
   } catch {
     return [];
   }
@@ -233,6 +237,7 @@ export function parseUnreadReviewComments(
   raw: string,
   lastReadAt: string | null,
   notificationUpdatedAt: string | null,
+  authorLogin = "",
 ): PullRequestComment[] {
   const parsed = JSON.parse(raw || "[]");
   if (!Array.isArray(parsed)) return [];
@@ -252,6 +257,7 @@ export function parseUnreadReviewComments(
     const author = stringValue(user.login);
     const createdAt = stringValue(comment.created_at);
     if (!author || !createdAt || Date.parse(createdAt) <= cutoff) return [];
+    if (authorLogin && author.toLowerCase() === authorLogin.toLowerCase()) return [];
     if (stringValue(user.type).toLowerCase() === "bot" || /\[bot\]$/i.test(author)) return [];
     const body = reviewCommentExcerpt(stringValue(comment.body));
     if (!body) return [];
@@ -265,6 +271,14 @@ export function parseUnreadReviewComments(
   })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
     .slice(0, 12);
+}
+
+export async function markPullRequestRead(repository: string, number: number): Promise<boolean> {
+  const attention = (await unreadPullRequestAttention()).get(pullRequestKey(repository, number));
+  if (!attention?.threadId) return false;
+  await exec("gh", ["api", "--method", "PATCH", `notifications/threads/${attention.threadId}`], { timeout: 30_000 });
+  cache = null;
+  return true;
 }
 
 function reviewCommentExcerpt(body: string): string {

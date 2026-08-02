@@ -24,13 +24,20 @@ const CHROME = [
 const BOX_LEFT = /[┌│└├╭╰]/;
 const BOX_TRIM = /^[┌│└├╭╰]|[┐│┘┤╮╯]$/g;
 const RULE = /^[─━=_]{20,}$/;
-const OPTION = /^(\s*)([❯>*]?)\s*(\d+)[.)]\s+(.*)$/;
+// Claude Code has used both the heavy `❯` and the single-angle `›` cursor in
+// different releases/themes. Treat either as the highlighted option.
+const OPTION = /^(\s*)([❯›>*]?)\s*(\d+)[.)]\s+(.*)$/;
+const INTERACTIVE_HINT = /enter to select|tab\s*\/\s*arrow keys to navigate|esc to cancel/i;
 
 const MAX_LABEL = 220;
 const MAX_PREVIEW = 2500;
 const MAX_QUESTION = 600;
 
 export function parsePanePrompt(pane: string): ConvQuestion | undefined {
+  // Unknown sessions are probed as a hook-independent fallback. Require live
+  // dialog chrome so an ordinary numbered list in recent terminal output cannot
+  // masquerade as a question card.
+  if (!INTERACTIVE_HINT.test(pane)) return undefined;
   const rows = pane.split("\n").map((l) => l.replace(/\s+$/, ""));
   const { left, preview } = splitColumns(rows);
   const { options, firstIndex, highlighted } = readOptions(left);
@@ -59,6 +66,7 @@ export function parsePanePrompt(pane: string): ConvQuestion | undefined {
 
 /// Which option Enter would take right now, or undefined if the pane doesn't say.
 export function highlightedIndex(pane: string): number | undefined {
+  if (!INTERACTIVE_HINT.test(pane)) return undefined;
   const { left } = splitColumns(pane.split("\n").map((l) => l.replace(/\s+$/, "")));
   const { options, highlighted } = readOptions(left);
   return options.length >= 2 && highlighted >= 0 ? highlighted : undefined;

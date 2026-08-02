@@ -45,6 +45,8 @@ struct TmuxSession: Codable, Identifiable, Hashable {
     var state: SessionState?
     var detail: String?
     var currentAction: String?
+    var interactionKind: String?
+    var interactionRequestId: String?
     var notificationsMuted: Bool?
     var preview: String?
     var diffStat: DiffStatSummary?
@@ -158,6 +160,7 @@ struct AuthoredPullRequest: Codable, Identifiable, Hashable {
     let baseRefName: String
     let isDraft: Bool
     let reviewDecision: String
+    var authorLogin: String?
     let updatedAt: String
     let additions: Int
     let deletions: Int
@@ -239,15 +242,21 @@ struct Conversation: Decodable {
     var context: ContextUsage?
     var pending: [PendingMessage]?
     var info: SessionInfo?
-    /// The pane as it stands, sent only when the session is waiting on you and
-    /// the transcript can't say why — Claude Code writes an AskUserQuestion
-    /// record only once the question is answered, so while the dialog is open
-    /// the terminal is the only place the question exists.
+    /// Pane fallback for sessions whose structured question hook was not
+    /// installed, trusted, or reachable. Native requests use `activeQuestion`.
     var prompt: String?
     /// The same pane parsed into a question when it reads like a choice, with the
     /// currently highlighted option marked — which is what makes picking a
     /// specific option possible rather than only taking the default.
     var promptQuestion: ConversationQuestion?
+    /// An exact, still-open provider question. The request id answers the
+    /// blocking hook directly instead of simulating cursor movement in tmux.
+    var activeQuestion: ActiveQuestionRequest?
+}
+
+struct ActiveQuestionRequest: Decodable {
+    let requestId: String
+    let questions: [ConversationQuestion]
 }
 
 /// How a session is configured — most of what `/status` and `/model` would
@@ -303,6 +312,8 @@ struct SessionStateResponse: Decodable {
     var agent: AgentKind?
     var detail: String?
     var currentAction: String?
+    var interactionKind: String?
+    var interactionRequestId: String?
 }
 
 /// One decision waiting on you, from any server. Carries enough of the session's
@@ -315,6 +326,7 @@ struct InboxItem: Decodable, Identifiable {
     var muted: Bool?
     var pendingTool: PendingTool?
     var question: ConversationQuestion?
+    var questionRequestId: String?
     var assistantText: String?
     var diffStat: DiffStatSummary?
 
@@ -335,7 +347,7 @@ struct InboxItem: Decodable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case session, detail, waitingSince, cwd, muted, pendingTool, question, assistantText, diffStat
+        case session, detail, waitingSince, cwd, muted, pendingTool, question, questionRequestId, assistantText, diffStat
     }
 }
 

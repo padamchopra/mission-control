@@ -64,6 +64,8 @@ struct ConversationView: View {
     @State private var acting = false
     @State private var confirmClear = false
     @State private var infoExpanded = false
+    @State private var questionSelections: [String: Set<String>] = [:]
+    @State private var questionCustomAnswers: [String: String] = [:]
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
@@ -110,6 +112,10 @@ struct ConversationView: View {
         .onReceive(PushChannel.shared.sessionUpdates) { push in
             guard push.serverURL == serverURL, push.session == sessionName else { return }
             requestRefresh()
+        }
+        .onChange(of: conversation?.activeQuestion?.requestId) { _, _ in
+            questionSelections = [:]
+            questionCustomAnswers = [:]
         }
         #if targetEnvironment(macCatalyst)
         .overlay {
@@ -165,7 +171,9 @@ struct ConversationView: View {
                         if conversation.state == "working" {
                             workingRow(conversation.action).id("WORKING")
                         }
-                        if let question = conversation.promptQuestion {
+                        if let activeQuestion = conversation.activeQuestion {
+                            activeQuestionRow(activeQuestion).id("QUESTION-\(activeQuestion.requestId)")
+                        } else if let question = conversation.promptQuestion {
                             livePromptRow(question, raw: conversation.prompt).id("PROMPT")
                         } else if let prompt = conversation.prompt, !prompt.isEmpty {
                             promptRow(prompt).id("PROMPT")
@@ -257,7 +265,7 @@ struct ConversationView: View {
     private func actionChips(_ conversation: Conversation) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 7) {
-                stateChips(conversation.state)
+                stateChips(conversation.state, structuredQuestion: conversation.activeQuestion != nil)
                 compactChip(conversation.context)
                 moreChip
             }
@@ -279,7 +287,7 @@ struct ConversationView: View {
     }
 
     @ViewBuilder
-    private func stateChips(_ state: String?) -> some View {
+    private func stateChips(_ state: String?, structuredQuestion: Bool) -> some View {
         switch state {
         case "working":
             // Escape is what you'd press in the terminal to interrupt a turn.
@@ -287,11 +295,16 @@ struct ConversationView: View {
                 sendKeys(["escape"], note: "Interrupted \(sessionName)")
             }
         case "needs_input":
-            chip("Approve", "checkmark.circle", tint: .green) {
-                sendKeys(["enter"], note: "Approved \(sessionName)")
-            }
-            chip("Deny", "xmark.circle", tint: .red) {
-                sendKeys(["escape"], note: "Sent Escape to \(sessionName)")
+            if structuredQuestion {
+                chip("Answer above", "questionmark.bubble", tint: .orange) {}
+                    .disabled(true)
+            } else {
+                chip("Approve", "checkmark.circle", tint: .green) {
+                    sendKeys(["enter"], note: "Approved \(sessionName)")
+                }
+                chip("Deny", "xmark.circle", tint: .red) {
+                    sendKeys(["escape"], note: "Sent Escape to \(sessionName)")
+                }
             }
         default:
             chip("Continue", "arrow.right.circle") {
@@ -558,6 +571,166 @@ struct ConversationView: View {
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .stroke(Color.orange.opacity(0.4), lineWidth: 1)
         )
+    }
+
+    /// The exact AskUserQuestion payload supplied by Claude. This card answers
+    /// the blocking hook by request id, so selections work even though no
+    /// terminal dialog has been rendered yet.
+    private func activeQuestionRow(_ request: ActiveQuestionRequest) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 7) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+                Text("Waiting on you")
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.orange)
+                Spacer(minLength: 4)
+                Text(request.questions.count == 1 ? "QUESTION" : "\(request.questions.count) QUESTIONS")
+                    .font(.caption2.monospaced().weight(.semibold))
+                    .foregroundStyle(Color(white: 0.45))
+            }
+
+            ForEach(Array(request.questions.enumerated()), id: \.offset) { index, question in
+                structuredQuestion(question, number: request.questions.count > 1 ? index + 1 : nil)
+            }
+
+            Button {
+                submit(request)
+            } label: {
+                HStack(spacing: 7) {
+                    if acting { ProgressView().controlSize(.small) }
+                    Text("Submit answer")
+                        .font(.callout.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.orange)
+            .disabled(acting || answers(for: request) == nil)
+        }
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+        )
+    }
+
+    private func structuredQuestion(_ question: ConversationQuestion, number: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let header = question.header, !header.isEmpty {
+                Text(number.map { "\($0). \(header.uppercased())" } ?? header.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .kerning(0.6)
+                    .foregroundStyle(Color(white: 0.5))
+            }
+            Text(question.question)
+                .font(.callout)
+                .foregroundStyle(Color(white: 0.9))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            ForEach(Array(question.options.enumerated()), id: \.offset) { _, option in
+                structuredOption(option, question: question)
+            }
+
+            TextField(
+                question.multiSelect == true ? "Or type another answer" : "Type another answer",
+                text: customAnswerBinding(question.question)
+            )
+            .textFieldStyle(.roundedBorder)
+            .font(.callout)
+
+            if question.multiSelect == true {
+                Text("Select one or more options.")
+                    .font(.caption2)
+                    .foregroundStyle(Color(white: 0.45))
+            }
+        }
+    }
+
+    private func structuredOption(
+        _ option: ConversationQuestionOption,
+        question: ConversationQuestion
+    ) -> some View {
+        let selected = questionSelections[question.question]?.contains(option.label) == true
+        return Button {
+            var selections = questionSelections[question.question] ?? []
+            if question.multiSelect == true {
+                if selected { selections.remove(option.label) } else { selections.insert(option.label) }
+            } else {
+                selections = [option.label]
+            }
+            questionSelections[question.question] = selections
+            questionCustomAnswers[question.question] = ""
+        } label: {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: selected
+                    ? (question.multiSelect == true ? "checkmark.square.fill" : "largecircle.fill.circle")
+                    : (question.multiSelect == true ? "square" : "circle"))
+                    .foregroundStyle(selected ? Color.orange : Color(white: 0.5))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.label)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(Color(white: 0.9))
+                    if let description = option.description, !description.isEmpty {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(Color(white: 0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? Color.orange.opacity(0.12) : Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(selected ? Color.orange.opacity(0.55) : Color.white.opacity(0.08))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func customAnswerBinding(_ question: String) -> Binding<String> {
+        Binding(
+            get: { questionCustomAnswers[question] ?? "" },
+            set: { value in
+                questionCustomAnswers[question] = value
+                if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    questionSelections[question] = []
+                }
+            }
+        )
+    }
+
+    private func answers(for request: ActiveQuestionRequest) -> [String: String]? {
+        var answers: [String: String] = [:]
+        for question in request.questions {
+            let custom = (questionCustomAnswers[question.question] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !custom.isEmpty {
+                answers[question.question] = custom
+                continue
+            }
+            let selected = question.options.compactMap { option in
+                questionSelections[question.question]?.contains(option.label) == true ? option.label : nil
+            }
+            guard !selected.isEmpty else { return nil }
+            answers[question.question] = selected.joined(separator: ", ")
+        }
+        return answers
+    }
+
+    private func submit(_ request: ActiveQuestionRequest) {
+        guard let answers = answers(for: request) else { return }
+        act("Answered \(sessionName)") { api in
+            try await api.answerQuestion(sessionName, requestId: request.requestId, answers: answers)
+        }
     }
 
     private func choose(_ index: Int, label: String) {

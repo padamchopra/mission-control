@@ -18,9 +18,10 @@ import {
   worktreeInfo,
 } from "./git.js";
 import { buildInbox } from "./inbox.js";
-import { listAuthoredPullRequests } from "./pull-requests.js";
+import { listAuthoredPullRequests, markPullRequestRead } from "./pull-requests.js";
 import { createLoop, deleteLoop, listLoops, runLoop, startLoopScheduler, updateLoop } from "./loops.js";
 import { highlightedIndex, parsePanePrompt } from "./prompt.js";
+import { questionBroker } from "./questions.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
@@ -171,6 +172,27 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    // Claude's interactive PreToolUse hook waits on this response. The request
+    // remains open while the Mac or phone renders the exact structured question;
+    // responding returns updatedInput to Claude, which continues inside the same
+    // ordinary subscription-backed terminal session.
+    if (req.method === "POST" && url.pathname === "/hooks/ask-user-question") {
+      const session = url.searchParams.get("session") ?? "";
+      assertValidName(session);
+      const payload = await readJson(req);
+      const pending = questionBroker.open(session, payload);
+      await handleHookEvent(session, "PreToolUse", payload, "claude");
+      const disconnect = () => {
+        if (!res.writableEnded) questionBroker.cancel(session, pending.request.requestId);
+      };
+      res.once("close", disconnect);
+      try {
+        return json(res, 200, await pending.result);
+      } finally {
+        res.off("close", disconnect);
+      }
+    }
+
     if (url.pathname === "/server/update" && req.method === "GET") {
       return json(res, 200, updateStatus());
     }
@@ -200,6 +222,15 @@ const server = createServer(async (req, res) => {
       return json(res, 200, {
         pullRequests: await listAuthoredPullRequests(url.searchParams.get("refresh") === "1"),
       });
+    }
+    if (req.method === "POST" && url.pathname === "/pull-requests/read") {
+      const body = await readJson(req);
+      const repository = String(body.repository ?? "").trim();
+      const number = Number(body.number);
+      if (!repository || !Number.isInteger(number) || number <= 0) {
+        return json(res, 400, { error: "repository and pull request number are required" });
+      }
+      return json(res, 200, { marked: await markPullRequestRead(repository, number) });
     }
 
     if (req.method === "GET" && url.pathname === "/sessions") {
@@ -400,25 +431,63 @@ const server = createServer(async (req, res) => {
         const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 120), 1), 400);
         const entry = registry.view(name);
         const path = entry?.transcriptPath ?? resolveTranscriptPath(entry?.cwd, entry?.claudeSessionId);
-        const conversation = readConversation(path, limit);
+        let conversation = readConversation(path, limit);
+        const activeQuestion = questionBroker.view(name);
+        // A brand-new session can ask before Claude has created its transcript.
+        // The structured hook payload is already enough to render a useful feed,
+        // so do not hide it behind the transcript-unavailable empty state.
+        if (activeQuestion && !conversation.available) {
+          conversation = {
+            available: true,
+            agent: entry?.agent ?? "claude",
+            todos: [],
+            entries: [],
+            state: "needs_input",
+            activeQuestion: {
+              requestId: activeQuestion.requestId,
+              questions: activeQuestion.questions,
+            },
+          };
+        }
         // Attach the live hook state so the feed can show a processing indicator.
         // Guarded on `available` so we never mutate the shared UNAVAILABLE object.
         if (conversation.available) {
-      conversation.agent = entry?.agent ?? conversation.agent ?? "claude";
+          conversation.agent = entry?.agent ?? conversation.agent ?? "claude";
           if (entry?.state) conversation.state = entry.state;
           if (entry?.currentAction) conversation.action = entry.currentAction;
           conversation.context = readContextUsage(path, config.contextLimit);
           conversation.pending = reconcilePending(name, conversation);
-          // Waiting on a human, but nothing in the transcript says what for —
-          // an open question dialog, whose record Claude Code writes only once
-          // it's answered. Show the pane instead of an idle-looking feed.
-          if (entry?.state === "needs_input" && !conversation.entries.some((e) => e.kind === "tool" && e.status == null)) {
+          if (activeQuestion) {
+            conversation.state = "needs_input";
+            conversation.activeQuestion = {
+              requestId: activeQuestion.requestId,
+              questions: activeQuestion.questions,
+            };
+          }
+          // An open question dialog is not written to the transcript until it
+          // is answered. Normally the hooks identify it, but sessions launched
+          // before hooks were installed/trusted can remain `unknown`; inspect
+          // those panes too so the visible TUI remains the final source of truth.
+          const hasPendingTranscriptTool = conversation.entries.some((e) => e.kind === "tool" && e.status == null);
+          const shouldInspectPane = !activeQuestion && !hasPendingTranscriptTool && (
+            entry?.state === "needs_input"
+            || entry?.state === "unknown"
+            || entry?.currentAction === "AskUserQuestion"
+          );
+          if (shouldInspectPane) {
             const pane = await capturePane(name, 40).catch(() => "");
-            conversation.prompt = trimPane(pane);
+            const question = parsePanePrompt(pane);
             // Parsed into the same shape a transcript question produces, so the
-            // client renders one card either way. Raw pane stays attached as the
-            // fallback for when the dialog doesn't parse.
-            conversation.promptQuestion = parsePanePrompt(pane);
+            // client renders one card either way. Unknown panes only surface
+            // when they parse as a real choice; needs_input keeps the raw pane as
+            // a fallback for permission dialogs and future Claude UI changes.
+            if (question) {
+              conversation.state = "needs_input";
+              conversation.prompt = trimPane(pane);
+              conversation.promptQuestion = question;
+            } else if (entry?.state === "needs_input") {
+              conversation.prompt = trimPane(pane);
+            }
           }
         }
         return json(res, 200, conversation);
@@ -452,6 +521,8 @@ const server = createServer(async (req, res) => {
           agent: entry?.agent,
           detail: entry?.detail,
           currentAction: entry?.currentAction,
+          interactionKind: entry?.interactionKind,
+          interactionRequestId: entry?.interactionRequestId,
         });
       }
       if (req.method === "GET" && parts[2] === "notifications") {
@@ -481,6 +552,23 @@ const server = createServer(async (req, res) => {
           pushSession(name, registry.view(name));
         }
         return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && parts[2] === "question") {
+        const body = await readJson(req);
+        try {
+          questionBroker.respond(name, String(body.requestId ?? ""), body.answers);
+          registry.update(name, {
+            state: "working",
+            detail: undefined,
+            currentAction: undefined,
+            interactionKind: undefined,
+            interactionRequestId: undefined,
+          });
+          pushSession(name, registry.view(name));
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 409, { error: error instanceof Error ? error.message : "question is no longer waiting" });
+        }
       }
       if (req.method === "POST" && parts[2] === "keys") {
         const body = await readJson(req);

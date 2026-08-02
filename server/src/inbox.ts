@@ -1,4 +1,5 @@
 import { diffStatFor, type DiffStat } from "./git.js";
+import { questionBroker } from "./questions.js";
 import { registry } from "./registry.js";
 import { listSessions } from "./tmux.js";
 import { readConversation, resolveTranscriptPath, type ConvQuestion } from "./transcript.js";
@@ -16,6 +17,7 @@ export interface InboxItem {
   // The tool call that has no result yet: what the agent is asking to do.
   pendingTool?: { tool?: string; verb?: string; arg?: string };
   question?: ConvQuestion; // an AskUserQuestion still awaiting an answer
+  questionRequestId?: string;
   assistantText?: string; // its last words before stopping to ask
   diffStat?: DiffStat | null;
 }
@@ -38,6 +40,13 @@ export async function buildInbox(): Promise<InboxItem[]> {
       muted: entry.notificationsMuted === true,
     };
 
+    const activeQuestion = questionBroker.view(session.name);
+    if (activeQuestion) {
+      item.question = activeQuestion.questions[0];
+      item.questionRequestId = activeQuestion.requestId;
+      item.pendingTool = { tool: "AskUserQuestion", verb: "Question" };
+    }
+
     const path = entry.transcriptPath ?? resolveTranscriptPath(entry.cwd, entry.claudeSessionId);
     // A short window: the decision context is always the tail of the turn.
     const conversation = readConversation(path, 30);
@@ -46,7 +55,7 @@ export async function buildInbox(): Promise<InboxItem[]> {
         if (conv.kind === "assistant" && conv.text) item.assistantText = clip(conv.text);
         if (conv.kind !== "tool") continue;
         // No status means no tool_result yet — this is what it's blocked on.
-        if (conv.status == null) {
+        if (conv.status == null && !activeQuestion) {
           item.pendingTool = { tool: conv.tool, verb: conv.verb, arg: conv.arg };
           if (conv.questions?.length) item.question = conv.questions[0];
         }

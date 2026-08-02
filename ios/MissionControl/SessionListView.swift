@@ -744,11 +744,16 @@ struct SessionListView: View {
     private func needsInputActions(_ session: TmuxSession) -> some View {
         if session.resolvedState == .needsInput {
             HStack(spacing: 8) {
-                Button("Approve") { respond(session, keys: ["enter"], note: "Approved \(session.name)") }
-                    .tint(.green)
-                Button("Deny") { respond(session, keys: ["escape"], note: "Sent Escape to \(session.name)") }
-                    .tint(.red)
-                Button("Open") { path = [session.name] }
+                if session.interactionKind == "ask_user_question" {
+                    Button("Answer") { path = [session.name] }
+                        .tint(.orange)
+                } else {
+                    Button("Approve") { respond(session, keys: ["enter"], note: "Approved \(session.name)") }
+                        .tint(.green)
+                    Button("Deny") { respond(session, keys: ["escape"], note: "Sent Escape to \(session.name)") }
+                        .tint(.red)
+                    Button("Open") { path = [session.name] }
+                }
                 Spacer(minLength: 0)
             }
             .buttonStyle(.bordered)
@@ -904,6 +909,8 @@ struct SessionListView: View {
         sessions[index].state = push.state
         sessions[index].detail = push.detail
         sessions[index].currentAction = push.currentAction
+        sessions[index].interactionKind = push.interactionKind
+        sessions[index].interactionRequestId = push.interactionRequestId
         sessions.sort(by: triageOrder)
     }
 

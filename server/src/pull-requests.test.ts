@@ -31,6 +31,7 @@ test("pull request parsing resolves its branch worktree and attention state", ()
     baseRefName: "main",
     isDraft: false,
     reviewDecision: "CHANGES_REQUESTED",
+    author: { login: "author" },
     updatedAt: "2026-08-02T10:00:00Z",
     additions: 120,
     deletions: 14,
@@ -48,6 +49,7 @@ test("pull request parsing resolves its branch worktree and attention state", ()
   assert.equal(result.length, 1);
   assert.equal(result[0].repository, "acme/control");
   assert.equal(result[0].worktreePath, "/code/control-pr");
+  assert.equal(result[0].authorLogin, "author");
   assert.equal(result[0].hasUnreadActivity, true);
   assert.equal(result[0].latestCommentAt, "2026-08-02T09:30:00Z");
   assert.deepEqual(result[0].checks.map((check) => check.state), ["pass", "fail", "pending"]);
@@ -73,6 +75,11 @@ test("pull request parsing remains useful without a matching worktree", () => {
 test("unread review comments exclude bots, old activity, and raw markup", () => {
   const raw = JSON.stringify([[
     {
+      user: { login: "author", type: "User" },
+      body: "My own reply",
+      created_at: "2026-08-02T10:04:00Z",
+    },
+    {
       user: { login: "reviewer", type: "User" },
       body: "<!-- hidden --> **Could we keep this value stable?**",
       created_at: "2026-08-02T10:05:00Z",
@@ -91,7 +98,7 @@ test("unread review comments exclude bots, old activity, and raw markup", () => 
     },
   ]]);
 
-  const result = parseUnreadReviewComments(raw, "2026-08-02T10:00:00Z", "2026-08-02T10:06:00Z");
+  const result = parseUnreadReviewComments(raw, "2026-08-02T10:00:00Z", "2026-08-02T10:06:00Z", "author");
   assert.deepEqual(result, [{
     author: "reviewer",
     body: "Could we keep this value stable?",

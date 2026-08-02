@@ -45,7 +45,10 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   that report each session's state to the server. Every configured agent session
   running inside tmux reports automatically. Each event is pushed straight on to
   the connected apps, so the UI tracks an agent as it works rather than polling
-  for changes.
+  for changes. Claude's `AskUserQuestion` is intercepted before its terminal
+  dialog: Mission Control renders the exact structured questions and returns the
+  selected answers to the same interactive Claude process. This continues to use
+  the user's normal Claude Code subscription; no Agent SDK session is involved.
 - **`ios/`** — the SwiftUI app (built with [XcodeGen](https://github.com/yonaskolb/XcodeGen)).
 - **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
 
@@ -58,8 +61,14 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 - **Decision queue** — the tray in the top bar collects every session waiting on
   you, across *every* paired server, and badges the count. Each entry carries the
   ask, the tool call it's blocked on, the options if it asked a question, and what
-  the agent last said — enough to approve, deny, or reply without opening the
-  session. Acting advances to the next one. Shift-Command-D on the Mac.
+  the agent last said — enough to triage immediately. Permission prompts can be
+  approved, denied, or replied to there; structured questions open their native
+  Conversation card. Acting advances to the next one. Shift-Command-D on the Mac.
+- **Native Claude questions** — single-choice, multi-select, multi-question, and
+  free-text `AskUserQuestion` prompts render as first-class Conversation cards.
+  Answers are correlated by Claude's tool-use ID instead of terminal cursor
+  position. If the blocking hook cannot reach Mission Control, Claude falls back
+  to its ordinary terminal dialog and the existing pane parser remains available.
 - **Context meter** — how full each supported agent's context window is, read from the
   token accounting in its transcript, with the number of times it has already
   compacted and how much history that discarded. Shown above the conversation and
@@ -143,6 +152,10 @@ login), registers Claude Code hooks and Codex hooks when their CLIs are installe
 exposes the server on your tailnet with
 `tailscale serve`, and prints a **pairing QR** plus the server URL and token.
 Reprint the QR anytime with `./deploy/show-pairing.sh`.
+
+When upgrading from a build without native `AskUserQuestion`, rerun
+`./deploy/setup.sh` once. The server updater cannot copy the new blocking hook or
+raise its timeout inside `~/.claude/settings.json`; setup performs both changes.
 
 Codex requires a one-time trust review for user-installed lifecycle hooks. Start
 Codex, run `/hooks`, and trust the Mission Control entries after setup. Until
@@ -240,9 +253,12 @@ the full threat model and input-handling notes.
   marks the highlighted row, the app can also reach any *other* option — tapping
   one re-reads the pane, computes the arrow keys needed from where the cursor
   actually is, and sends them. It refuses rather than guesses if the screen no
-  longer shows a choice. Reading a TUI's output back is inherently best-effort, so
-  the raw pane stays one tap away and is what's shown whenever the parse comes up
-  empty; once the question is answered the transcript-parsed card takes over.
+  longer shows a choice. The conversation endpoint also checks sessions whose
+  hook state is still unknown, so a missed or not-yet-trusted hook cannot hide a
+  prompt that is visibly open in the terminal. Reading a TUI's output back is
+  inherently best-effort, so the raw pane stays one tap away and is what's shown
+  whenever the parse comes up empty; once the question is answered the
+  transcript-parsed card takes over.
 - **What can't be rendered natively.** Most of what Claude Code's informational
   slash commands print is recoverable without running them: the model, effort,
   permission mode, branch and build all come off the transcript, and context size

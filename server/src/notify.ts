@@ -68,6 +68,8 @@ export function pushSession(session: string, entry: RegistryEntry | undefined): 
     state: entry?.state,
     detail: entry?.detail,
     currentAction: entry?.currentAction,
+    interactionKind: entry?.interactionKind,
+    interactionRequestId: entry?.interactionRequestId,
   });
 }
 
