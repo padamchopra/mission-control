@@ -2,6 +2,10 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+extension Notification.Name {
+    static let flightDeckTitleBarDoubleClicked = Notification.Name("flightDeckTitleBarDoubleClicked")
+}
+
 /// On the phone, notifications are delivered by the ntfy app (not this app),
 /// and tapping one opens a `missioncontrol://session/…` deep link that
 /// SessionListView handles — no notification permissions or push token needed.
@@ -13,6 +17,10 @@ import UserNotifications
 /// also a launch-arg hook (MC_OPEN=<session>) used to open a session directly
 /// for screenshots / UI testing.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    #if targetEnvironment(macCatalyst)
+    private var restoredWindowFrame: CGRect?
+    #endif
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -31,14 +39,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { notification in
-            (notification.object as? UIWindowScene)?.titlebar?.titleVisibility = .hidden
+            guard let scene = notification.object as? UIWindowScene else { return }
+            scene.titlebar?.titleVisibility = .hidden
         }
         DispatchQueue.main.async {
             UIApplication.shared.connectedScenes
                 .compactMap { $0 as? UIWindowScene }
-                .forEach { $0.titlebar?.titleVisibility = .hidden }
+                .forEach {
+                    $0.titlebar?.titleVisibility = .hidden
+                }
         }
         UNUserNotificationCenter.current().delegate = self
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFlightDeckTitleBarDoubleClick),
+            name: .flightDeckTitleBarDoubleClicked,
+            object: nil
+        )
         NotifyStreamManager.shared.activate(presentingNotifications: true)
         #else
         // Live state only — the phone's banners come from ntfy, and asking for
@@ -47,6 +64,41 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         #endif
         return true
     }
+
+    #if targetEnvironment(macCatalyst)
+    @objc private func handleFlightDeckTitleBarDoubleClick() {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first else { return }
+
+        // Catalyst has no public `zoom` action, but its geometry API preserves
+        // the native window animation and lets macOS clamp to the visible frame.
+        let currentFrame = scene.effectiveGeometry.systemFrame
+        let screenFrame = scene.screen.bounds
+        let targetFrame: CGRect
+        if let restoredWindowFrame,
+           currentFrame.width > restoredWindowFrame.width + 20 {
+            targetFrame = restoredWindowFrame
+            self.restoredWindowFrame = nil
+        } else if currentFrame.width >= screenFrame.width - 24 {
+            let width = min(1180, screenFrame.width - 80)
+            let height = min(800, screenFrame.height - 80)
+            targetFrame = CGRect(
+                x: screenFrame.midX - width / 2,
+                y: screenFrame.midY - height / 2,
+                width: width,
+                height: height
+            )
+        } else {
+            restoredWindowFrame = currentFrame
+            targetFrame = screenFrame
+        }
+        scene.requestGeometryUpdate(
+            UIWindowScene.GeometryPreferences.Mac(systemFrame: targetFrame),
+            errorHandler: { _ in }
+        )
+    }
+    #endif
 
     // Notifications arrive over the notify stream only while the app is
     // running — show them as banners even when the window is frontmost.

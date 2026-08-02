@@ -124,6 +124,79 @@ struct SkillSuggestionsResponse: Decodable {
 struct SessionLinks: Codable {
     let claudeUrl: String?
     let prUrl: String?
+    let pullRequest: PullRequestSummary?
+
+    var resolvedPullRequest: PullRequestSummary? {
+        if let pullRequest { return pullRequest }
+        guard let prUrl, !prUrl.isEmpty else { return nil }
+        return PullRequestSummary(
+            url: prUrl,
+            number: Int(URL(string: prUrl)?.lastPathComponent ?? "") ?? 0,
+            title: "Open pull request",
+            headRefName: "",
+            state: "OPEN"
+        )
+    }
+}
+
+struct PullRequestSummary: Codable, Identifiable, Hashable {
+    let url: String
+    let number: Int
+    let title: String
+    let headRefName: String
+    let state: String
+
+    var id: String { url }
+}
+
+struct AuthoredPullRequest: Codable, Identifiable, Hashable {
+    let url: String
+    let number: Int
+    let title: String
+    let repository: String
+    let headRefName: String
+    let baseRefName: String
+    let isDraft: Bool
+    let reviewDecision: String
+    let updatedAt: String
+    let additions: Int
+    let deletions: Int
+    let changedFiles: Int
+    let checks: [PullRequestCheck]
+    let comments: [PullRequestComment]
+    var unreadComments: [PullRequestComment]?
+    var unreadSince: String?
+    let latestCommentAt: String?
+    let hasUnreadActivity: Bool
+    let workspaceId: String
+    let workspaceName: String
+    let workspacePath: String
+    let worktreePath: String?
+
+    var id: String { url }
+    var failedCheckCount: Int { checks.filter { $0.state == "fail" }.count }
+    var pendingCheckCount: Int { checks.filter { $0.state == "pending" }.count }
+    var passedCheckCount: Int { checks.filter { $0.state == "pass" }.count }
+    var resolvedUnreadComments: [PullRequestComment] { unreadComments ?? [] }
+}
+
+struct PullRequestCheck: Codable, Identifiable, Hashable {
+    let name: String
+    let state: String
+    var id: String { "\(name)|\(state)" }
+}
+
+struct PullRequestComment: Codable, Identifiable, Hashable {
+    let author: String
+    let body: String
+    let createdAt: String?
+    var path: String?
+    var line: Int?
+    var id: String { "\(author)|\(createdAt ?? "")|\(body.prefix(32))" }
+}
+
+struct AuthoredPullRequestsResponse: Codable {
+    let pullRequests: [AuthoredPullRequest]
 }
 
 struct TerminalSnapshot: Codable {
@@ -327,6 +400,7 @@ struct SessionChecks: Decodable {
 struct CheckRun: Decodable, Identifiable {
     let name: String
     let state: String // pass | fail | pending | skipping | cancel | ...
+    let durationSeconds: Int?
     var id: String { name }
 }
 
@@ -382,4 +456,106 @@ struct WorktreeCloseResult: Codable {
 
 struct WorkspacesResponse: Codable {
     let workspaces: [Workspace]
+}
+
+enum LoopFrequency: String, Codable, CaseIterable, Identifiable {
+    case hourly
+    case daily
+    case weekdays
+    case weekly
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .hourly: return "Every few hours"
+        case .daily: return "Every day"
+        case .weekdays: return "Weekdays"
+        case .weekly: return "Every week"
+        }
+    }
+}
+
+struct LoopSchedule: Codable, Hashable {
+    var frequency: LoopFrequency
+    var intervalHours: Int?
+    var hour: Int?
+    var minute: Int?
+    var weekday: Int?
+
+    var summary: String {
+        switch frequency {
+        case .hourly:
+            let interval = intervalHours ?? 1
+            return interval == 1 ? "Every hour" : "Every \(interval)h"
+        case .daily:
+            return "Every day · \(clockTime)"
+        case .weekdays:
+            return "Weekdays · \(clockTime)"
+        case .weekly:
+            let names = Calendar.current.weekdaySymbols
+            let index = min(max(weekday ?? 0, 0), names.count - 1)
+            return "\(names[index]) · \(clockTime)"
+        }
+    }
+
+    private var clockTime: String {
+        String(format: "%02d:%02d", hour ?? 0, minute ?? 0)
+    }
+}
+
+struct MissionLoop: Codable, Identifiable, Hashable {
+    let id: String
+    var name: String
+    var workspaceId: String
+    var workspaceName: String
+    var prompt: String
+    var agent: AgentKind
+    var schedule: LoopSchedule
+    var enabled: Bool
+    var runs: Int
+    var successfulRuns: Int
+    var lastRunAt: TimeInterval?
+    var lastDurationMs: TimeInterval?
+    var lastError: String?
+    var nextRunAt: TimeInterval
+    var createdAt: TimeInterval
+
+    var nextRunDate: Date { Date(timeIntervalSince1970: nextRunAt / 1000) }
+    var lastRunDate: Date? { lastRunAt.map { Date(timeIntervalSince1970: $0 / 1000) } }
+    var successPercent: Int {
+        guard runs > 0 else { return 100 }
+        return Int((Double(successfulRuns) / Double(runs) * 100).rounded())
+    }
+}
+
+struct LoopsResponse: Codable {
+    let loops: [MissionLoop]
+}
+
+struct LoopResponse: Codable {
+    let loop: MissionLoop
+}
+
+struct LoopRunResponse: Codable {
+    let loop: MissionLoop
+    let session: String
+}
+
+struct ArchivedChat: Decodable, Identifiable {
+    let id: String
+    let session: String
+    let archivedAt: TimeInterval
+    let agent: AgentKind
+    let cwd: String?
+    let conversation: Conversation
+
+    var archivedDate: Date { Date(timeIntervalSince1970: archivedAt / 1000) }
+}
+
+struct ArchivesResponse: Decodable {
+    let archives: [ArchivedChat]
+}
+
+struct ArchiveResponse: Decodable {
+    let archive: ArchivedChat
 }

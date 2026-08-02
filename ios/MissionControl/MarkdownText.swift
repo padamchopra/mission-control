@@ -3,8 +3,9 @@ import SwiftUI
 /// A lightweight Markdown renderer for the conversation feed. Claude's output is
 /// Markdown, so rendering it verbatim shows raw `**`, `##`, and `[text](url)`.
 /// This covers the common subset — headings, bold/italic/inline code, links,
-/// bullet and numbered lists, and fenced code blocks — parsing block structure
-/// here and delegating inline styling to `AttributedString`.
+/// bullet and numbered lists, fenced code blocks, and GitHub-style tables —
+/// parsing block structure here and delegating inline styling to
+/// `AttributedString`.
 struct MarkdownText: View {
     let text: String
     var color: Color = Color(white: 0.93)
@@ -23,7 +24,22 @@ struct MarkdownText: View {
         case bullet(String)
         case ordered(String, String)
         case code(String)
+        case table([String], [[String]], [TableAlignment])
         case paragraph(String)
+    }
+
+    private enum TableAlignment {
+        case leading
+        case center
+        case trailing
+
+        var frameAlignment: Alignment {
+            switch self {
+            case .leading: return .leading
+            case .center: return .center
+            case .trailing: return .trailing
+            }
+        }
     }
 
     @ViewBuilder
@@ -55,6 +71,8 @@ struct MarkdownText: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 8))
+        case let .table(headers, rows, alignments):
+            table(headers: headers, rows: rows, alignments: alignments)
         case let .paragraph(content):
             Text(inline(content))
                 .font(.callout)
@@ -74,11 +92,75 @@ struct MarkdownText: View {
         )) ?? AttributedString(string)
     }
 
+    private func table(headers: [String], rows: [[String]], alignments: [TableAlignment]) -> some View {
+        let widths = headers.indices.map { tableColumnWidth($0, headers: headers, rows: rows) }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                tableRow(headers, widths: widths, alignments: alignments, header: true)
+                Divider().overlay(Color.white.opacity(0.18))
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                    tableRow(row, widths: widths, alignments: alignments, header: false)
+                        .background(index.isMultiple(of: 2) ? Color.clear : Color.white.opacity(0.025))
+                    if index < rows.count - 1 {
+                        Divider().overlay(Color.white.opacity(0.1))
+                    }
+                }
+            }
+            .background(Color(white: 0.07))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.16)))
+            .fixedSize(horizontal: true, vertical: true)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func tableRow(
+        _ cells: [String],
+        widths: [CGFloat],
+        alignments: [TableAlignment],
+        header: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(widths.indices, id: \.self) { index in
+                Text(inline(index < cells.count ? cells[index] : ""))
+                    .font(header ? .caption.weight(.semibold) : .caption)
+                    .foregroundStyle(header ? color : color.opacity(0.88))
+                    .multilineTextAlignment(textAlignment(alignments[index]))
+                    .frame(width: widths[index], alignment: alignments[index].frameAlignment)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .overlay(alignment: .trailing) {
+                        if index < widths.count - 1 {
+                            Rectangle().fill(Color.white.opacity(0.1)).frame(width: 0.5)
+                        }
+                    }
+            }
+        }
+        .background(header ? Color.white.opacity(0.07) : Color.clear)
+    }
+
+    private func tableColumnWidth(_ index: Int, headers: [String], rows: [[String]]) -> CGFloat {
+        let values = [headers[index]] + rows.map { index < $0.count ? $0[index] : "" }
+        let longest = values.map(\.count).max() ?? 0
+        return min(max(CGFloat(longest) * 7 + 20, 96), 240)
+    }
+
+    private func textAlignment(_ alignment: TableAlignment) -> TextAlignment {
+        switch alignment {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
+    }
+
     private func parse(_ text: String) -> [Block] {
         var blocks: [Block] = []
         var paragraph: [String] = []
         var code: [String] = []
         var inCode = false
+        let lines = text.components(separatedBy: "\n")
+        var index = 0
 
         func flushParagraph() {
             let joined = paragraph.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -86,7 +168,8 @@ struct MarkdownText: View {
             paragraph.removeAll()
         }
 
-        for line in text.components(separatedBy: "\n") {
+        while index < lines.count {
+            let line = lines[index]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if trimmed.hasPrefix("```") {
@@ -98,10 +181,33 @@ struct MarkdownText: View {
                     flushParagraph()
                     inCode = true
                 }
+                index += 1
                 continue
             }
-            if inCode { code.append(line); continue }
-            if trimmed.isEmpty { flushParagraph(); continue }
+            if inCode {
+                code.append(line)
+                index += 1
+                continue
+            }
+            if trimmed.isEmpty {
+                flushParagraph()
+                index += 1
+                continue
+            }
+
+            if index + 1 < lines.count,
+               let headers = tableCells(line),
+               let alignments = tableDelimiter(lines[index + 1], columns: headers.count) {
+                flushParagraph()
+                var rows: [[String]] = []
+                index += 2
+                while index < lines.count, let row = tableCells(lines[index]), !row.isEmpty {
+                    rows.append(normalizedTableRow(row, columns: headers.count))
+                    index += 1
+                }
+                blocks.append(.table(headers, rows, alignments))
+                continue
+            }
 
             if let heading = headingMatch(trimmed) {
                 flushParagraph()
@@ -115,10 +221,67 @@ struct MarkdownText: View {
             } else {
                 paragraph.append(line)
             }
+            index += 1
         }
         if inCode, !code.isEmpty { blocks.append(.code(code.joined(separator: "\n"))) }
         flushParagraph()
         return blocks
+    }
+
+    private func tableCells(_ line: String) -> [String]? {
+        var source = line.trimmingCharacters(in: .whitespaces)
+        guard source.contains("|") else { return nil }
+        if source.hasPrefix("|") { source.removeFirst() }
+        if source.hasSuffix("|") { source.removeLast() }
+
+        var cells: [String] = []
+        var cell = ""
+        var escaped = false
+        var inCodeSpan = false
+        for character in source {
+            if escaped {
+                if character == "|" || character == "\\" {
+                    cell.append(character)
+                } else {
+                    cell.append("\\")
+                    cell.append(character)
+                }
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "`" {
+                inCodeSpan.toggle()
+                cell.append(character)
+            } else if character == "|", !inCodeSpan {
+                cells.append(cell.trimmingCharacters(in: .whitespaces))
+                cell = ""
+            } else {
+                cell.append(character)
+            }
+        }
+        if escaped { cell.append("\\") }
+        cells.append(cell.trimmingCharacters(in: .whitespaces))
+        return cells.count >= 2 ? cells : nil
+    }
+
+    private func tableDelimiter(_ line: String, columns: Int) -> [TableAlignment]? {
+        guard let cells = tableCells(line), cells.count == columns else { return nil }
+        var alignments: [TableAlignment] = []
+        for cell in cells {
+            var marker = cell.trimmingCharacters(in: .whitespaces)
+            let leadingColon = marker.hasPrefix(":")
+            let trailingColon = marker.hasSuffix(":")
+            if leadingColon { marker.removeFirst() }
+            if trailingColon, !marker.isEmpty { marker.removeLast() }
+            guard marker.count >= 3, marker.allSatisfy({ $0 == "-" }) else { return nil }
+            alignments.append(leadingColon && trailingColon ? .center : trailingColon ? .trailing : .leading)
+        }
+        return alignments
+    }
+
+    private func normalizedTableRow(_ row: [String], columns: Int) -> [String] {
+        if row.count >= columns { return Array(row.prefix(columns)) }
+        return row + Array(repeating: "", count: columns - row.count)
     }
 
     private func headingMatch(_ line: String) -> (Int, String)? {

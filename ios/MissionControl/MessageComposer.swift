@@ -65,16 +65,25 @@ struct MessageComposer: View {
                 attachmentChips
             }
             suggestionPicker
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
                 attachMenu
+                #if !targetEnvironment(macCatalyst)
                 quickMenu
+                #endif
                 inputField
                 sendButton
             }
         }
+        #if targetEnvironment(macCatalyst)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(FlightDeckPalette.chrome)
+        .overlay(alignment: .top) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
+        #else
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.black)
+        #endif
         .photosPicker(isPresented: photosPresentedBinding, selection: $pickerItems, matching: .any(of: [.images, .videos]))
         .onChange(of: pickerItems) { _, items in
             Task { await loadPickedItems(items) }
@@ -85,10 +94,12 @@ struct MessageComposer: View {
         .onChange(of: cursorRange) { _, newRange in
             updateSuggestions(for: text, selection: newRange)
         }
+        #if !targetEnvironment(macCatalyst)
         .sheet(isPresented: $showCamera) {
             CameraPicker { image in addImages([image]) }
                 .ignoresSafeArea()
         }
+        #endif
     }
 
     // The queue itself is rendered in the conversation feed, from the server's
@@ -154,6 +165,7 @@ struct MessageComposer: View {
             } label: {
                 Label("Photo Library", systemImage: "photo.on.rectangle")
             }
+            #if !targetEnvironment(macCatalyst)
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button {
                     showCamera = true
@@ -161,12 +173,25 @@ struct MessageComposer: View {
                     Label("Take Photo", systemImage: "camera")
                 }
             }
+            #endif
         } label: {
+            #if targetEnvironment(macCatalyst)
+            Text("+")
+                .font(.flightSans(16))
+                .foregroundStyle(FlightDeckPalette.secondary)
+                .frame(width: 36, height: 36)
+                .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
+            #else
             Image(systemName: "plus.circle.fill")
                 .font(.system(size: 30))
                 .foregroundStyle(.secondary)
+            #endif
         }
+        #if targetEnvironment(macCatalyst)
+        .frame(width: 36, height: 40)
+        #else
         .frame(height: 34)
+        #endif
     }
 
     private var inputField: some View {
@@ -187,7 +212,13 @@ struct MessageComposer: View {
                     .allowsHitTesting(false)
             }
         }
+        #if targetEnvironment(macCatalyst)
+        .frame(minHeight: 40)
+        .background(FlightDeckPalette.chrome)
+        .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
+        #else
         .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 18))
+        #endif
     }
 
     @ViewBuilder
@@ -286,14 +317,32 @@ struct MessageComposer: View {
         } label: {
             if sending {
                 ProgressView()
+                    #if targetEnvironment(macCatalyst)
+                    .tint(FlightDeckPalette.onAccent)
+                    .frame(width: 52, height: 40)
+                    .background(FlightDeckPalette.amber)
+                    #else
                     .frame(width: 30, height: 30)
+                    #endif
             } else {
+                #if targetEnvironment(macCatalyst)
+                Text("SEND")
+                    .font(.flightMono(8, weight: .bold))
+                    .foregroundStyle(FlightDeckPalette.onAccent)
+                    .frame(width: 52, height: 40)
+                    .background(FlightDeckPalette.amber)
+                #else
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 30))
                     .foregroundStyle(willQueue ? Color.orange : Color.accentColor)
+                #endif
             }
         }
+        #if targetEnvironment(macCatalyst)
+        .frame(width: 52, height: 40)
+        #else
         .frame(height: 34)
+        #endif
         .disabled(!canSend || sending)
         .keyboardShortcut(.return, modifiers: .command)
         .help(willQueue ? "Queue message (Command-Return)" : "Send message (Command-Return)")
@@ -319,7 +368,11 @@ struct MessageComposer: View {
         } label: {
             Image(systemName: "bolt.circle")
                 .font(.system(size: 30))
+                #if targetEnvironment(macCatalyst)
+                .foregroundStyle(FlightDeckPalette.secondary)
+                #else
                 .foregroundStyle(.secondary)
+                #endif
         }
         .frame(height: 34)
         .menuOrder(.fixed)

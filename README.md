@@ -180,11 +180,12 @@ pairing QR** and scan the QR the setup script printed — that adds the server (
 username or manual token entry). Repeat on another Mac to add a second server;
 switch between them from the menu in the top-left.
 
-For the **Mac app**, pick the "My Mac (Mac Catalyst)" run destination instead —
-same target, no extra setup. To pair on the Mac, copy the
-`missioncontrol://configure` link the setup script prints and use
-**gear → + → Paste pairing link** (scanning a QR with the Mac's own camera
-would be silly).
+For the **Mac app**, pick the "My Mac (Mac Catalyst)" run destination instead.
+On first launch, choose **Add connection → Set up this Mac**. Mission Control
+automatically finds an existing checkout (or prepares its own managed checkout),
+runs the installer, starts the service, and pairs it with the app. No Terminal
+command or pairing-link copy/paste is required. The manual server flow above is
+still available when setting up a different Mac or pairing the iOS app.
 
 ### 3. Notifications (ntfy)
 

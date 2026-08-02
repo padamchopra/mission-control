@@ -7,8 +7,18 @@ private typealias Color = SwiftUI.Color
 
 private enum SessionMode { case conversation, terminal }
 
+struct FlightDeckSessionPresentation {
+    let agent: AgentKind
+    let state: SessionState
+    let panePath: String
+    let paneCommand: String
+    let currentAction: String?
+    let context: ContextUsage?
+}
+
 struct TerminalScreen: View {
     let sessionName: String
+    var flightPresentation: FlightDeckSessionPresentation?
 
     @AppStorage("serverURL") private var serverURL = "http://127.0.0.1:8420"
     @AppStorage("serverToken") private var serverToken = ""
@@ -25,22 +35,29 @@ struct TerminalScreen: View {
     @State private var renameText = ""
     @State private var isKilling = false
     @State private var showKillConfirmation = false
+    @State private var isArchiving = false
+    @State private var showArchiveConfirmation = false
     @State private var actionError: String?
     @State private var notificationsMuted = false
     @State private var showActivity = false
     @State private var showSearch = false
     @State private var showPullRequest = false
-    @State private var mode: SessionMode = .conversation
+    @State private var mode: SessionMode
     // Fetched once and then kept current by the push channel, so the composer
     // knows whether Claude will queue a message in either view mode.
     @State private var sessionState: SessionState?
     @State private var agent: AgentKind?
-    #if targetEnvironment(macCatalyst)
-    @State private var showInspector = false
-    #endif
     @EnvironmentObject private var router: AppRouter
     @EnvironmentObject private var toasts: ToastCenter
     @Environment(\.openURL) private var openURL
+
+    init(sessionName: String, flightPresentation: FlightDeckSessionPresentation? = nil) {
+        self.sessionName = sessionName
+        self.flightPresentation = flightPresentation
+        _mode = State(initialValue: flightPresentation?.agent == .shell ? .terminal : .conversation)
+        _sessionState = State(initialValue: flightPresentation?.state)
+        _agent = State(initialValue: flightPresentation?.agent)
+    }
 
     private var api: APIClient? {
         APIClient(urlString: serverURL, token: serverToken)
@@ -48,15 +65,16 @@ struct TerminalScreen: View {
 
     var body: some View {
         content
+        #if targetEnvironment(macCatalyst)
+            .background(FlightDeckPalette.background)
+        #else
             .background(Color.black)
+        #endif
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 pullRequestButton
-                #if targetEnvironment(macCatalyst)
-                inspectorToggle
-                #endif
                 if isKilling {
                     ProgressView()
                 } else {
@@ -81,6 +99,9 @@ struct TerminalScreen: View {
         .onChange(of: router.terminalSearchSession) { _, _ in
             presentRequestedSearchIfNeeded()
         }
+        #if targetEnvironment(macCatalyst)
+        .overlay { flightDeckModal }
+        #else
         .sheet(isPresented: $showActivity) {
             SessionActivitySheet(sessionName: sessionName, serverURL: serverURL, token: serverToken)
         }
@@ -130,31 +151,163 @@ struct TerminalScreen: View {
         } message: {
             Text("This kills the tmux session and everything running in it (\(sessionName)).")
         }
+        .confirmationDialog("Archive conversation?", isPresented: $showArchiveConfirmation) {
+            Button("Archive \(sessionName)") {
+                Task { await archiveConversation() }
+            }
+        } message: {
+            Text("This saves the conversation in Archived chats and closes the live session. The repository and worktrees stay untouched.")
+        }
+        #endif
     }
 
-    // On the Mac, the detail can host an optional inspector beside the main
-    // column. On the phone there's no room, so it's just the main column.
+    #if targetEnvironment(macCatalyst)
     @ViewBuilder
-    private var content: some View {
-        #if targetEnvironment(macCatalyst)
-        HStack(spacing: 0) {
-            mainColumn
-            if showInspector {
-                Divider()
-                SessionInspector(sessionName: sessionName, serverURL: serverURL, token: serverToken)
-                    .frame(width: 320)
-                    .transition(.move(edge: .trailing))
+    private var flightDeckModal: some View {
+        if showActivity {
+            FlightDeckModalLayer(onDismiss: { showActivity = false }) {
+                SessionActivitySheet(
+                    sessionName: sessionName,
+                    serverURL: serverURL,
+                    token: serverToken,
+                    onClose: { showActivity = false }
+                )
+                .frame(width: 760, height: 620)
+            }
+        } else if showSearch {
+            FlightDeckModalLayer(onDismiss: { showSearch = false }) {
+                TerminalSearchSheet(
+                    sessionName: sessionName,
+                    serverURL: serverURL,
+                    token: serverToken,
+                    onClose: { showSearch = false }
+                )
+                .frame(width: 760, height: 620)
+            }
+        } else if showPullRequest {
+            FlightDeckModalLayer(onDismiss: { showPullRequest = false }) {
+                PullRequestSheet(
+                    sessionName: sessionName,
+                    api: api,
+                    onClose: { showPullRequest = false }
+                )
+                .frame(width: 760, height: 660)
+            }
+        } else if showSaveWorkspace {
+            FlightDeckModalLayer(onDismiss: { showSaveWorkspace = false }) {
+                FlightDeckDialogModal(
+                    eyebrow: "SESSION / SAVE WORKSPACE",
+                    title: "Save repository as workspace",
+                    message: "The path must be inside a Git repository. Mission Control saves its primary checkout and discovers linked worktrees."
+                ) {
+                    VStack(spacing: 12) {
+                        TextField("Workspace name", text: $workspaceName)
+                            .textFieldStyle(FlightDeckTextFieldStyle())
+                            .textInputAutocapitalization(.never)
+                        TextField("Repository path", text: $workspacePath)
+                            .textFieldStyle(FlightDeckTextFieldStyle())
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                } actions: {
+                    Button("CANCEL") { showSaveWorkspace = false }
+                        .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
+                    Button("SAVE WORKSPACE") {
+                        showSaveWorkspace = false
+                        saveWorkspace()
+                    }
+                    .buttonStyle(FlightDeckAccentButtonStyle())
+                }
+            }
+        } else if showRename {
+            FlightDeckModalLayer(onDismiss: { showRename = false }) {
+                FlightDeckDialogModal(
+                    eyebrow: "SESSION / IDENTIFIER",
+                    title: "Rename session",
+                    message: "Choose a short name that is easy to scan in Command Center."
+                ) {
+                    TextField("Session name", text: $renameText)
+                        .textFieldStyle(FlightDeckTextFieldStyle())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } actions: {
+                    Button("CANCEL") { showRename = false }
+                        .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
+                    Button("RENAME") {
+                        showRename = false
+                        rename()
+                    }
+                    .buttonStyle(FlightDeckAccentButtonStyle())
+                }
+            }
+        } else if let actionError {
+            FlightDeckModalLayer(onDismiss: { self.actionError = nil }) {
+                FlightDeckDialogModal(
+                    eyebrow: "SESSION / OPERATION FAILED",
+                    title: "Something went wrong",
+                    message: actionError
+                ) {
+                    EmptyView()
+                } actions: {
+                    Button("OK") { self.actionError = nil }
+                        .buttonStyle(FlightDeckAccentButtonStyle())
+                }
+            }
+        } else if showKillConfirmation {
+            FlightDeckModalLayer(onDismiss: { showKillConfirmation = false }) {
+                FlightDeckDialogModal(
+                    eyebrow: "SESSION / DESTRUCTIVE ACTION",
+                    title: "Kill session?",
+                    message: "This kills the tmux session and everything running in it (\(sessionName))."
+                ) {
+                    EmptyView()
+                } actions: {
+                    Button("CANCEL") { showKillConfirmation = false }
+                        .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
+                    Button("KILL \(sessionName.uppercased())") {
+                        showKillConfirmation = false
+                        Task { await killWithCleanup() }
+                    }
+                    .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.red))
+                }
+            }
+        } else if showArchiveConfirmation {
+            FlightDeckModalLayer(onDismiss: { showArchiveConfirmation = false }) {
+                FlightDeckDialogModal(
+                    eyebrow: "SESSION / ARCHIVE",
+                    title: "Archive conversation?",
+                    message: "This saves the conversation in Archived chats and closes the live session. The repository and worktrees stay untouched."
+                ) {
+                    EmptyView()
+                } actions: {
+                    Button("CANCEL") { showArchiveConfirmation = false }
+                        .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
+                    Button("ARCHIVE \(sessionName.uppercased())") {
+                        showArchiveConfirmation = false
+                        Task { await archiveConversation() }
+                    }
+                    .buttonStyle(FlightDeckAccentButtonStyle())
+                }
             }
         }
-        #else
+    }
+    #endif
+
+    @ViewBuilder
+    private var content: some View {
         mainColumn
-        #endif
     }
 
     private var mainColumn: some View {
         VStack(spacing: 0) {
+            #if targetEnvironment(macCatalyst)
+            flightSessionHeader
+            if mode == .terminal { flightContextStrip }
+            #endif
             if mode == .terminal { connectionBanner }
+            #if !targetEnvironment(macCatalyst)
             modeBar
+            #endif
             switch mode {
             case .terminal:
                 terminalContent
@@ -166,21 +319,122 @@ struct TerminalScreen: View {
                     onShowTerminal: { mode = .terminal }
                 )
             }
-            MessageComposer(sessionName: sessionName, sessionState: sessionState, agent: agent)
+            if mode == .conversation {
+                MessageComposer(sessionName: sessionName, sessionState: sessionState, agent: agent)
+            }
         }
     }
 
     #if targetEnvironment(macCatalyst)
-    private var inspectorToggle: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) { showInspector.toggle() }
-        } label: {
-            Image(systemName: "sidebar.trailing")
+    private var flightSessionHeader: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 10) {
+                    Text(sessionName)
+                        .font(.flightSans(16, weight: .bold))
+                        .foregroundStyle(FlightDeckPalette.text)
+                        .lineLimit(1)
+                    Text(flightStateLabel)
+                        .font(.flightMono(7, weight: .semibold))
+                        .foregroundStyle(flightStateColor)
+                        .lineLimit(1)
+                }
+                Text(flightMetadata)
+                    .font(.flightMono(7))
+                    .foregroundStyle(FlightDeckPalette.muted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 0) {
+                flightModeButton("CONVERSATION", .conversation)
+                flightModeButton("TERMINAL", .terminal)
+            }
+            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+
+            sessionMenu
+                .frame(width: 30, height: 30)
+                .foregroundStyle(FlightDeckPalette.secondary)
+                .overlay(Rectangle().stroke(FlightDeckPalette.border))
         }
-        .foregroundStyle(showInspector ? Color.accentColor : Color.primary)
-        .keyboardShortcut("i", modifiers: [.command, .option])
-        .help("Toggle inspector (Changes · Plan · Checks)")
+        .padding(.horizontal, 24)
+        .frame(height: 76)
+        .background(FlightDeckPalette.surface)
+        .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
     }
+
+    private var flightContextStrip: some View {
+        HStack(spacing: 10) {
+            Text(flightStripLead)
+                .foregroundStyle(FlightDeckPalette.green)
+            Text(flightStripDetail)
+                .foregroundStyle(FlightDeckPalette.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(flightStripTrailing)
+                .foregroundStyle(FlightDeckPalette.warm)
+                .lineLimit(1)
+        }
+        .font(.flightMono(7))
+        .padding(.horizontal, 24)
+        .frame(height: 48)
+        .background(FlightDeckPalette.raised.opacity(0.72))
+        .overlay(alignment: .bottom) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
+    }
+
+    private var flightStateLabel: String {
+        switch sessionState ?? flightPresentation?.state ?? .unknown {
+        case .working: return "IN FLIGHT"
+        case .needsInput: return "AWAITING COMMAND"
+        case .idle: return "STANDING BY"
+        case .unknown: return "LIVE"
+        }
+    }
+
+    private var flightStateColor: Color {
+        switch sessionState ?? flightPresentation?.state ?? .unknown {
+        case .working, .idle: return FlightDeckPalette.green
+        case .needsInput: return FlightDeckPalette.amber
+        case .unknown: return FlightDeckPalette.warm
+        }
+    }
+
+    private var flightMetadata: String {
+        let path = flightPresentation?.panePath ?? "~"
+        let location = URL(fileURLWithPath: path).lastPathComponent.uppercased()
+        let kind = (agent ?? flightPresentation?.agent ?? .shell).displayName.uppercased()
+        return "\(location.isEmpty ? "HOME" : location) / LIVE SESSION / \(kind)"
+    }
+
+    private var flightStripLead: String {
+        let kind = agent ?? flightPresentation?.agent ?? .shell
+        return kind == .shell ? "SHELL" : flightStateLabel
+    }
+
+    private var flightStripDetail: String {
+        if let action = flightPresentation?.currentAction, !action.isEmpty { return action }
+        if let path = flightPresentation?.panePath, !path.isEmpty { return path }
+        return "Live session ready"
+    }
+
+    private var flightStripTrailing: String {
+        if let context = flightPresentation?.context { return "\(context.percent)% CONTEXT" }
+        return mode == .terminal ? "TERMINAL" : "CONVERSATION"
+    }
+
+    private func flightModeButton(_ title: String, _ target: SessionMode) -> some View {
+        Button { mode = target } label: {
+            Text(title)
+                .font(.flightMono(7, weight: mode == target ? .bold : .medium))
+                .foregroundStyle(mode == target ? FlightDeckPalette.amber : FlightDeckPalette.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(mode == target ? FlightDeckPalette.raised : FlightDeckPalette.background)
+        }
+        .buttonStyle(.plain)
+    }
+
     #endif
 
     private var modeBar: some View {
@@ -262,11 +516,13 @@ struct TerminalScreen: View {
                     systemImage: notificationsMuted ? "bell" : "bell.slash"
                 )
             }
+            #if !targetEnvironment(macCatalyst)
             Button {
                 showActivity = true
             } label: {
                 Label("View activity", systemImage: "clock.arrow.circlepath")
             }
+            #endif
             Button {
                 showSearch = true
             } label: {
@@ -274,6 +530,12 @@ struct TerminalScreen: View {
             }
             .keyboardShortcut("f", modifiers: .command)
             Divider()
+            Button {
+                showArchiveConfirmation = true
+            } label: {
+                Label(isArchiving ? "Archiving…" : "Archive chat", systemImage: "archivebox")
+            }
+            .disabled(isArchiving || agent == .shell)
             Button(role: .destructive) {
                 showKillConfirmation = true
             } label: {
@@ -312,6 +574,19 @@ struct TerminalScreen: View {
 
     private var errorPresented: Binding<Bool> {
         Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })
+    }
+
+    private func saveWorkspace() {
+        let name = workspaceName
+        let path = workspacePath
+        Task {
+            do {
+                try await api?.saveWorkspace(fromSession: sessionName, name: name, path: path)
+                toasts.show(.success, "Saved \(name)")
+            } catch {
+                actionError = error.localizedDescription
+            }
+        }
     }
 
     // Renaming invalidates everything bound to the old name (stream, API calls),
@@ -378,6 +653,19 @@ struct TerminalScreen: View {
             router.sessionDidDelete(sessionName, worktree: worktree)
         } catch {
             actionError = "Couldn't kill \(sessionName): \(error.localizedDescription)"
+        }
+    }
+
+    private func archiveConversation() async {
+        guard let api, !isArchiving else { return }
+        isArchiving = true
+        defer { isArchiving = false }
+        do {
+            _ = try await api.archiveSession(sessionName)
+            toasts.show(.success, "Archived \(sessionName)")
+            router.sessionDidDelete(sessionName)
+        } catch {
+            actionError = "Couldn't archive \(sessionName): \(error.localizedDescription)"
         }
     }
 
@@ -449,37 +737,51 @@ struct TerminalScreen: View {
 
     private var quickKeysRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                quickKey("esc", sends: "escape")
-                quickKey("tab", sends: "tab")
-                quickKey("⇧⇥", sends: "shift-tab")
+            HStack(spacing: 7) {
+                quickKey("ESC", sends: "escape")
+                quickKey("TAB", sends: "tab")
+                quickKey("^C", sends: "ctrl-c")
+                quickKey("^D", sends: "ctrl-d")
+                quickKey("⌫ BACKSPACE", sends: "backspace", accent: true)
                 quickKey("↑", sends: "up")
                 quickKey("↓", sends: "down")
-                quickKey("←", sends: "left")
-                quickKey("→", sends: "right")
-                quickKey("1", sends: "1")
-                quickKey("2", sends: "2")
-                quickKey("3", sends: "3")
-                quickKey("⏎", sends: "enter")
-                quickKey("^C", sends: "ctrl-c")
+                quickKey("COPY", sends: "copy-selection")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .frame(height: 54)
         }
+        #if targetEnvironment(macCatalyst)
+        .background(FlightDeckPalette.surface)
+        .overlay(alignment: .top) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
+        #else
         .background(.black.opacity(0.9))
+        #endif
     }
 
-    private func quickKey(_ label: String, sends key: String) -> some View {
+    private func quickKey(_ label: String, sends key: String, accent: Bool = false) -> some View {
         Button {
-            Task { try? await api?.sendKeys(sessionName, keys: [key]) }
+            if key == "copy-selection" {
+                coordinator?.copySelection()
+            } else {
+                Task { try? await api?.sendKeys(sessionName, keys: [key]) }
+            }
         } label: {
             Text(label)
+                #if targetEnvironment(macCatalyst)
+                .font(.flightMono(7))
+                .foregroundStyle(accent ? FlightDeckPalette.amber : FlightDeckPalette.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .overlay(Rectangle().stroke(accent ? FlightDeckPalette.amber.opacity(0.65) : FlightDeckPalette.border))
+                #else
                 .font(.system(.footnote, design: .monospaced).weight(.semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8))
+                #endif
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(key == "backspace" ? "Backspace" : label)
     }
 
     // claude.ai is independent of PR discovery, so fetch only that passive link
@@ -502,13 +804,19 @@ struct TerminalScreen: View {
     }
 }
 
-/// The terminal is a read-and-scroll surface, not a text input: refusing first
-/// responder means tapping it never raises the keyboard or SwiftTerm's own
-/// accessory bar. All input goes through the single message field + quick keys.
+/// The Mac terminal accepts physical-keyboard input directly. On iOS it stays
+/// read-only so tapping the transcript never competes with the dedicated input
+/// field or raises SwiftTerm's accessory keyboard.
 private final class ReadOnlyTerminalView: TerminalView {
     var onUserScroll: ((CGFloat) -> Void)?
 
-    override var canBecomeFirstResponder: Bool { false }
+    override var canBecomeFirstResponder: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
 
     // Catalyst's trackpad scroll is ultimately applied by UIScrollView as an
     // offset change. Observing that concrete effect is more reliable than a
@@ -609,17 +917,30 @@ private struct TerminalContainer: UIViewRepresentable {
             pinch.delegate = self
             view.addGestureRecognizer(pinch)
 
-            // Tapping the (read-only) terminal dismisses the message keyboard.
+            #if targetEnvironment(macCatalyst)
+            // SwiftTerm already implements UIKeyInput. Giving the Catalyst view
+            // first-responder status routes physical key events into `send`.
+            let focusTap = UITapGestureRecognizer(target: self, action: #selector(focusTerminal))
+            focusTap.delegate = self
+            focusTap.cancelsTouchesInView = false
+            view.addGestureRecognizer(focusTap)
+            #else
+            // On iOS, tapping the read-only transcript dismisses the composer.
             let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
             dismissTap.delegate = self
             dismissTap.cancelsTouchesInView = false
             view.addGestureRecognizer(dismissTap)
+            #endif
             // Connection is deferred to the first sizeChanged, so the PTY starts
             // at the real device dimensions instead of a hardcoded guess.
         }
 
         func retry() {
             stream.retry()
+        }
+
+        func copySelection() {
+            terminalView?.copy(nil)
         }
 
         func detach() {
@@ -637,6 +958,10 @@ private struct TerminalContainer: UIViewRepresentable {
 
         @objc private func dismissKeyboard() {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+
+        @objc private func focusTerminal() {
+            _ = terminalView?.becomeFirstResponder()
         }
 
         @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {

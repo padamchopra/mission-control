@@ -25,7 +25,11 @@ private struct TypingIndicator: View {
         HStack(spacing: 4) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
+                    #if targetEnvironment(macCatalyst)
+                    .fill(FlightDeckPalette.green)
+                    #else
                     .fill(Color(red: 0.42, green: 0.71, blue: 1.0))
+                    #endif
                     .frame(width: 6, height: 6)
                     .scaleEffect(animating ? 1.0 : 0.5)
                     .opacity(animating ? 1.0 : 0.35)
@@ -63,8 +67,13 @@ struct ConversationView: View {
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
+    #if targetEnvironment(macCatalyst)
+    private static let accent = FlightDeckPalette.amber
+    private static let verbColor = FlightDeckPalette.amber
+    #else
     private static let accent = Color(red: 0.04, green: 0.52, blue: 1.0)
     private static let verbColor = Color(red: 0.42, green: 0.71, blue: 1.0)
+    #endif
     private static let scrollSpace = "convScroll"
     // How far off the end still counts as "at bottom": enough that the button
     // doesn't flash while the feed settles, small enough that one scrolled-off
@@ -89,7 +98,11 @@ struct ConversationView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #if targetEnvironment(macCatalyst)
+        .background(FlightDeckPalette.background)
+        #else
         .background(Color.black)
+        #endif
         .task { await pollLoop() }
         // Every hook event — a tool starting, a turn ending — means the
         // transcript grew, so the feed follows the agent live instead of
@@ -98,6 +111,29 @@ struct ConversationView: View {
             guard push.serverURL == serverURL, push.session == sessionName else { return }
             requestRefresh()
         }
+        #if targetEnvironment(macCatalyst)
+        .overlay {
+            if confirmClear {
+                FlightDeckModalLayer(onDismiss: { confirmClear = false }) {
+                    FlightDeckDialogModal(
+                        eyebrow: "CONVERSATION / RESET CONTEXT",
+                        title: "Clear this conversation?",
+                        message: "Sends /clear. \(agent.displayName) loses the conversation's context — the transcript stays on disk, but the session starts fresh."
+                    ) {
+                        EmptyView()
+                    } actions: {
+                        Button("CANCEL") { confirmClear = false }
+                            .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
+                        Button("CLEAR \(sessionName.uppercased())") {
+                            confirmClear = false
+                            send("/clear", note: "Cleared \(sessionName)")
+                        }
+                        .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.red))
+                    }
+                }
+            }
+        }
+        #else
         .confirmationDialog("Clear this conversation?", isPresented: $confirmClear) {
             Button("Clear \(sessionName)", role: .destructive) {
                 send("/clear", note: "Cleared \(sessionName)")
@@ -105,16 +141,21 @@ struct ConversationView: View {
         } message: {
             Text("Sends /clear. \(agent.displayName) loses the conversation's context — the transcript stays on disk, but the session starts fresh.")
         }
+        #endif
     }
 
     private func feed(_ conversation: Conversation) -> some View {
         VStack(spacing: 0) {
+            #if targetEnvironment(macCatalyst)
+            flightDeckStatusBar(conversation)
+            #else
             if !conversation.todos.isEmpty {
                 planBar(conversation.todos)
             }
             if conversation.context != nil || conversation.info != nil {
                 contextBar(conversation)
             }
+            #endif
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -136,8 +177,13 @@ struct ConversationView: View {
                         }
                         Color.clear.frame(height: 1).id("BOTTOM")
                     }
+                    #if targetEnvironment(macCatalyst)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 26)
+                    #else
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
+                    #endif
                     // The content's bottom edge sits below the viewport's while
                     // anything is scrolled off, so maxY past the viewport height
                     // means the user has scrolled up.
@@ -174,9 +220,35 @@ struct ConversationView: View {
                 .overlay(alignment: .bottomTrailing) { jumpButton(proxy) }
                 .animation(.easeOut(duration: 0.2), value: isAtBottom)
             }
+            #if !targetEnvironment(macCatalyst)
             actionChips(conversation)
+            #endif
         }
     }
+
+    #if targetEnvironment(macCatalyst)
+    private func flightDeckStatusBar(_ conversation: Conversation) -> some View {
+        let done = conversation.todos.filter { $0.status == "completed" }.count
+        let current = conversation.todos.first { $0.status == "in_progress" }
+            ?? conversation.todos.first { $0.status != "completed" }
+        return HStack(spacing: 10) {
+            Text(conversation.todos.isEmpty ? "SESSION" : "PLAN \(String(format: "%02d", done))/\(String(format: "%02d", conversation.todos.count))")
+                .foregroundStyle(FlightDeckPalette.green)
+            Text(current?.content ?? conversation.action ?? conversation.info?.gitBranch ?? "Live session ready")
+                .foregroundStyle(FlightDeckPalette.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(conversation.context.map { "\($0.percent)% CONTEXT" } ?? "LIVE")
+                .foregroundStyle(FlightDeckPalette.warm)
+                .lineLimit(1)
+        }
+        .font(.flightMono(7))
+        .padding(.horizontal, 24)
+        .frame(height: 48)
+        .background(FlightDeckPalette.raised.opacity(0.72))
+        .overlay(alignment: .bottom) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
+    }
+    #endif
 
     // A row of one-tap actions so the common moves — interrupt, approve, compact
     // — don't require switching to the terminal to press a key. Everything here
@@ -192,9 +264,17 @@ struct ConversationView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
         }
+        #if targetEnvironment(macCatalyst)
+        .background(FlightDeckPalette.surface)
+        #else
         .background(Color(white: 0.05))
+        #endif
         .overlay(alignment: .top) {
+            #if targetEnvironment(macCatalyst)
+            Rectangle().fill(FlightDeckPalette.border).frame(height: 1)
+            #else
             Rectangle().fill(Color(white: 0.16)).frame(height: 0.5)
+            #endif
         }
     }
 
@@ -288,7 +368,20 @@ struct ConversationView: View {
         .disabled(acting)
     }
 
+    @ViewBuilder
     private func chipLabel(_ title: String, _ symbol: String, tint: Color?) -> some View {
+        #if targetEnvironment(macCatalyst)
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+            Text(title).font(.flightSans(10, weight: .semibold))
+        }
+        .foregroundStyle(tint ?? FlightDeckPalette.secondary)
+        .padding(.horizontal, 12)
+        .frame(height: 32)
+        .background(FlightDeckPalette.surface)
+        .overlay(Rectangle().stroke((tint ?? FlightDeckPalette.border).opacity(tint == nil ? 1 : 0.7)))
+        .opacity(acting ? 0.5 : 1)
+        #else
         HStack(spacing: 5) {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
             Text(title).font(.caption.weight(.semibold))
@@ -299,6 +392,7 @@ struct ConversationView: View {
         .background(Color(white: 0.13), in: Capsule())
         .overlay(Capsule().stroke((tint ?? Color(white: 0.3)).opacity(tint == nil ? 1 : 0.5)))
         .opacity(acting ? 0.5 : 1)
+        #endif
     }
 
     private func send(_ text: String, note: String) {
@@ -365,7 +459,21 @@ struct ConversationView: View {
         }
     }
 
+    @ViewBuilder
     private func userRow(_ text: String) -> some View {
+        #if targetEnvironment(macCatalyst)
+        HStack {
+            Spacer(minLength: 52)
+            Text(text)
+                .font(.flightSans(11))
+                .foregroundStyle(FlightDeckPalette.text)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(FlightDeckPalette.raised)
+                .overlay(Rectangle().stroke(FlightDeckPalette.amber.opacity(0.55)))
+                .textSelection(.enabled)
+        }
+        #else
         HStack {
             Spacer(minLength: 44)
             Text(text)
@@ -376,6 +484,7 @@ struct ConversationView: View {
                 .background(Self.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 .textSelection(.enabled)
         }
+        #endif
     }
 
     // The pane's question, parsed into the same card an answered one gets — and
@@ -527,9 +636,16 @@ struct ConversationView: View {
     }
 
     private func assistantRow(_ text: String) -> some View {
+        #if targetEnvironment(macCatalyst)
+        MarkdownText(text: text, color: FlightDeckPalette.text)
+            .font(.flightSans(11))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+        #else
         MarkdownText(text: text)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
+        #endif
     }
 
     // Live "Claude is processing" indicator, shown at the tail of the feed while
@@ -1029,6 +1145,28 @@ struct ConversationView: View {
     }
 
     private var unavailableState: some View {
+        #if targetEnvironment(macCatalyst)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("NO STRUCTURED TRANSCRIPT")
+                .font(.flightMono(8, weight: .bold))
+                .foregroundStyle(FlightDeckPalette.warm)
+            Text("This is a shell session. Its live terminal is the source of truth.")
+                .font(.flightSans(12))
+                .foregroundStyle(FlightDeckPalette.secondary)
+            Button { onShowTerminal() } label: {
+                Text("OPEN TERMINAL")
+                    .font(.flightMono(8, weight: .bold))
+                    .foregroundStyle(FlightDeckPalette.onAccent)
+                    .padding(.horizontal, 14)
+                    .frame(height: 36)
+                    .background(FlightDeckPalette.amber)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        #else
         VStack(spacing: 14) {
             Image(systemName: "text.bubble").font(.system(size: 34)).foregroundStyle(Color(white: 0.4))
             Text("No conversation for this session")
@@ -1050,6 +1188,7 @@ struct ConversationView: View {
         }
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #endif
     }
 
     private var errorState: some View {

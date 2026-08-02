@@ -6,6 +6,11 @@ struct PairingConfig {
     let url: String
     let token: String
 
+    init(url: String, token: String) {
+        self.url = url
+        self.token = token
+    }
+
     init?(from url: URL) {
         guard url.scheme == "missioncontrol", url.host == "configure",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,

@@ -23,8 +23,13 @@ final class InboxStore: ObservableObject {
     private var pending: Task<Void, Never>?
     private var refreshing = false
     private var refreshAgain = false
+    private var snoozedUntil: [String: TimeInterval]
+    private let snoozeKey = "inboxSnoozedUntil"
 
-    private init() {}
+    private init() {
+        snoozedUntil = UserDefaults.standard.data(forKey: snoozeKey)
+            .flatMap { try? JSONDecoder().decode([String: TimeInterval].self, from: $0) } ?? [:]
+    }
 
     var count: Int { items.count }
 
@@ -48,6 +53,13 @@ final class InboxStore: ObservableObject {
     /// for the round trip would leave a decision you've already made on screen.
     func drop(_ item: InboxItem) {
         items.removeAll { $0.id == item.id }
+    }
+
+    func snooze(serverID: String, session: String, until: Date) {
+        let id = "\(serverID)|\(session)"
+        snoozedUntil[id] = until.timeIntervalSince1970
+        items.removeAll { $0.id == id }
+        UserDefaults.standard.set(try? JSONEncoder().encode(snoozedUntil), forKey: snoozeKey)
     }
 
     /// Most pushes can't change the queue — a tool call starting says nothing
@@ -100,7 +112,12 @@ final class InboxStore: ObservableObject {
         for fetch in fetches {
             collected += await fetch.value
         }
-        items = collected.sorted { $0.waitingSince < $1.waitingSince }
+        let now = Date().timeIntervalSince1970
+        snoozedUntil = snoozedUntil.filter { $0.value > now }
+        UserDefaults.standard.set(try? JSONEncoder().encode(snoozedUntil), forKey: snoozeKey)
+        items = collected
+            .filter { snoozedUntil[$0.id] == nil }
+            .sorted { $0.waitingSince < $1.waitingSince }
         loading = false
     }
 

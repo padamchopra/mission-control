@@ -27,6 +27,12 @@ struct APIClient {
         return try JSONDecoder().decode(InboxResponse.self, from: data).items
     }
 
+    func authoredPullRequests(refresh: Bool = false) async throws -> [AuthoredPullRequest] {
+        let query = refresh ? [URLQueryItem(name: "refresh", value: "1")] : []
+        let data = try await request("GET", "pull-requests", query: query, timeout: 45)
+        return try JSONDecoder().decode(AuthoredPullRequestsResponse.self, from: data).pullRequests
+    }
+
     func sessionState(_ session: String) async throws -> SessionStateResponse {
         let data = try await request("GET", "sessions/\(session)/state")
         return try JSONDecoder().decode(SessionStateResponse.self, from: data)
@@ -209,6 +215,73 @@ struct APIClient {
         return try JSONDecoder().decode(WorkspacesResponse.self, from: data).workspaces
     }
 
+    func loops() async throws -> [MissionLoop] {
+        let data = try await request("GET", "loops")
+        return try JSONDecoder().decode(LoopsResponse.self, from: data).loops
+    }
+
+    @discardableResult
+    func createLoop(
+        name: String,
+        workspaceID: String,
+        prompt: String,
+        agent: AgentKind,
+        schedule: LoopSchedule
+    ) async throws -> MissionLoop {
+        let data = try await request(
+            "POST",
+            "loops",
+            body: loopPayload(name: name, workspaceID: workspaceID, prompt: prompt, agent: agent, schedule: schedule)
+        )
+        return try JSONDecoder().decode(LoopResponse.self, from: data).loop
+    }
+
+    @discardableResult
+    func updateLoop(
+        id: String,
+        name: String? = nil,
+        workspaceID: String? = nil,
+        prompt: String? = nil,
+        agent: AgentKind? = nil,
+        schedule: LoopSchedule? = nil,
+        enabled: Bool? = nil
+    ) async throws -> MissionLoop {
+        var body: [String: Any] = [:]
+        if let name { body["name"] = name }
+        if let workspaceID { body["workspaceId"] = workspaceID }
+        if let prompt { body["prompt"] = prompt }
+        if let agent { body["agent"] = agent.rawValue }
+        if let schedule { body["schedule"] = schedulePayload(schedule) }
+        if let enabled { body["enabled"] = enabled }
+        let data = try await request("PATCH", "loops/\(id)", body: body)
+        return try JSONDecoder().decode(LoopResponse.self, from: data).loop
+    }
+
+    func deleteLoop(id: String) async throws {
+        _ = try await request("DELETE", "loops/\(id)")
+    }
+
+    @discardableResult
+    func runLoop(id: String) async throws -> LoopRunResponse {
+        let data = try await request("POST", "loops/\(id)/run", timeout: 60)
+        return try JSONDecoder().decode(LoopRunResponse.self, from: data)
+    }
+
+    func archives() async throws -> [ArchivedChat] {
+        let data = try await request("GET", "archives")
+        return try JSONDecoder().decode(ArchivesResponse.self, from: data).archives
+    }
+
+    @discardableResult
+    func archiveSession(_ session: String) async throws -> ArchivedChat {
+        let data = try await request("POST", "sessions/\(session)/archive", timeout: 30)
+        return try JSONDecoder().decode(ArchiveResponse.self, from: data).archive
+    }
+
+    func deleteArchive(id: String) async throws {
+        _ = try await request("DELETE", "archives/\(id)")
+    }
+
     /// Per-worktree dirty state, computed on demand (kept out of the fast list).
     func worktreeDirty(workspaceID: String) async throws -> [String: Bool] {
         let data = try await request("GET", "workspaces/\(workspaceID)/dirty", timeout: 60)
@@ -260,6 +333,17 @@ struct APIClient {
     @discardableResult
     func openSessionInWorkspace(id: String) async throws -> String {
         let data = try await request("POST", "workspaces/\(id)/session", timeout: 45)
+        return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
+    }
+
+    @discardableResult
+    func openPullRequestSession(workspaceID: String, branch: String, number: Int) async throws -> String {
+        let data = try await request(
+            "POST",
+            "workspaces/\(workspaceID)/pull-request-session",
+            body: ["branch": branch, "number": number],
+            timeout: 90
+        )
         return (try? JSONDecoder().decode([String: String].self, from: data)["name"]) ?? ""
     }
 
@@ -341,6 +425,31 @@ struct APIClient {
             throw APIError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
         return data
+    }
+
+    private func loopPayload(
+        name: String,
+        workspaceID: String,
+        prompt: String,
+        agent: AgentKind,
+        schedule: LoopSchedule
+    ) -> [String: Any] {
+        [
+            "name": name,
+            "workspaceId": workspaceID,
+            "prompt": prompt,
+            "agent": agent.rawValue,
+            "schedule": schedulePayload(schedule),
+        ]
+    }
+
+    private func schedulePayload(_ schedule: LoopSchedule) -> [String: Any] {
+        var payload: [String: Any] = ["frequency": schedule.frequency.rawValue]
+        if let intervalHours = schedule.intervalHours { payload["intervalHours"] = intervalHours }
+        if let hour = schedule.hour { payload["hour"] = hour }
+        if let minute = schedule.minute { payload["minute"] = minute }
+        if let weekday = schedule.weekday { payload["weekday"] = weekday }
+        return payload
     }
 }
 

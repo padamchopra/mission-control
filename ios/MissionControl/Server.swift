@@ -89,6 +89,15 @@ final class ServerStore: ObservableObject {
         persist()
     }
 
+    func update(_ id: String, name: String, url: String, token: String) {
+        guard let index = servers.firstIndex(where: { $0.id == id }) else { return }
+        servers[index].name = name
+        servers[index].url = url
+        servers[index].token = token
+        persist()
+        syncActive()
+    }
+
     private func persist() {
         let defaults = UserDefaults.standard
         defaults.set(try? JSONEncoder().encode(servers), forKey: serversKey)

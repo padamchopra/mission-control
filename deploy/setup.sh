@@ -23,7 +23,7 @@ for candidate in /Applications/Tailscale.app/Contents/MacOS/Tailscale "$HOME/App
 done
 [ -n "$TAILSCALE" ] || { echo "Tailscale not found — install it and sign in first."; exit 1; }
 
-if ! command -v qrencode >/dev/null; then
+if [ "${MISSION_CONTROL_SKIP_QR:-0}" != "1" ] && ! command -v qrencode >/dev/null; then
   echo "==> Installing qrencode (for pairing QR)"
   brew install qrencode
 fi
@@ -157,7 +157,9 @@ Pair the app: open Settings → "Scan pairing QR" and scan this:
 ============================================================
 SUMMARY
 
-qrencode -t ANSIUTF8 -m 2 "$PAIR_LINK"
+if [ "${MISSION_CONTROL_SKIP_QR:-0}" != "1" ]; then
+  qrencode -t ANSIUTF8 -m 2 "$PAIR_LINK"
+fi
 
 cat <<SUMMARY
 ============================================================

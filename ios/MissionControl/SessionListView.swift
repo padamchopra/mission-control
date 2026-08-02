@@ -52,7 +52,7 @@ struct SessionListView: View {
     private var layeredBody: some View {
         Group {
             #if targetEnvironment(macCatalyst)
-            desktopNavigation
+            FlightDeckView()
             #else
             NavigationStack(path: $path) { chromeLayer }
             #endif
@@ -108,6 +108,7 @@ struct SessionListView: View {
         .onChange(of: path) { _, newPath in
             recordNavigation(newPath)
         }
+        #if !targetEnvironment(macCatalyst)
         .sheet(isPresented: $router.isCommandPalettePresented) {
             SessionCommandPalette(
                 sessions: sessions,
@@ -121,10 +122,12 @@ struct SessionListView: View {
                 }
             )
         }
+        #endif
         .overlay(alignment: .bottomTrailing) {
             ToastOverlay()
                 .padding(20)
         }
+        #if !targetEnvironment(macCatalyst)
         .sheet(item: $activityTarget) { session in
             SessionActivitySheet(sessionName: session.name, serverURL: serverURL, token: serverToken)
         }
@@ -154,13 +157,18 @@ struct SessionListView: View {
         .sheet(isPresented: $router.isInboxPresented) {
             DecisionInboxView()
         }
+        #endif
     }
 
+    @ViewBuilder
     var body: some View {
         // Dialogs live here (not inside layeredBody) both to keep each modifier
         // chain within the type-checker's budget and so the session
         // context-menu actions work on the Mac split view too — its detail
         // column never mounted the old iPhone-only dialogs layer.
+        #if targetEnvironment(macCatalyst)
+        layeredBody
+        #else
         layeredBody
             .confirmationDialog(
                 "Kill session?",
@@ -221,6 +229,7 @@ struct SessionListView: View {
             } message: { info in
                 Text(cleanupMessage(info))
             }
+        #endif
     }
 
     #if targetEnvironment(macCatalyst)
@@ -265,7 +274,6 @@ struct SessionListView: View {
                 .accessibilityAddTraits(.isHeader)
                 .allowsHitTesting(false)
         }
-        .sheet(isPresented: $showServers) { ServersView() }
     }
 
     private func toggleDesktopSidebar() {
@@ -465,9 +473,11 @@ struct SessionListView: View {
             .navigationDestination(for: String.self) { name in
                 TerminalScreen(sessionName: name)
             }
+            #if !targetEnvironment(macCatalyst)
             .sheet(isPresented: $showServers) {
                 ServersView()
             }
+            #endif
     }
 
     private var killPresented: Binding<Bool> {

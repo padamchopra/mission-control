@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { config } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
+import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, pushSession, pushSessionList } from "./notify.js";
@@ -17,6 +18,8 @@ import {
   worktreeInfo,
 } from "./git.js";
 import { buildInbox } from "./inbox.js";
+import { listAuthoredPullRequests } from "./pull-requests.js";
+import { createLoop, deleteLoop, listLoops, runLoop, startLoopScheduler, updateLoop } from "./loops.js";
 import { highlightedIndex, parsePanePrompt } from "./prompt.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
@@ -29,6 +32,7 @@ import {
   closeWorkspaceWorktree,
   createTaskSession,
   listWorkspaces,
+  openPullRequestSession,
   openSessionInWorkspace,
   removeWorkspace,
   worktreeDirtyMap,
@@ -192,6 +196,12 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { items: await buildInbox() });
     }
 
+    if (req.method === "GET" && url.pathname === "/pull-requests") {
+      return json(res, 200, {
+        pullRequests: await listAuthoredPullRequests(url.searchParams.get("refresh") === "1"),
+      });
+    }
+
     if (req.method === "GET" && url.pathname === "/sessions") {
       const sessions = await listSessions();
       return json(res, 200, {
@@ -244,6 +254,54 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/workspaces" && req.method === "GET") {
       return json(res, 200, { workspaces: await listWorkspaces() });
     }
+
+    if (url.pathname === "/loops" && req.method === "GET") {
+      return json(res, 200, { loops: listLoops() });
+    }
+
+    if (url.pathname === "/archives" && req.method === "GET") {
+      return json(res, 200, { archives: listArchivedChats() });
+    }
+    if (parts[0] === "archives" && parts[1] && req.method === "DELETE") {
+      try {
+        deleteArchivedChat(decodeURIComponent(parts[1]));
+        return json(res, 200, { ok: true });
+      } catch (error) {
+        return json(res, 404, { error: (error as Error).message || "archived chat not found" });
+      }
+    }
+    if (url.pathname === "/loops" && req.method === "POST") {
+      try {
+        return json(res, 200, { loop: await createLoop(await readJson(req)) });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not create loop" });
+      }
+    }
+    if (parts[0] === "loops" && parts[1]) {
+      const id = decodeURIComponent(parts[1]);
+      if (req.method === "PATCH" && parts.length === 2) {
+        try {
+          return json(res, 200, { loop: await updateLoop(id, await readJson(req)) });
+        } catch (error) {
+          return json(res, 400, { error: (error as Error).message || "could not update loop" });
+        }
+      }
+      if (req.method === "DELETE" && parts.length === 2) {
+        try {
+          deleteLoop(id);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "loop not found" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "run") {
+        try {
+          return json(res, 200, await runLoop(id, pushSessionList));
+        } catch (error) {
+          return json(res, 409, { error: (error as Error).message || "could not run loop" });
+        }
+      }
+    }
     if (url.pathname === "/workspaces" && req.method === "POST") {
       const body = await readJson(req);
       try {
@@ -262,6 +320,16 @@ const server = createServer(async (req, res) => {
         const name = await openSessionInWorkspace(id);
         pushSessionList();
         return json(res, 200, { name });
+      }
+      if (req.method === "POST" && parts[2] === "pull-request-session") {
+        const body = await readJson(req);
+        try {
+          const name = await openPullRequestSession(id, String(body.branch ?? ""), Number(body.number));
+          pushSessionList();
+          return json(res, 200, { name });
+        } catch (error) {
+          return json(res, 409, { error: (error as Error).message || "could not open pull request shell" });
+        }
       }
       if (req.method === "GET" && parts[2] === "dirty") {
         return json(res, 200, { dirty: await worktreeDirtyMap(id) });
@@ -341,6 +409,25 @@ const server = createServer(async (req, res) => {
           }
         }
         return json(res, 200, conversation);
+      }
+      if (req.method === "POST" && parts[2] === "archive") {
+        const entry = registry.view(name);
+        const path = entry?.transcriptPath ?? resolveTranscriptPath(entry?.cwd, entry?.claudeSessionId);
+        const conversation = readConversation(path, 400);
+        if (!conversation.available) {
+          return json(res, 409, { error: "this session has no conversation to archive" });
+        }
+        conversation.agent = entry?.agent ?? conversation.agent ?? "claude";
+        const archive = archiveChat({
+          session: name,
+          agent: entry?.agent ?? conversation.agent ?? "claude",
+          cwd: entry?.cwd ?? null,
+          conversation,
+        });
+        await killSession(name);
+        registry.remove(name);
+        pushSessionList();
+        return json(res, 200, { archive });
       }
       // The live hook state on its own, so a screen that needs only this (the
       // composer, deciding whether a message will queue) doesn't pull the whole
@@ -546,3 +633,4 @@ server.on("upgrade", (req, socket, head) => {
 server.listen(config.port, "127.0.0.1", () => {
   console.log(`mission-control server listening on 127.0.0.1:${config.port}`);
 });
+startLoopScheduler(pushSessionList);

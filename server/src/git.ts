@@ -6,6 +6,15 @@ import { run as exec } from "./run.js";
 export interface SessionLinks {
   claudeUrl: string | null;
   prUrl: string | null;
+  pullRequest: PullRequestSummary | null;
+}
+
+export interface PullRequestSummary {
+  url: string;
+  number: number;
+  title: string;
+  headRefName: string;
+  state: string;
 }
 
 export async function resolveLinks(
@@ -14,9 +23,13 @@ export async function resolveLinks(
   refreshPr = false,
   includePullRequest = true,
 ): Promise<SessionLinks> {
+  const pullRequest = includePullRequest ? await prForCwd(cwd, refreshPr) : null;
   return {
     claudeUrl: claudeWebUrl(claudeSessionId),
-    prUrl: includePullRequest ? await prForCwd(cwd, refreshPr) : null,
+    // Keep prUrl for older clients while newer Flight Deck builds use the
+    // structured summary to render the inspector row.
+    prUrl: pullRequest?.url ?? null,
+    pullRequest,
   };
 }
 
@@ -48,21 +61,34 @@ function claudeWebUrl(localSessionId: string | undefined): string | null {
 // the link, so cache per directory to bound the API rate regardless of how
 // many screens are open or how fast they refresh.
 const PR_CACHE_TTL_MS = 60_000;
-const prCache = new Map<string, { url: string | null; at: number }>();
+const prCache = new Map<string, { pullRequest: PullRequestSummary | null; at: number }>();
 
-async function prForCwd(cwd: string | undefined, refresh = false): Promise<string | null> {
+async function prForCwd(cwd: string | undefined, refresh = false): Promise<PullRequestSummary | null> {
   if (!cwd) return null;
   const cached = prCache.get(cwd);
-  if (!refresh && cached && Date.now() - cached.at < PR_CACHE_TTL_MS) return cached.url;
-  const url = await fetchPrUrl(cwd);
-  prCache.set(cwd, { url, at: Date.now() });
-  return url;
+  if (!refresh && cached && Date.now() - cached.at < PR_CACHE_TTL_MS) return cached.pullRequest;
+  const pullRequest = await fetchPullRequest(cwd);
+  prCache.set(cwd, { pullRequest, at: Date.now() });
+  return pullRequest;
 }
 
-async function fetchPrUrl(cwd: string): Promise<string | null> {
+async function fetchPullRequest(cwd: string): Promise<PullRequestSummary | null> {
   try {
-    const { stdout } = await exec("gh", ["pr", "view", "--json", "url", "-q", ".url"], { cwd });
-    return stdout.trim() || null;
+    const { stdout } = await exec(
+      "gh",
+      ["pr", "view", "--json", "url,number,title,headRefName,state"],
+      { cwd },
+    );
+    const parsed = JSON.parse(stdout || "{}");
+    const url = String(parsed.url ?? "").trim();
+    if (!url) return null;
+    return {
+      url,
+      number: Number(parsed.number) || Number(url.split("/").pop()) || 0,
+      title: String(parsed.title ?? "").trim() || "Open pull request",
+      headRefName: String(parsed.headRefName ?? "").trim(),
+      state: String(parsed.state ?? "OPEN").trim().toUpperCase(),
+    };
   } catch (err) {
     // "No PR for this branch" is the normal case; anything else (gh missing,
     // not authenticated) would otherwise fail invisibly — surface it in the log.
@@ -77,6 +103,7 @@ async function fetchPrUrl(cwd: string): Promise<string | null> {
 export interface CheckRun {
   name: string;
   state: string; // pass | fail | pending | skipping | cancel | ...
+  durationSeconds?: number;
 }
 
 export interface ChecksResult {
@@ -102,16 +129,28 @@ function parseChecks(raw: string): CheckRun[] {
   const parsed = JSON.parse(raw || "[]");
   if (!Array.isArray(parsed)) return [];
   return parsed
-    .map((c: any) => ({
-      name: String(c.name ?? c.workflow ?? "").trim(),
-      state: String(c.bucket ?? c.state ?? "").toLowerCase(),
-    }))
+    .map((c: any) => {
+      const startedAt = Date.parse(String(c.startedAt ?? ""));
+      const completedAt = Date.parse(String(c.completedAt ?? ""));
+      const durationSeconds = Number.isFinite(startedAt) && Number.isFinite(completedAt)
+        ? Math.max(0, Math.round((completedAt - startedAt) / 1000))
+        : undefined;
+      return {
+        name: String(c.name ?? c.workflow ?? "").trim(),
+        state: String(c.bucket ?? c.state ?? "").toLowerCase(),
+        ...(durationSeconds == null ? {} : { durationSeconds }),
+      };
+    })
     .filter((c) => c.name.length > 0);
 }
 
 async function fetchChecks(cwd: string): Promise<ChecksResult> {
   try {
-    const { stdout } = await exec("gh", ["pr", "checks", "--json", "name,state,bucket,workflow"], { cwd });
+    const { stdout } = await exec(
+      "gh",
+      ["pr", "checks", "--json", "name,state,bucket,workflow,startedAt,completedAt"],
+      { cwd },
+    );
     return { available: true, checks: parseChecks(stdout.trim()) };
   } catch (err) {
     // `gh pr checks` exits non-zero when any check is failing or pending, yet

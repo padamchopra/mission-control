@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { configDir } from "./config.js";
 import { run as exec } from "./run.js";
 import { agentCommand, type AgentKind } from "./agent.js";
@@ -292,6 +292,86 @@ export async function openSessionInWorkspace(id: string): Promise<string> {
   return name;
 }
 
+async function managedWorktreePath(workspacePath: string, branch: string): Promise<string> {
+  const { stdout } = await exec("git", ["-C", workspacePath, "rev-parse", "--git-path", "info/exclude"], { cwd: homedir() });
+  const rawExcludePath = stdout.trim();
+  const excludePath = isAbsolute(rawExcludePath) ? rawExcludePath : resolve(workspacePath, rawExcludePath);
+  const ignoreRule = "/.claude/worktrees/";
+  const existing = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
+  if (!existing.split("\n").some((line) => line.trim() === ignoreRule)) {
+    const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+    writeFileSync(excludePath, `${existing}${separator}${ignoreRule}\n`);
+  }
+
+  const path = join(workspacePath, ".claude", "worktrees", branch);
+  mkdirSync(dirname(path), { recursive: true });
+  return path;
+}
+
+export function isLegacyManagedWorktreePath(workspacePath: string, worktreePath: string): boolean {
+  const legacyRoot = join(dirname(workspacePath), `${basename(workspacePath)}-worktrees`);
+  const pathFromLegacyRoot = relative(legacyRoot, worktreePath);
+  return pathFromLegacyRoot.length > 0 && !pathFromLegacyRoot.startsWith("..") && !isAbsolute(pathFromLegacyRoot);
+}
+
+// Opens a PR-aware shell. Reuse the branch's linked worktree when it already
+// exists; otherwise materialize the exact GitHub PR head into a new worktree
+// before starting tmux. The primary checkout is never repurposed or switched.
+export async function openPullRequestSession(id: string, branchValue: string, pullRequestNumber: number): Promise<string> {
+  const workspace = await workspaceByID(id);
+  const branch = branchValue.trim();
+  if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0) throw new Error("invalid pull request number");
+  if (!branch) throw new Error("pull request branch is required");
+  await exec("git", ["check-ref-format", "--branch", branch], { cwd: homedir() });
+
+  let path = workspace.worktrees.find((worktree) => worktree.branch === branch)?.path;
+  if (path && isLegacyManagedWorktreePath(workspace.path, path)) {
+    const legacyPath = path;
+    const destination = await managedWorktreePath(workspace.path, branch);
+    if (existsSync(destination)) throw new Error(`managed worktree path already exists: ${destination}`);
+    await exec(
+      "git",
+      ["-C", workspace.path, "worktree", "move", legacyPath, destination],
+      { cwd: homedir(), timeout: 60_000 },
+    );
+    path = destination;
+    invalidateWorkspacesCache();
+  }
+  if (!path) {
+    path = await managedWorktreePath(workspace.path, branch);
+    if (existsSync(path)) throw new Error(`managed worktree path already exists: ${path}`);
+
+    let hasLocalBranch = true;
+    try {
+      await exec("git", ["-C", workspace.path, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: homedir() });
+    } catch {
+      hasLocalBranch = false;
+    }
+
+    if (hasLocalBranch) {
+      await exec("git", ["-C", workspace.path, "worktree", "add", path, branch], { cwd: homedir(), timeout: 60_000 });
+    } else {
+      const pullRef = `refs/remotes/mission-control/pr-${pullRequestNumber}`;
+      await exec(
+        "git",
+        ["-C", workspace.path, "fetch", "origin", `pull/${pullRequestNumber}/head:${pullRef}`],
+        { cwd: homedir(), timeout: 60_000 },
+      );
+      await exec(
+        "git",
+        ["-C", workspace.path, "worktree", "add", "-b", branch, path, pullRef],
+        { cwd: homedir(), timeout: 60_000 },
+      );
+    }
+    invalidateWorkspacesCache();
+  }
+
+  const name = `pr-${pullRequestNumber}-${randomUUID().slice(0, 4)}`;
+  assertValidName(name);
+  await newShellSession({ name, path, agent: "shell" });
+  return name;
+}
+
 // Starts a whole new task: a fresh branch + linked worktree + tmux session with
 // the selected agent, and the task delivered as its first message. The agent is
 // a fixed executable; the prompt is delivered through injection-safe bracketed
@@ -311,9 +391,8 @@ export async function createTaskSession(id: string, prompt: string, agent: Exclu
       .replace(/-+$/g, "") || "task";
   const suffix = randomUUID().slice(0, 4);
   const branch = `mc/${slug}-${suffix}`;
-  const worktreeParent = join(dirname(workspace.path), `${basename(workspace.path)}-worktrees`);
-  const worktreePath = join(worktreeParent, `${slug}-${suffix}`);
-  mkdirSync(worktreeParent, { recursive: true });
+  const worktreePath = await managedWorktreePath(workspace.path, branch);
+  if (existsSync(worktreePath)) throw new Error(`managed worktree path already exists: ${worktreePath}`);
   await exec("git", ["-C", workspace.path, "worktree", "add", "-b", branch, worktreePath]);
   invalidateWorkspacesCache();
 

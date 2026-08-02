@@ -4,6 +4,7 @@ struct TerminalSearchSheet: View {
     let sessionName: String
     let serverURL: String
     let token: String
+    var onClose: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -43,11 +44,15 @@ struct TerminalSearchSheet: View {
             .searchable(text: $query, prompt: "Search latest output")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { close() }
                 }
             }
         }
         .task { await load() }
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
     }
 
     private func load() async {
@@ -61,6 +66,7 @@ struct SessionActivitySheet: View {
     let sessionName: String
     let serverURL: String
     let token: String
+    var onClose: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var activity: [SessionActivity] = []
@@ -94,11 +100,15 @@ struct SessionActivitySheet: View {
             .navigationTitle("Session Activity")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { close() }
                 }
             }
         }
         .task { await load() }
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
     }
 
     private func load() async {

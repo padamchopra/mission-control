@@ -5,6 +5,7 @@ import SwiftUI
 struct PullRequestSheet: View {
     let sessionName: String
     let api: APIClient?
+    var onClose: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -31,9 +32,13 @@ struct PullRequestSheet: View {
             }
             .navigationTitle("Pull request")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { close() } } }
             .task { await refresh() }
         }
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
     }
 
     private func prSection(url: String) -> some View {
