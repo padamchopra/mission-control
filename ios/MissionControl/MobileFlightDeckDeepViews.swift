@@ -130,8 +130,8 @@ struct MobileWorkspaceDetailView: View {
                     dismiss()
                 }
             )
-            .presentationDetents([.height(392)])
-            .presentationDragIndicator(.visible)
+            .presentationDetents([.height(350)])
+            .presentationDragIndicator(.hidden)
             .presentationCornerRadius(24)
             .presentationBackground(MobileFlightDeckPalette.surface)
         }
@@ -304,6 +304,10 @@ private struct MobileWorktreeActionsSheet: View {
 
     var body: some View {
         VStack(spacing: 9) {
+            Capsule()
+                .fill(MobileFlightDeckPalette.strongBorder)
+                .frame(width: 38, height: 5)
+
             VStack(alignment: .leading, spacing: 5) {
                 Text(worktree.branch ?? "Linked worktree")
                     .font(.mobileDeckSans(19, weight: .bold))
@@ -330,7 +334,9 @@ private struct MobileWorktreeActionsSheet: View {
             actionButton("Cancel", primary: false, color: MobileFlightDeckPalette.text) { dismiss() }
         }
         .padding(.horizontal, 18)
-        .padding(.bottom, 14)
+        .padding(.top, 9)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(MobileFlightDeckPalette.text)
         .background(MobileFlightDeckPalette.surface)
         .confirmationDialog("Discard changes and remove?", isPresented: $confirmForceRemoval) {
@@ -751,7 +757,8 @@ struct MobileLoopDetailView: View {
         .sheet(isPresented: $showRuns) {
             MobileLoopRunsSheet(loop: current)
                 .presentationDetents([.height(320)])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(24)
                 .presentationBackground(MobileFlightDeckPalette.surface)
         }
         .confirmationDialog("Delete loop?", isPresented: $confirmDelete) {
@@ -872,6 +879,11 @@ private struct MobileLoopRunsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            Capsule()
+                .fill(MobileFlightDeckPalette.strongBorder)
+                .frame(width: 38, height: 5)
+                .frame(maxWidth: .infinity)
+
             HStack {
                 Text("Run history")
                     .font(.mobileDeckSans(20, weight: .bold))
@@ -906,7 +918,9 @@ private struct MobileLoopRunsSheet: View {
             .mobileDeckCard(radius: 12)
             Spacer()
         }
-        .padding(18)
+        .padding(.horizontal, 18)
+        .padding(.top, 9)
+        .padding(.bottom, 18)
         .foregroundStyle(MobileFlightDeckPalette.text)
         .background(MobileFlightDeckPalette.surface)
     }

@@ -8,6 +8,7 @@ enum MobileFlightDeckPalette {
     static let terminal = Color(red: 5 / 255, green: 7 / 255, blue: 6 / 255)
     static let border = Color(red: 52 / 255, green: 59 / 255, blue: 64 / 255)
     static let strongBorder = Color(red: 76 / 255, green: 86 / 255, blue: 91 / 255)
+    static let accentBorder = Color(red: 90 / 255, green: 74 / 255, blue: 40 / 255)
     static let text = Color(red: 243 / 255, green: 239 / 255, blue: 228 / 255)
     static let secondary = Color(red: 143 / 255, green: 152 / 255, blue: 147 / 255)
     static let muted = Color(red: 96 / 255, green: 106 / 255, blue: 101 / 255)
@@ -79,6 +80,11 @@ struct MobileFlightDeckView: View {
         return APIClient(urlString: server.url, token: server.token)
     }
 
+    private var deviceSelectorHeight: CGFloat {
+        let visibleDevices = min(servers.servers.count, 3)
+        return 211 + CGFloat(visibleDevices) * 59
+    }
+
     private var needsInputSessions: [TmuxSession] {
         sessions.filter { $0.resolvedState == .needsInput }
     }
@@ -96,6 +102,7 @@ struct MobileFlightDeckView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             tabBar
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .foregroundStyle(MobileFlightDeckPalette.text)
         .background(MobileFlightDeckPalette.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
@@ -128,9 +135,9 @@ struct MobileFlightDeckView: View {
                     showDeviceDoctor = true
                 }
             )
-            .presentationDetents([.height(442)])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(22)
+            .presentationDetents([.height(420)])
+            .presentationDragIndicator(.hidden)
+            .presentationCornerRadius(24)
             .presentationBackground(MobileFlightDeckPalette.surface)
         }
         .sheet(isPresented: $showDeviceSelector) {
@@ -138,9 +145,9 @@ struct MobileFlightDeckView: View {
                 showDeviceSelector = false
                 onShowConnections()
             })
-            .presentationDetents([.height(423)])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(22)
+            .presentationDetents([.height(deviceSelectorHeight)])
+            .presentationDragIndicator(.hidden)
+            .presentationCornerRadius(24)
             .presentationBackground(MobileFlightDeckPalette.surface)
         }
         .fullScreenCover(isPresented: $showPullRequests) {
@@ -171,7 +178,9 @@ struct MobileFlightDeckView: View {
                 },
                 onOpenDoctor: {
                     showConnections = false
-                    showDeviceDoctor = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        showDeviceDoctor = true
+                    }
                 },
                 onClose: { showConnections = false }
             )
@@ -532,20 +541,23 @@ struct MobileFlightDeckView: View {
         HStack(spacing: 0) {
             ForEach(MobileDeckTab.allCases) { tab in
                 Button { selectedTab = tab } label: {
-                    VStack(spacing: 5) {
+                    VStack(spacing: 3) {
                         Image(systemName: tab.icon)
-                            .font(.mobileDeckSans(16, weight: .medium))
+                            .font(.mobileDeckSans(15, weight: .medium))
                         Text(tab.title)
-                            .font(.mobileDeckSans(11))
+                            .font(.mobileDeckSans(10, weight: selectedTab == tab ? .semibold : .medium))
                     }
                     .foregroundStyle(selectedTab == tab ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.top, 2)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 8)
+        .padding(.top, 7)
+        .padding(.bottom, 20)
+        .frame(height: 78)
         .background(MobileFlightDeckPalette.surface)
         .overlay(alignment: .top) { Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1) }
     }
@@ -620,9 +632,15 @@ private struct MobileDeviceSelector: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Capsule()
+                .fill(MobileFlightDeckPalette.strongBorder)
+                .frame(width: 38, height: 5)
+                .padding(.top, 9)
+                .padding(.bottom, 7)
+
             HStack {
                 Text("Device view")
-                    .font(.mobileDeckSans(21, weight: .bold))
+                    .font(.mobileDeckSans(20, weight: .bold))
                 Spacer()
                 Button("Done") { dismiss() }
                     .font(.mobileDeckSans(13, weight: .semibold))
@@ -635,7 +653,7 @@ private struct MobileDeviceSelector: View {
                     servers.activeID = servers.servers.first?.id
                     dismiss()
                 }
-                Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1)
+                deviceDivider
                 ForEach(servers.servers) { server in
                     deviceRow(
                         title: server.name,
@@ -646,30 +664,36 @@ private struct MobileDeviceSelector: View {
                         dismiss()
                     }
                     if server.id != servers.servers.last?.id {
-                        Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1)
+                        deviceDivider
                     }
                 }
             }
-            .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(MobileFlightDeckPalette.border))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
 
             Button(action: onAddConnection) {
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: "plus")
                     Text("Add connection")
-                    Spacer()
                 }
                 .font(.mobileDeckSans(14, weight: .semibold))
                 .foregroundStyle(MobileFlightDeckPalette.amber)
-                .padding(.horizontal, 14)
-                .frame(height: 48)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(MobileFlightDeckPalette.accentBorder))
             }
             .buttonStyle(.plain)
+            .padding(.top, 12)
         }
         .padding(.horizontal, 18)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(MobileFlightDeckPalette.text)
         .background(MobileFlightDeckPalette.surface)
+    }
+
+    private var deviceDivider: some View {
+        Rectangle()
+            .fill(MobileFlightDeckPalette.border)
+            .frame(height: 1)
+            .padding(.leading, 34)
     }
 
     private func deviceRow(title: String, subtitle: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -695,6 +719,7 @@ private struct MobileDeviceSelector: View {
             }
             .padding(.horizontal, 13)
             .frame(height: 58)
+            .background(selected ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 14))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1040,15 +1065,22 @@ private struct MobileCommandMenu: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(MobileFlightDeckPalette.strongBorder)
+                .frame(width: 38, height: 5)
+                .padding(.top, 9)
+                .padding(.bottom, 7)
+
             HStack {
                 Text("Mission Control")
-                    .font(.mobileDeckSans(21, weight: .bold))
+                    .font(.mobileDeckSans(20, weight: .bold))
                 Spacer()
                 Button("Done") { dismiss() }
                     .font(.mobileDeckSans(13, weight: .semibold))
                     .foregroundStyle(MobileFlightDeckPalette.amber)
             }
+            .frame(height: 52)
 
             VStack(spacing: 0) {
                 menuRow("magnifyingglass", "Quick open", action: onQuickOpen)
@@ -1071,9 +1103,11 @@ private struct MobileCommandMenu: View {
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 12))
                 .buttonStyle(.plain)
+                .padding(.top, 12)
         }
         .padding(.horizontal, 18)
-        .padding(.top, 4)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(MobileFlightDeckPalette.text)
         .background(MobileFlightDeckPalette.surface)
     }
