@@ -33,9 +33,8 @@ export function agentCommand(agent: AgentKind): string | undefined {
 }
 
 export function inferAgent(paneCommand: string, recorded?: AgentKind): AgentKind {
-  if (recorded) return recorded;
   const command = paneCommand.toLowerCase();
   if (command.includes("codex")) return "codex";
   if (command.includes("claude")) return "claude";
-  return "shell";
+  return recorded ?? "shell";
 }

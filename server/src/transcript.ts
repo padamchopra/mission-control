@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentKind } from "./agent.js";
@@ -139,6 +139,25 @@ export function resolveTranscriptPath(cwd?: string, sessionId?: string): string 
   const encoded = cwd.replace(/[/.]/g, "-");
   const path = join(homedir(), ".claude", "projects", encoded, `${sessionId}.jsonl`);
   return existsSync(path) ? path : undefined;
+}
+
+export function discoverClaudeTranscript(cwd?: string): { path: string; sessionId: string } | undefined {
+  if (!cwd) return undefined;
+  const encoded = cwd.replace(/[/.]/g, "-");
+  const directory = join(homedir(), ".claude", "projects", encoded);
+  try {
+    const latest = readdirSync(directory)
+      .filter((file) => file.endsWith(".jsonl"))
+      .map((file) => {
+        const path = join(directory, file);
+        return { path, file, modifiedAt: statSync(path).mtimeMs };
+      })
+      .sort((a, b) => b.modifiedAt - a.modifiedAt)[0];
+    if (!latest) return undefined;
+    return { path: latest.path, sessionId: latest.file.slice(0, -".jsonl".length) };
+  } catch {
+    return undefined;
+  }
 }
 
 export function readConversation(path: string | undefined, limit = 120): Conversation {

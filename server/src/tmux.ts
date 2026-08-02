@@ -30,7 +30,50 @@ const LIST_FORMAT = [
   "#{session_attached}",
   "#{pane_current_command}",
   "#{pane_current_path}",
+  "#{pane_pid}",
 ].join(FIELD_SEP);
+
+export function descendantCommandsForRoots(processList: string, roots: number[]): Map<number, string[]> {
+  const children = new Map<number, Array<{ pid: number; command: string }>>();
+  for (const line of processList.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const parent = Number(match[2]);
+    const command = match[3];
+    const entries = children.get(parent) ?? [];
+    entries.push({ pid, command });
+    children.set(parent, entries);
+  }
+
+  const result = new Map<number, string[]>();
+  for (const root of roots) {
+    const commands: string[] = [];
+    const pending = [root];
+    const visited = new Set<number>();
+    while (pending.length > 0) {
+      const parent = pending.pop()!;
+      if (visited.has(parent)) continue;
+      visited.add(parent);
+      for (const child of children.get(parent) ?? []) {
+        commands.push(child.command);
+        pending.push(child.pid);
+      }
+    }
+    result.set(root, commands);
+  }
+  return result;
+}
+
+async function paneDescendantCommands(roots: number[]): Promise<Map<number, string[]>> {
+  if (roots.length === 0) return new Map();
+  try {
+    const { stdout } = await exec("ps", ["-axo", "pid=,ppid=,comm="]);
+    return descendantCommandsForRoots(stdout, roots);
+  } catch {
+    return new Map();
+  }
+}
 
 export async function listSessions(): Promise<TmuxSession[]> {
   let stdout: string;
@@ -39,21 +82,28 @@ export async function listSessions(): Promise<TmuxSession[]> {
   } catch {
     return []; // no tmux server running
   }
-  const seen = new Map<string, TmuxSession>();
+  const panes = new Map<string, TmuxSession & { panePid: number }>();
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue;
-    const [name, created, activity, attached, paneCommand, panePath] = line.split(FIELD_SEP);
-    if (!name || seen.has(name)) continue;
-    seen.set(name, {
+    const [name, created, activity, attached, paneCommand, panePath, panePid] = line.split(FIELD_SEP);
+    if (!name || panes.has(name)) continue;
+    panes.set(name, {
       name,
       createdAt: Number(created),
       lastOutputAt: Number(activity),
       attachedClients: Number(attached),
       paneCommand: paneCommand ?? "",
       panePath: panePath ?? "",
+      panePid: Number(panePid),
     });
   }
-  return [...seen.values()].sort((a, b) => b.lastOutputAt - a.lastOutputAt);
+  const descendants = await paneDescendantCommands([...panes.values()].map((pane) => pane.panePid));
+  return [...panes.values()]
+    .map(({ panePid, ...pane }) => ({
+      ...pane,
+      paneCommand: [pane.paneCommand, ...(descendants.get(panePid) ?? [])].join(" "),
+    }))
+    .sort((a, b) => b.lastOutputAt - a.lastOutputAt);
 }
 
 // Bracketed paste so newlines in the text never submit early; Enter is sent

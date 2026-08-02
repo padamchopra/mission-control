@@ -25,7 +25,7 @@ import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { attachStream } from "./stream.js";
-import { readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
+import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
 import {
   addWorkspace,
   closeAllWorkspaceWorktrees,
@@ -206,8 +206,21 @@ const server = createServer(async (req, res) => {
       const sessions = await listSessions();
       return json(res, 200, {
         sessions: await Promise.all(sessions.map(async (s) => {
-          const entry = registry.view(s.name);
+          let entry = registry.view(s.name);
           const agent = inferAgent(s.paneCommand, entry?.agent);
+          if (agent !== entry?.agent || (agent === "claude" && !entry?.transcriptPath)) {
+            const discovered = agent === "claude" ? discoverClaudeTranscript(s.panePath) : undefined;
+            registry.update(s.name, {
+              agent,
+              cwd: s.panePath,
+              ...(discovered ? {
+                transcriptPath: discovered.path,
+                claudeSessionId: discovered.sessionId,
+                agentSessionId: discovered.sessionId,
+              } : {}),
+            });
+            entry = registry.view(s.name);
+          }
           return {
             ...s,
             ...(entry ?? { state: "unknown" }),
