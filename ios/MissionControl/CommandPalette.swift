@@ -385,8 +385,6 @@ private struct MCPaletteField: UIViewRepresentable {
             for: .editingChanged
         )
         field.bind(onMoveUp: onMoveUp, onMoveDown: onMoveDown, onCancel: onCancel)
-        // The palette exists to be typed into; focus it on the frame it appears.
-        DispatchQueue.main.async { field.becomeFirstResponder() }
         return field
     }
 
@@ -421,6 +419,16 @@ final class PaletteTextField: UITextField {
         self.onMoveUp = onMoveUp
         self.onMoveDown = onMoveDown
         self.onCancel = onCancel
+    }
+
+    /// Focus here rather than from `makeUIView`. A view has no window at the
+    /// point SwiftUI builds it, and `becomeFirstResponder()` fails outright off
+    /// the window — which is why the palette could open unfocused, leaving
+    /// nowhere for keystrokes to land.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, !isFirstResponder else { return }
+        becomeFirstResponder()
     }
 
     override var keyCommands: [UIKeyCommand]? {
