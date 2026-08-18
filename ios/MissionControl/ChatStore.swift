@@ -16,6 +16,9 @@ final class ChatStore: ObservableObject {
     @Published private(set) var details: [String: ChatDetail] = [:]
     @Published private(set) var loadError: String?
     @Published private(set) var hasLoaded = false
+    /// Set when the server itself cannot store chats, so the tab explains that
+    /// rather than showing an empty list as though nothing had been started.
+    @Published private(set) var unavailableReason: String?
 
     private var serverID: String?
     private var cancellables: Set<AnyCancellable> = []
@@ -58,8 +61,10 @@ final class ChatStore: ObservableObject {
             return
         }
         do {
-            let fetched = try await api.chats()
+            let response = try await api.chats()
+            let fetched = response.chats
             chats = fetched
+            unavailableReason = response.unavailable
             loadError = nil
             // Drop details for chats that no longer exist, so a deleted chat
             // can't be reopened from a stale cache.

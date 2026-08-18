@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
@@ -13,7 +13,17 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { agentCommand } from "./agent.js";
-import { config, configDir } from "./config.js";
+import {
+  assertChatStorage,
+  chatStorageError,
+  deleteEntries,
+  loadChats,
+  removeChat,
+  saveChat,
+  saveEntry,
+  trimEntries,
+} from "./chat-storage.js";
+import { config } from "./config.js";
 import { broadcast, sendNotification } from "./notify.js";
 import {
   applyAnswers,
@@ -72,9 +82,10 @@ export interface ChatQuestionRequest {
   questions: ConvQuestion[];
 }
 
-/// What survives a server restart. The live query, its pending approvals, and
-/// the streaming block cursors are all runtime-only: a restart resumes the
-/// Claude session by id and starts a fresh process.
+/// What survives a server restart, held in SQLite (see chat-storage.ts). The
+/// live query, its pending approvals, and the streaming block cursors are all
+/// runtime-only: a restart resumes the Claude session by id and starts a fresh
+/// process.
 interface ChatRecord {
   id: string;
   title: string;
@@ -119,9 +130,8 @@ export interface ChatDetail extends ChatSummary {
   question?: ChatQuestionRequest;
 }
 
-const chatDir = join(configDir, "chats");
-// The feed a client renders. Older turns stay on disk in Claude's own
-// transcript; this is the window Mission Control keeps hot.
+// The feed a client renders. Older turns stay in Claude's own transcript; this
+// is the window Mission Control keeps.
 const MAX_ENTRIES = 500;
 // A chat with no live turn drops its Claude process after this, and resumes by
 // session id on the next message. Long-lived chats would otherwise pin one
@@ -776,9 +786,11 @@ class Chat {
   private append(entry: ConvEntry, options: { defer?: boolean } = {}): void {
     this.record.entries.push(entry);
     this.byId.set(entry.id, entry);
+    if (!this.deleted) saveEntry(this.record.id, entry);
     if (this.record.entries.length > MAX_ENTRIES) {
       const dropped = this.record.entries.splice(0, this.record.entries.length - MAX_ENTRIES);
       for (const old of dropped) this.byId.delete(old.id);
+      if (!this.deleted) trimEntries(this.record.id, MAX_ENTRIES);
     }
     this.record.updatedAt = nowMs();
     this.markDirty(entry.id);
@@ -791,6 +803,7 @@ class Chat {
     this.record.entries.splice(index, 1);
     this.byId.delete(id);
     this.dirtyEntries.delete(id);
+    if (!this.deleted) deleteEntries(this.record.id, [id]);
     // Carries the scalar state too, so a client can always tell "cleared" from
     // "unchanged" by whether a push mentions state at all.
     broadcast({ type: "chat", chatId: this.record.id, removed: [id], ...this.stateFields() });
@@ -813,10 +826,10 @@ class Chat {
     const entries = [...this.dirtyEntries].map((id) => this.byId.get(id)).filter((e): e is ConvEntry => !!e);
     this.dirtyEntries.clear();
     if (entries.length === 0 || this.deleted) return;
+    for (const entry of entries) saveEntry(this.record.id, entry);
     broadcast({ type: "chat", chatId: this.record.id, entries, ...this.stateFields() });
-    // A turn can run for many minutes. Checkpoint it occasionally so a restart
-    // mid-turn loses seconds of feed rather than the whole thing — Claude's own
-    // transcript keeps the conversation either way, but the feed is ours.
+    // The feed is durable as it streams now, so this only keeps the chat row's
+    // own columns — updatedAt, usage, the live action — roughly current.
     if (nowMs() - this.lastPersist > 5_000) this.persist();
   }
 
@@ -845,7 +858,7 @@ class Chat {
   persist(): void {
     if (this.deleted) return;
     this.lastPersist = nowMs();
-    saveRecord(this.record);
+    saveChat(this.record);
   }
 
   /// Called once the chat is gone from the store. A turn already in flight keeps
@@ -870,34 +883,15 @@ function sessionAllowRules(tool: string): PermissionUpdate[] {
 
 const chats = new Map<string, Chat>();
 
-function chatFile(id: string): string {
-  return join(chatDir, `${id}.json`);
+for (const stored of loadChats(MAX_ENTRIES)) {
+  chats.set(stored.id, new Chat({ ...stored, permissionMode: permissionMode(stored.permissionMode) }));
 }
 
-function saveRecord(record: ChatRecord): void {
-  mkdirSync(chatDir, { recursive: true });
-  writeFileSync(chatFile(record.id), JSON.stringify(record, null, 2) + "\n");
+/// Why chats cannot be used on this server, if they can't. Surfaced by the API
+/// so the app explains itself instead of showing an empty list.
+export function chatsUnavailable(): string | undefined {
+  return chatStorageError();
 }
-
-function load(): void {
-  if (!existsSync(chatDir)) return;
-  for (const name of readdirSync(chatDir)) {
-    if (!name.endsWith(".json")) continue;
-    try {
-      const record = JSON.parse(readFileSync(join(chatDir, name), "utf8")) as ChatRecord;
-      if (!record?.id) continue;
-      record.entries ??= [];
-      record.todos ??= [];
-      record.turns ??= 0;
-      record.permissionMode = permissionMode(record.permissionMode);
-      chats.set(record.id, new Chat(record));
-    } catch {
-      // A corrupt chat file is skipped rather than taking the server down.
-    }
-  }
-}
-
-load();
 
 export function listChats(): ChatSummary[] {
   return [...chats.values()].map((chat) => chat.summary()).sort((a, b) => b.updatedAt - a.updatedAt);
@@ -913,6 +907,8 @@ export function createChat(input: {
   model?: string;
   permissionMode?: unknown;
 }): ChatSummary {
+  // Refuse loudly rather than running a conversation this server cannot keep.
+  assertChatStorage();
   const cwd = input.cwd.trim();
   if (!cwd || !existsSync(cwd)) throw new Error("that directory does not exist on this Mac");
   // Fail here rather than on the first message, so a Mac without Claude Code
@@ -987,7 +983,7 @@ export function deleteChat(id: string): void {
   chat.stop();
   chat.markDeleted();
   chats.delete(id);
-  rmSync(chatFile(id), { force: true });
+  removeChat(id);
   broadcast({ type: "chats" });
 }
 

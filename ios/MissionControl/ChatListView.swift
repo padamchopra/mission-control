@@ -27,6 +27,8 @@ struct ChatListView: View {
 
                 if servers.active == nil {
                     notice("No connection", "Add a device before starting a chat.")
+                } else if let reason = store.unavailableReason {
+                    notice("Chats aren't available on this Mac", reason)
                 } else if let error = store.loadError, store.chats.isEmpty {
                     notice("Couldn't load chats", error)
                 } else if store.chats.isEmpty, store.hasLoaded {
@@ -140,7 +142,7 @@ struct ChatListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(servers.active == nil)
+        .disabled(servers.active == nil || store.unavailableReason != nil)
         .padding(.top, 4)
     }
 
