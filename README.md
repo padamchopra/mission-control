@@ -47,6 +47,14 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   These have no tmux session behind them: the server holds the Claude process,
   keeps the feed, streams each turn to every connected client, and parks tool
   approvals and `AskUserQuestion` prompts until someone answers them.
+- **`server/src/chat-storage.ts`** — chats in SQLite (`~/.mission-control/chats.db`),
+  via Node's built-in `node:sqlite`, so it costs no dependency and nothing at
+  install time. A chat is one row plus one row per feed entry, which means a
+  streaming turn appends instead of rewriting its own history, and the chat list
+  is a single query. Everything else in the server keeps its state in JSON, which
+  is right for a handful of sessions and wrong for conversations that grow. The
+  conversation's real home is still Claude's own transcript — this is the
+  rendered view, and the session id that resumes it.
 - **`server/hooks/mc-hook.sh`** — shared Claude Code and Codex lifecycle hooks
   that report each session's state to the server. Every configured agent session
   running inside tmux reports automatically. Each event is pushed straight on to
@@ -147,7 +155,9 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 
 ## Prerequisites
 
-- A Mac that stays on, with [Homebrew](https://brew.sh), Node 20+, `tmux`, `git`,
+- A Mac that stays on, with [Homebrew](https://brew.sh), Node 22.5+ (for
+  `node:sqlite`, which chats are stored in — everything else works on Node 20),
+  `tmux`, `git`,
   and the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — for the
   "view PR" action).
 - Claude Code and/or Codex CLI installed for whichever agents you want to run.

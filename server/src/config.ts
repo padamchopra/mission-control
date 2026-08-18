@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 
 export interface Config {
@@ -18,7 +18,12 @@ export interface Config {
   contextLimit: number;
 }
 
-export const configDir = join(homedir(), ".mission-control");
+// A test and diagnostic hook: point the whole server's state at another
+// directory instead of the real one. Unset in normal operation, including under
+// launchd, so this is the home directory in every real deployment.
+export const configDir = process.env.MC_CONFIG_DIR
+  ? resolve(process.env.MC_CONFIG_DIR)
+  : join(homedir(), ".mission-control");
 const configFile = join(configDir, "config.json");
 
 function load(): Config {

@@ -678,6 +678,9 @@ struct ChatSummary: Decodable, Identifiable, Hashable {
 
 struct ChatsResponse: Decodable {
     let chats: [ChatSummary]
+    /// Why this server can't run chats, when it can't — an older Node without
+    /// `node:sqlite`, or a database it failed to open. Absent when all is well.
+    var unavailable: String?
 }
 
 struct ChatResponse: Decodable {

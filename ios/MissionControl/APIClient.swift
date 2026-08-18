@@ -89,10 +89,11 @@ struct APIClient {
 
     // MARK: - Chats
 
-    /// Every chat on this server, newest activity first.
-    func chats() async throws -> [ChatSummary] {
+    /// Every chat on this server, newest activity first. The envelope also
+    /// carries why chats are unusable, when they are.
+    func chats() async throws -> ChatsResponse {
         let data = try await request("GET", "chats", timeout: 20)
-        return try JSONDecoder().decode(ChatsResponse.self, from: data).chats
+        return try JSONDecoder().decode(ChatsResponse.self, from: data)
     }
 
     func chat(_ id: String) async throws -> ChatDetail {

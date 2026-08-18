@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
 import {
+  chatsUnavailable,
   createChat,
   deleteChat,
   getChat,
@@ -258,7 +259,10 @@ const server = createServer(async (req, res) => {
     // the Agent SDK, so unlike a tmux session there is no terminal to fall back
     // to and every interaction — messages, approvals, questions — lands here.
     if (req.method === "GET" && url.pathname === "/chats") {
-      return json(res, 200, { chats: listChats() });
+      // `unavailable` explains an empty list on a server that cannot store
+      // chats — an older Node, or a database it could not open.
+      const unavailable = chatsUnavailable();
+      return json(res, 200, { chats: listChats(), ...(unavailable ? { unavailable } : {}) });
     }
     if (req.method === "POST" && url.pathname === "/chats") {
       const body = await readJson(req);
