@@ -151,15 +151,38 @@ enum MCSpace {
 
 // MARK: - Typography
 
-/// One type scale, in real points, on the system font.
+/// T3 Code's type ladder, in points.
 ///
-/// The Mac chrome previously asked for `.custom("Inter", …)` and
-/// `.custom("Geist Mono", …)` — neither was bundled or declared in
-/// `UIAppFonts`, so both silently fell back to San Francisco while a
-/// size-remapping table inflated every request (an 11pt label rendered at
-/// 17pt). This drops the indirection: 13pt body matches macOS, and `.mono`
-/// asks for SF Mono the supported way, via `.monospaced`.
+/// T3 sets the document root to 16px (`DEFAULT_INTERFACE_FONT_SIZE`), so its rem
+/// utilities land on 12 / 14 / 16 / 18 / 20 / 24 / 30, and it fills in 10, 11 and
+/// 13 with arbitrary values for dense metadata. On macOS a CSS pixel and a
+/// SwiftUI point are both one logical pixel, so those numbers transfer directly.
+///
+/// The family is the system font, which is what T3 uses too — its
+/// `--font-sans` is `-apple-system, BlinkMacSystemFont, …` and its `--font-mono`
+/// is `"SF Mono", …`. It bundles no UI font, so matching it means asking for SF
+/// properly rather than naming a font that isn't there. The Mac chrome used to
+/// ask for `.custom("Inter", …)` and `.custom("Geist Mono", …)`; neither is
+/// bundled and `UIAppFonts` is not declared, so both fell back to SF anyway.
 enum MCFont {
+    /// The rungs T3 actually uses. Legacy sizes snap to these so the app cannot
+    /// drift back to fourteen different sizes.
+    static let ladder: [CGFloat] = [10, 11, 12, 13, 14, 16, 18, 20, 24, 30]
+
+    /// Nearest rung, ties resolving downward to keep dense UI dense.
+    static func snap(_ size: CGFloat) -> CGFloat {
+        var best = ladder[0]
+        var bestDelta = CGFloat.greatestFiniteMagnitude
+        for rung in ladder {
+            let delta = abs(rung - size)
+            if delta < bestDelta - 0.0001 {
+                bestDelta = delta
+                best = rung
+            }
+        }
+        return best
+    }
+
     /// The system font at `size`, scaled for the current Dynamic Type setting.
     ///
     /// Scaling matters because these tokens are used by the feed rows the phone
@@ -184,89 +207,99 @@ enum MCFont {
     /// a large accessibility setting doesn't flatten the hierarchy.
     private static func anchor(for size: CGFloat) -> UIFont.TextStyle {
         if size < 12 { return .caption1 }
-        if size < 15 { return .body }
+        if size < 16 { return .body }
         if size < 20 { return .title3 }
         return .title1
     }
 
-    // The steps. Computed rather than stored so each one re-reads the current
-    // Dynamic Type setting instead of freezing whatever it was at launch.
+    // The steps, mapped onto T3's rungs. Computed rather than stored so each one
+    // re-reads the current Dynamic Type setting instead of freezing it at launch.
 
-    /// Timestamps, counts, badge text.
+    /// Dense metadata — device codes, counts, gutter numbers. T3's `text-[10px]`.
     static var micro: Font { sans(10, .medium) }
-    /// Metadata under a title.
+    /// Timestamps and badge text. T3's `text-[11px]`.
     static var caption: Font { sans(11) }
     static var captionStrong: Font { sans(11, .medium) }
-    /// Secondary rows, chips, toolbar labels.
+    /// Secondary rows, chips, toolbar labels. T3's `text-xs` — its workhorse.
     static var footnote: Font { sans(12) }
     static var footnoteStrong: Font { sans(12, .medium) }
-    /// Default body and control label — macOS's own base size.
-    static var body: Font { sans(13) }
-    static var bodyStrong: Font { sans(13, .medium) }
-    /// Row titles.
-    static var callout: Font { sans(14) }
-    static var calloutStrong: Font { sans(14, .semibold) }
+    /// Default body and control label. T3's `text-sm`: its chat prose and the
+    /// label on every button at the desktop breakpoint.
+    static var body: Font { sans(14) }
+    static var bodyStrong: Font { sans(14, .medium) }
+    /// Row titles and anything that should read one step up from body.
+    static var callout: Font { sans(16) }
+    static var calloutStrong: Font { sans(16, .semibold) }
     /// Section headings.
-    static var headline: Font { sans(15, .semibold) }
-    static var title3: Font { sans(17, .semibold) }
-    static var title2: Font { sans(20, .semibold) }
-    static var title1: Font { sans(24, .bold) }
-    static var display: Font { sans(28, .bold) }
+    static var headline: Font { sans(18, .semibold) }
+    static var title3: Font { sans(20, .semibold) }
+    static var title2: Font { sans(24, .semibold) }
+    static var title1: Font { sans(30, .bold) }
+    static var display: Font { sans(30, .bold) }
 
-    /// Paths, commands, diffs.
+    /// Paths, commands, diffs. SF Mono, the family T3 names first.
     static var monoMicro: Font { mono(10) }
     static var monoCaption: Font { mono(11) }
     static var monoBody: Font { mono(12) }
-    static var monoCode: Font { mono(12.5) }
+    static var monoCode: Font { mono(13) }
 
     /// The all-caps group header above a list section.
-    static var sectionLabel: Font { sans(10, .semibold) }
+    static var sectionLabel: Font { sans(11, .semibold) }
 }
 
 // MARK: - Control metrics
 
 /// Control heights and their matching padding, font, and glyph size, so a
 /// button, a field, and a chip on the same row line up without hand-tuning.
+///
+/// These are T3's desktop values. Its button variants are written
+/// mobile-first — `h-9 … sm:h-8`, `text-base sm:text-sm` — so the numbers that
+/// apply on a desktop window are the `sm:` ones: 24 / 28 / 32 / 36 / 40, with
+/// `px-[calc(--spacing(n)-1px)]` horizontal padding and 16pt glyphs.
 enum MCControlSize {
     case xs, sm, md, lg, xl
 
+    /// T3: `size-7 sm:size-6`, `h-8 sm:h-7`, `h-9 sm:h-8`, `h-10 sm:h-9`,
+    /// `h-11 sm:h-10`.
     var height: CGFloat {
         switch self {
-        case .xs: return 22
-        case .sm: return 26
-        case .md: return 30
-        case .lg: return 34
+        case .xs: return 24
+        case .sm: return 28
+        case .md: return 32
+        case .lg: return 36
         case .xl: return 40
         }
     }
 
+    /// The `-1px` in T3's padding accounts for the border, which is drawn inside
+    /// the frame here too.
     var horizontalPadding: CGFloat {
         switch self {
-        case .xs: return 6
-        case .sm: return 8
-        case .md: return 10
-        case .lg: return 12
-        case .xl: return 16
+        case .xs: return 7
+        case .sm: return 9
+        case .md: return 11
+        case .lg: return 13
+        case .xl: return 15
         }
     }
 
     var font: Font {
         switch self {
-        case .xs: return MCFont.captionStrong
-        case .sm: return MCFont.footnoteStrong
-        case .md: return MCFont.bodyStrong
-        case .lg: return MCFont.bodyStrong
+        case .xs, .sm: return MCFont.footnoteStrong
+        case .md, .lg: return MCFont.bodyStrong
         case .xl: return MCFont.calloutStrong
         }
     }
 
+    /// T3's `[&_svg]:size-4.5 sm:size-4` — 16pt on desktop, 14 for the compact
+    /// sizes.
     var iconSize: CGFloat {
         switch self {
-        case .xs: return 10
-        case .sm: return 11
-        case .md: return 12.5
-        case .lg: return 14
-        case .xl: return 16
+        case .xs: return 14
+        case .sm: return 14
+        case .md: return 16
+        case .lg: return 16
+        case .xl: return 18
         }
     }
 
@@ -278,12 +311,12 @@ enum MCControlSize {
         }
     }
 
-    /// Gap between a glyph and its label.
+    /// Gap between a glyph and its label. T3's `gap-1` / `gap-1.5` / `gap-2`.
     var gap: CGFloat {
         switch self {
-        case .xs, .sm: return 4
-        case .md, .lg: return 6
-        case .xl: return 8
+        case .xs: return 4
+        case .sm: return 6
+        case .md, .lg, .xl: return 8
         }
     }
 }
@@ -305,22 +338,25 @@ enum MCMotion {
 
 extension View {
     /// A floating surface: palette, menu, dialog.
+    ///
+    /// Clips before drawing the border, because the content inside these panels
+    /// paints its own square backgrounds — a dialog's action bar, the command
+    /// palette's footer — and without a clip those corners overpaint the rounded
+    /// ones and the panel reads as a rectangle with a hairline arc on it.
     func mcFloating(radius: CGFloat = MCRadius.xl) -> some View {
-        background(MCColor.popover, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(MCColor.border, lineWidth: 1)
-            )
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return background(MCColor.popover)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(MCColor.border, lineWidth: 1))
             .shadow(color: .black.opacity(0.28), radius: 24, y: 12)
     }
 
     /// An inline panel that lifts one step off the canvas.
     func mcCard(radius: CGFloat = MCRadius.lg, fill: Color = MCColor.card) -> some View {
-        background(fill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(MCColor.border, lineWidth: 1)
-            )
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return background(fill)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(MCColor.border, lineWidth: 1))
     }
 
     /// A hairline in the token colour, for use as a row or header separator.

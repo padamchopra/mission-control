@@ -46,30 +46,54 @@ enum FlightDeckPalette {
 typealias MobileFlightDeckPalette = FlightDeckPalette
 
 extension Font {
-    /// The old Mac type ramp, now resolving to real point sizes.
+    /// The old Mac and mobile type ramps, re-pointed at T3's ladder.
     ///
-    /// It used to remap every request through a table that inflated small sizes
-    /// — `flightSans(11)` rendered at 17pt — to compensate for asking for
-    /// `.custom("Inter", …)`, a font that was never bundled and never declared
-    /// in `UIAppFonts`, so it silently fell back to San Francisco anyway. The
-    /// mobile twins (`mobileDeckSans`/`mobileDeckMono`) had no such table, which
-    /// is why a shared view rendered at different sizes on Mac and iPhone.
+    /// Two things had to be true at once here, and the obvious approach fails
+    /// both.
     ///
-    /// Sizes now pass through, floored so nothing lands below the smallest
-    /// legible step in `MCFont`.
+    /// First, these functions never rendered the size they were handed. The Mac
+    /// ramp ran every request through a table that *inflated* it —
+    ///
+    ///     case ...9: 15    case ...10: 16    case ...11: 17
+    ///     case ...12: 18   default: size * 1.25
+    ///
+    /// — to compensate for asking for `.custom("Inter", …)`, a font that is not
+    /// bundled and not declared in `UIAppFonts`, so it fell back to San
+    /// Francisco anyway. `flightSans(11)` drew at 17pt. So passing the requested
+    /// number straight through shrinks all 219 legacy call sites by about a
+    /// third, which is far too much: the frames around them are still sized for
+    /// the old text, and small text in tall containers is what "weird" looks
+    /// like.
+    ///
+    /// Second, that table was not monotonic. `flightSans(12)` resolved to 18pt
+    /// while `flightSans(13)` resolved to 16.25pt, so asking for a larger size
+    /// returned a smaller font. Reproducing the old sizes exactly would carry
+    /// that inversion forward.
+    ///
+    /// So neither the requested size nor the old rendered size is the right
+    /// answer. Each request is scaled by a fixed factor and snapped to
+    /// `MCFont.ladder`: monotonic by construction, close to T3's density, and
+    /// without the collapse. The factors are the ratio between the old ramps'
+    /// intent and T3's steps — 1.2 for sans, 1.25 for mono, which is denser than
+    /// the old inflation and slightly larger than a raw pass-through.
+    ///
+    /// New code should call `MCFont` directly. This shim exists to be deleted a
+    /// file at a time.
     static func flightSans(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        MCFont.sans(max(size, 10), weight)
+        MCFont.sans(MCFont.snap(size * 1.2), weight)
     }
 
     static func flightMono(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        MCFont.mono(max(size, 10.5), weight)
+        MCFont.mono(MCFont.snap(size * 1.25), weight)
     }
 
+    /// The mobile ramp asked for honest sizes — it had no inflation table — so it
+    /// only needs snapping onto the ladder.
     static func mobileDeckSans(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        flightSans(size, weight: weight)
+        MCFont.sans(MCFont.snap(size), weight)
     }
 
     static func mobileDeckMono(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        flightMono(size, weight: weight)
+        MCFont.mono(MCFont.snap(size), weight)
     }
 }
