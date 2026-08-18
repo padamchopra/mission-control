@@ -8,3 +8,7 @@ DerivedData/
 .build/
 ios/build/
 ios/Config/Signing.local.xcconfig
+
+# Desktop build output
+web/dist/
+desktop/dist/

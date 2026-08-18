@@ -1,0 +1,19 @@
+{
+  "name": "mission-control-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron": "^38.0.0",
+    "typescript": "^5.7.0"
+  },
+  "allowScripts": {
+    "electron@38.8.6": true
+  }
+}
