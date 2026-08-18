@@ -10,10 +10,14 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
     "electron": "^38.0.0",
     "typescript": "^5.7.0"
   },
   "allowScripts": {
     "electron@38.8.6": true
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
   }
 }

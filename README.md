@@ -91,7 +91,14 @@ npm run dev             # Electron, pointed at the dev server
 ```
 
 `VITE_MC_FIXTURE=1 npm run dev:web` fills the window with sample data, which is
-how the layout gets reviewed without a Mac attached.
+how the layout gets reviewed without a Mac attached. To run against a real
+server in a plain browser, set `MC_SERVER_URL` and `MC_TOKEN` — Vite proxies
+`/api` and injects the bearer header, so the token never reaches the page.
+
+```sh
+npm run shots        # render the window and its interactions to /tmp/mc-shots
+npm run live-check   # start a tmux session; assert the window picks it up
+```
 
 ## Features
 

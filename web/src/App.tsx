@@ -20,9 +20,9 @@ import { Kbd } from "~/components/ui/kbd";
 import { SectionLabel } from "~/components/ui/section-label";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import { Palette } from "~/components/Palette";
-import { fixtureChats, fixtureServers, fixtureSessions } from "~/state/fixture";
-import type { Chat, Server, Session, SessionState } from "~/state/types";
-import { cn } from "~/lib/utils";
+import { useStore } from "~/state/store";
+import type { SessionState } from "~/state/types";
+import { cn, displayPath } from "~/lib/utils";
 
 type Section = "inbox" | "command" | "chats" | "workspaces" | "prs" | "loops";
 
@@ -49,8 +49,6 @@ const STATE_LABEL: Record<SessionState, string> = {
   unknown: "Unknown",
 };
 
-const useFixture = import.meta.env.VITE_MC_FIXTURE === "1";
-
 export function App() {
   const [section, setSection] = useState<Section>("command");
   const [scope, setScope] = useState<string | null>(null);
@@ -58,9 +56,15 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
 
-  const servers: Server[] = useFixture ? fixtureServers : [];
-  const allSessions: Session[] = useFixture ? fixtureSessions : [];
-  const chats: Chat[] = useFixture ? fixtureChats : [];
+  const servers = useStore((s) => s.servers);
+  const allSessions = useStore((s) => s.sessions);
+  const chats = useStore((s) => s.chats);
+  const loading = useStore((s) => s.loading);
+  const error = useStore((s) => s.error);
+  const start = useStore((s) => s.start);
+
+  // Opens the connection and holds it for the life of the app.
+  useEffect(() => start(), [start]);
 
   const sessions = useMemo(
     () => (scope ? allSessions.filter((s) => s.serverId === scope) : allSessions),
@@ -211,7 +215,7 @@ export function App() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] text-foreground">{session.name}</span>
                       <span className="block truncate text-[11px] text-muted-foreground">
-                        {session.agent} · {session.workspace}
+                        {[session.agent, session.workspace].filter(Boolean).join(" · ")}
                       </span>
                     </span>
                   </button>
@@ -245,7 +249,7 @@ export function App() {
           </div>
 
           {sessions.length === 0 ? (
-            <EmptyState />
+            <EmptyState loading={loading} error={error} hasServers={servers.length > 0} />
           ) : (
             <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
               <div className="flex flex-col gap-2">
@@ -261,9 +265,11 @@ export function App() {
                     <div className="flex items-center gap-2.5">
                       <StateDot state={session.state} />
                       <h2 className="truncate text-sm font-medium">{session.name}</h2>
-                      <Badge tone={STATE_TONE[session.state]}>{STATE_LABEL[session.state]}</Badge>
+                      {session.state !== "idle" && session.state !== "unknown" && (
+                        <Badge tone={STATE_TONE[session.state]}>{STATE_LABEL[session.state]}</Badge>
+                      )}
                       <span className="ml-auto truncate font-mono text-[11px] text-muted-foreground">
-                        {session.path}
+                        {displayPath(session.path)}
                       </span>
                     </div>
                     {session.preview && (
@@ -358,22 +364,49 @@ function SidebarUtility({
   );
 }
 
-function EmptyState() {
+/// Four different nothings, and saying which one it is matters: an app still
+/// loading, an app that cannot reach the server, an app with no server
+/// configured, and a server that genuinely has no agents running.
+function EmptyState({
+  loading,
+  error,
+  hasServers,
+}: {
+  loading: boolean;
+  error?: string;
+  hasServers: boolean;
+}) {
+  const { title, detail, action } = loading
+    ? { title: "Connecting…", detail: "Asking your Macs what they are running.", action: false }
+    : error
+      ? { title: "Can't reach the server", detail: error, action: false }
+      : hasServers
+        ? {
+            title: "No agents running",
+            detail: "Launch a shell on a connected Mac and it shows up here.",
+            action: false,
+          }
+        : {
+            title: "No Macs connected",
+            detail: "Pair a Mac running the Mission Control server to see its agents.",
+            action: true,
+          };
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
       <span className="flex size-13 items-center justify-center rounded-full bg-muted">
         <Bot className="size-6 text-muted-foreground" strokeWidth={1.5} />
       </span>
-      <div className="max-w-[300px] space-y-1.5">
-        <h2 className="text-[15px] font-semibold">No agents running</h2>
-        <p className="text-[13px] text-muted-foreground">
-          Connect a Mac and launch a shell, and the agents running on it show up here.
-        </p>
+      <div className="max-w-[340px] space-y-1.5">
+        <h2 className="text-[15px] font-semibold">{title}</h2>
+        <p className="text-[13px] break-words text-muted-foreground">{detail}</p>
       </div>
-      <Button variant="primary" size="md">
-        Add a connection
-        <ArrowUpRight />
-      </Button>
+      {action && (
+        <Button variant="primary" size="md">
+          Add a connection
+          <ArrowUpRight />
+        </Button>
+      )}
     </div>
   );
 }

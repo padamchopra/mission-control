@@ -11,6 +11,7 @@
     "build": "npm --prefix web run build && npm --prefix desktop run build",
     "typecheck": "npm --prefix web run typecheck && npm --prefix desktop run typecheck",
     "test": "npm --prefix server test",
-    "shots": "npm --prefix web run shots"
+    "shots": "npm --prefix web run shots",
+    "live-check": "npm --prefix web run live-check"
   }
 }

@@ -8,19 +8,16 @@
 //
 // Uses Playwright's already-cached Chromium; nothing is downloaded.
 import { chromium } from "playwright-core";
+import { chromiumPath } from "./chromium.mjs";
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
-const EXECUTABLE = join(
-  homedir(),
-  "Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-);
+
 const URL = process.env.MC_URL ?? "http://127.0.0.1:5173";
 const OUT = process.env.MC_OUT ?? "/tmp/mc-shots";
 mkdirSync(OUT, { recursive: true });
 
-const browser = await chromium.launch({ executablePath: EXECUTABLE });
+const browser = await chromium.launch({ executablePath: chromiumPath() });
 const page = await browser.newPage({
   viewport: { width: 1440, height: 900 },
   deviceScaleFactor: 2,

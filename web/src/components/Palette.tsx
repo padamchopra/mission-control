@@ -10,7 +10,7 @@ import {
 import { Badge } from "~/components/ui/badge";
 import { Kbd } from "~/components/ui/kbd";
 import type { Chat, Session } from "~/state/types";
-import { cn } from "~/lib/utils";
+import { cn, displayPath } from "~/lib/utils";
 
 /// Everything addressable, behind ⌘K.
 ///
@@ -79,7 +79,7 @@ export function Palette({
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{chat.title}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{chat.preview ?? chat.cwd}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{chat.preview ?? displayPath(chat.cwd)}</span>
                 </span>
                 {chat.state === "needs_input" && <Badge tone="warning">Needs you</Badge>}
               </CommandItem>
@@ -119,7 +119,7 @@ export function Palette({
 
 function SessionRow({ session, onSelect }: { session: Session; onSelect: () => void }) {
   return (
-    <CommandItem value={`${session.name} ${session.path} ${session.command}`} onSelect={onSelect}>
+    <CommandItem value={`${session.name} ${displayPath(session.path)} ${session.command}`} onSelect={onSelect}>
       <Terminal
         className={cn(
           "size-4 shrink-0",
@@ -131,7 +131,7 @@ function SessionRow({ session, onSelect }: { session: Session; onSelect: () => v
       <span className="min-w-0 flex-1">
         <span className="block truncate">{session.name}</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {session.preview ?? session.path}
+          {session.preview ?? displayPath(session.path)}
         </span>
       </span>
       {session.state === "needs_input" && <Badge tone="warning">Needs you</Badge>}
