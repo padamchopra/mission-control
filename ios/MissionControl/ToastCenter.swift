@@ -57,9 +57,9 @@ struct ToastOverlay: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                         .stroke(item.kind.color.opacity(0.35), lineWidth: 1)
                 }
                 .shadow(color: .black.opacity(0.2), radius: 12, y: 5)

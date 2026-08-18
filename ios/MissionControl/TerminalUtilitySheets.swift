@@ -87,11 +87,11 @@ struct SessionActivitySheet: View {
                                 Spacer()
                                 Text(item.date.formatted(.relative(presentation: .named)))
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(MCColor.mutedForeground)
                             }
                             Text(item.message)
                                 .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(MCColor.mutedForeground)
                         }
                         .padding(.vertical, 3)
                     }

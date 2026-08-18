@@ -103,22 +103,22 @@ struct WorkspaceRepositorySheet: View {
                 if let origin = workspace.origin, !origin.isEmpty {
                     Text(origin)
                         .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MCColor.mutedForeground)
                         .textSelection(.enabled)
                 }
                 Text("Primary checkout")
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                 Text(workspace.path)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .textSelection(.enabled)
                 Text("\(linkedWorktrees.count) linked \(linkedWorktrees.count == 1 ? "worktree" : "worktrees")")
                     .font(.subheadline)
                 if checkingChanges {
                     Label("Checking for changes…", systemImage: "arrow.triangle.2.circlepath")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MCColor.mutedForeground)
                 }
             }
             .padding(.vertical, 5)
@@ -145,7 +145,7 @@ struct WorkspaceRepositorySheet: View {
                     if worktree.dirty {
                         Text("Changes")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MCColor.warningForeground)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(.orange.opacity(0.15), in: Capsule())
@@ -153,17 +153,17 @@ struct WorkspaceRepositorySheet: View {
                 }
                 Text(worktree.path)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .lineLimit(2)
                 let sessionCount = sessionsIn(worktree).count
                 if sessionCount > 0 {
                     Label("\(sessionCount) active \(sessionCount == 1 ? "session" : "sessions")", systemImage: "terminal")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MCColor.mutedForeground)
                 } else if !worktree.isMain && !worktree.dirty {
                     Label("Safe to reclaim", systemImage: "sparkles")
                         .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(MCColor.successForeground)
                 }
             }
             Spacer(minLength: 8)
@@ -172,7 +172,7 @@ struct WorkspaceRepositorySheet: View {
                     pendingWorktree = worktree
                 }
                 .buttonStyle(.bordered)
-                .tint(.red)
+                .tint(MCColor.errorForeground)
                 .disabled(isClosing)
             }
         }

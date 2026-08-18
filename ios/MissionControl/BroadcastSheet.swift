@@ -43,7 +43,7 @@ struct BroadcastSheet: View {
                     .pickerStyle(.segmented)
                     Text("\(recipients.count) session\(recipients.count == 1 ? "" : "s") will receive this.")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MCColor.mutedForeground)
                 }
             }
             .navigationTitle("Broadcast")

@@ -205,7 +205,7 @@ struct DecisionInboxView: View {
                     Section {
                         Label(errorText, systemImage: "exclamationmark.triangle")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MCColor.errorForeground)
                     }
                 }
                 ForEach(store.items) { item in
@@ -223,7 +223,7 @@ struct DecisionInboxView: View {
             if let detail = item.detail, !detail.isEmpty {
                 Text(detail)
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let tool = item.pendingTool, tool.verb != nil || tool.arg != nil {
@@ -253,12 +253,12 @@ struct DecisionInboxView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Color.secondary.opacity(0.18), in: Capsule())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
             }
             Spacer(minLength: 4)
             Label(waitingLabel(item), systemImage: "hourglass")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(MCColor.warningForeground)
                 .labelStyle(.titleAndIcon)
         }
     }
@@ -267,20 +267,20 @@ struct DecisionInboxView: View {
         HStack(spacing: 8) {
             Image(systemName: "hammer")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MCColor.mutedForeground)
             Text(tool.verb ?? tool.tool ?? "Tool")
                 .font(.system(.caption, design: .monospaced).weight(.semibold))
             if let arg = tool.arg, !arg.isEmpty {
                 Text(arg)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
     }
 
     private func questionBlock(_ question: ConversationQuestion) -> some View {
@@ -312,7 +312,7 @@ struct DecisionInboxView: View {
         return VStack(alignment: .leading, spacing: 4) {
             Text(text)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MCColor.mutedForeground)
                 .lineLimit(isOpen ? nil : 4)
                 .fixedSize(horizontal: false, vertical: true)
             if text.count > 220 {
@@ -332,12 +332,12 @@ struct DecisionInboxView: View {
         if item.diffStat != nil || path != nil {
             HStack(spacing: 8) {
                 if let diff = item.diffStat {
-                    Text("+\(diff.adds)").foregroundStyle(.green)
-                    Text("−\(diff.dels)").foregroundStyle(.red)
-                    Text("· \(diff.files) file\(diff.files == 1 ? "" : "s")").foregroundStyle(.secondary)
+                    Text("+\(diff.adds)").foregroundStyle(MCColor.successForeground)
+                    Text("−\(diff.dels)").foregroundStyle(MCColor.errorForeground)
+                    Text("· \(diff.files) file\(diff.files == 1 ? "" : "s")").foregroundStyle(MCColor.mutedForeground)
                 }
                 if let path {
-                    Text(path).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                    Text(path).foregroundStyle(MCColor.mutedForeground).lineLimit(1).truncationMode(.head)
                 }
                 Spacer(minLength: 0)
             }
@@ -351,12 +351,12 @@ struct DecisionInboxView: View {
                 ProgressView().controlSize(.small)
             } else if item.questionRequestId != nil {
                 Button("Answer") { open(item) }
-                    .tint(.orange)
+                    .tint(MCColor.warningForeground)
             } else {
                 Button("Approve") { respond(item, keys: ["enter"], note: "Approved \(item.session)") }
-                    .tint(.green)
+                    .tint(MCColor.successForeground)
                 Button("Deny") { respond(item, keys: ["escape"], note: "Sent Escape to \(item.session)") }
-                    .tint(.red)
+                    .tint(MCColor.errorForeground)
                 Button("Reply…") {
                     replyText = ""
                     replyTarget = item

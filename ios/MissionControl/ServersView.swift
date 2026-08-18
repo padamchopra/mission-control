@@ -121,7 +121,7 @@ struct ServersView: View {
     private var serverListContent: some View {
         if store.servers.isEmpty {
             Text("No servers yet. Add one by scanning the pairing QR your Mac's setup script prints.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MCColor.mutedForeground)
         }
         ForEach(store.servers) { server in
             serverRow(server)
@@ -167,7 +167,7 @@ struct ServersView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(server.name).foregroundStyle(.primary)
-                        Text(server.url).font(.caption).foregroundStyle(.secondary)
+                        Text(server.url).font(.caption).foregroundStyle(MCColor.mutedForeground)
                     }
                     Spacer()
                     if server.id == store.activeID {
@@ -183,7 +183,7 @@ struct ServersView: View {
             } label: {
                 Image(systemName: "qrcode")
                     .font(.body.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .frame(width: 32, height: 32)
                     .background(.thinMaterial, in: Circle())
             }
@@ -200,13 +200,13 @@ struct ServersView: View {
             } label: {
                 Label("Rename", systemImage: "pencil")
             }
-            .tint(.gray)
+            .tint(MCColor.mutedForeground)
             Button {
                 sharingServer = server
             } label: {
                 Label("Share setup", systemImage: "qrcode")
             }
-            .tint(.blue)
+            .tint(MCColor.primary)
         }
     }
 

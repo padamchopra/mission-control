@@ -65,18 +65,18 @@ struct PullRequestSheet: View {
         Section("Checks") {
             if let checks, checks.available {
                 if checks.checks.isEmpty {
-                    Text("No checks reported yet").foregroundStyle(.secondary)
+                    Text("No checks reported yet").foregroundStyle(MCColor.mutedForeground)
                 }
                 ForEach(checks.checks) { run in
                     HStack(spacing: 10) {
                         checkIcon(run.state)
                         Text(run.name)
                         Spacer()
-                        Text(run.state).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        Text(run.state).font(.caption.monospaced()).foregroundStyle(MCColor.mutedForeground)
                     }
                 }
             } else {
-                Text("No checks").foregroundStyle(.secondary)
+                Text("No checks").foregroundStyle(MCColor.mutedForeground)
             }
         }
     }
@@ -88,11 +88,11 @@ struct PullRequestSheet: View {
                     HStack(spacing: 6) {
                         Text(comment.author).font(.caption.weight(.semibold))
                         if let state = comment.state, !state.isEmpty {
-                            Text(state.lowercased()).font(.caption2).foregroundStyle(.secondary)
+                            Text(state.lowercased()).font(.caption2).foregroundStyle(MCColor.mutedForeground)
                         }
                     }
                     if !comment.body.isEmpty {
-                        Text(comment.body).font(.caption).foregroundStyle(.secondary)
+                        Text(comment.body).font(.caption).foregroundStyle(MCColor.mutedForeground)
                     }
                 }
             }
@@ -116,10 +116,10 @@ struct PullRequestSheet: View {
     @ViewBuilder
     private func checkIcon(_ state: String) -> some View {
         switch state {
-        case "pass", "success": Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case "fail", "failure", "error": Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-        case "pending", "in_progress", "queued": Image(systemName: "clock.fill").foregroundStyle(.orange)
-        default: Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+        case "pass", "success": Image(systemName: "checkmark.circle.fill").foregroundStyle(MCColor.successForeground)
+        case "fail", "failure", "error": Image(systemName: "xmark.circle.fill").foregroundStyle(MCColor.errorForeground)
+        case "pending", "in_progress", "queued": Image(systemName: "clock.fill").foregroundStyle(MCColor.warningForeground)
+        default: Image(systemName: "minus.circle.fill").foregroundStyle(MCColor.mutedForeground)
         }
     }
 

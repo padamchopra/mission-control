@@ -340,7 +340,7 @@ struct SessionListView: View {
                         .lineLimit(1)
                     if store.servers.count > 1 || store.active != nil {
                         serverSwitcher
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MCColor.mutedForeground)
                     }
                 }
                 Spacer(minLength: 0)
@@ -687,14 +687,14 @@ struct SessionListView: View {
                 Button("Clear") { fleetFilter = nil }
                     .font(.caption2)
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
             }
             // Drain them as a queue rather than opening each session in turn.
             if needs > 0 {
                 Button("Review") { router.showInbox() }
                     .font(.caption2.weight(.semibold))
                     .buttonStyle(.plain)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
             }
         }
         .font(.caption)
@@ -726,12 +726,12 @@ struct SessionListView: View {
             HStack(spacing: 8) {
                 if session.interactionKind == "ask_user_question" {
                     Button("Answer") { path = [session.name] }
-                        .tint(.orange)
+                        .tint(MCColor.warningForeground)
                 } else {
                     Button("Approve") { respond(session, keys: ["enter"], note: "Approved \(session.name)") }
-                        .tint(.green)
+                        .tint(MCColor.successForeground)
                     Button("Deny") { respond(session, keys: ["escape"], note: "Sent Escape to \(session.name)") }
-                        .tint(.red)
+                        .tint(MCColor.errorForeground)
                     Button("Open") { path = [session.name] }
                 }
                 Spacer(minLength: 0)
@@ -759,7 +759,7 @@ struct SessionListView: View {
                 Text(workspace.name)
                 Text("\(workspace.worktrees.count) \(workspace.worktrees.count == 1 ? "checkout" : "checkouts")")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
             }
             Spacer()
             Button {
@@ -987,11 +987,11 @@ private struct SessionRow: View {
             }
             Text("\((session.agent ?? .shell).displayName) · \(session.lastOutputDate.formatted(.relative(presentation: .named)))")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MCColor.mutedForeground)
             if session.resolvedState == .working, let action = session.currentAction, !action.isEmpty {
                 HStack(spacing: 5) {
-                    Image(systemName: "circle.fill").font(.system(size: 6)).foregroundStyle(.blue)
-                    Text(action).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Image(systemName: "circle.fill").font(.system(size: 6)).foregroundStyle(MCColor.infoForeground)
+                    Text(action).font(.caption).foregroundStyle(MCColor.mutedForeground).lineLimit(1)
                 }
             }
             // The context chip only appears once the session is genuinely under
@@ -1000,9 +1000,9 @@ private struct SessionRow: View {
             if session.diffStat != nil || tightContext != nil {
                 HStack(spacing: 6) {
                     if let diff = session.diffStat {
-                        Text("+\(diff.adds)").foregroundStyle(.green)
-                        Text("−\(diff.dels)").foregroundStyle(.red)
-                        Text("· \(diff.files) file\(diff.files == 1 ? "" : "s")").foregroundStyle(.secondary)
+                        Text("+\(diff.adds)").foregroundStyle(MCColor.successForeground)
+                        Text("−\(diff.dels)").foregroundStyle(MCColor.errorForeground)
+                        Text("· \(diff.files) file\(diff.files == 1 ? "" : "s")").foregroundStyle(MCColor.mutedForeground)
                     }
                     if let tightContext {
                         ContextChip(usage: tightContext)
@@ -1013,21 +1013,21 @@ private struct SessionRow: View {
             if let preview = session.preview, !preview.isEmpty {
                 Text(preview)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .lineLimit(1)
             }
             if session.resolvedState == .needsInput {
                 if let detail = session.detail {
                     Text(detail)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(MCColor.warningForeground)
                         .lineLimit(2)
                 }
                 let waitingMinutes = Int(Date().timeIntervalSince(session.lastOutputDate) / 60)
                 if waitingMinutes >= 3 {
                     Label("Waiting \(waitingMinutes)m", systemImage: "hourglass")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(MCColor.warningForeground)
                 }
             }
         }

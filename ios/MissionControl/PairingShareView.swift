@@ -17,14 +17,14 @@ struct PairingQRCodeView: View {
                 Image(systemName: "qrcode")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .padding(44)
             }
         }
         .aspectRatio(1, contentMode: .fit)
         .padding(14)
         .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: MCRadius.xxxl, style: .continuous))
         .accessibilityLabel("Pairing QR code for \(accessibilityName)")
     }
 }
@@ -50,7 +50,7 @@ struct PairingShareSheet: View {
                             .font(.title3.weight(.semibold))
                         Text(server.url)
                             .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MCColor.mutedForeground)
                             .multilineTextAlignment(.center)
                             .textSelection(.enabled)
                     }
@@ -60,10 +60,10 @@ struct PairingShareSheet: View {
                         systemImage: "lock.shield"
                     )
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .padding(16)
                     .frame(maxWidth: 420, alignment: .leading)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
 
                     Button(action: copyPairingLink) {
                         Label(

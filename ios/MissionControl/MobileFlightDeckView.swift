@@ -1,33 +1,6 @@
 #if !targetEnvironment(macCatalyst)
 import SwiftUI
 
-enum MobileFlightDeckPalette {
-    static let background = Color(red: 11 / 255, green: 13 / 255, blue: 14 / 255)
-    static let surface = Color(red: 21 / 255, green: 25 / 255, blue: 27 / 255)
-    static let raised = Color(red: 32 / 255, green: 35 / 255, blue: 29 / 255)
-    static let terminal = Color(red: 5 / 255, green: 7 / 255, blue: 6 / 255)
-    static let border = Color(red: 52 / 255, green: 59 / 255, blue: 64 / 255)
-    static let strongBorder = Color(red: 76 / 255, green: 86 / 255, blue: 91 / 255)
-    static let accentBorder = Color(red: 90 / 255, green: 74 / 255, blue: 40 / 255)
-    static let text = Color(red: 243 / 255, green: 239 / 255, blue: 228 / 255)
-    static let secondary = Color(red: 143 / 255, green: 152 / 255, blue: 147 / 255)
-    static let muted = Color(red: 96 / 255, green: 106 / 255, blue: 101 / 255)
-    static let warm = Color(red: 192 / 255, green: 183 / 255, blue: 157 / 255)
-    static let amber = Color(red: 255 / 255, green: 176 / 255, blue: 32 / 255)
-    static let green = Color(red: 86 / 255, green: 197 / 255, blue: 138 / 255)
-    static let red = Color(red: 217 / 255, green: 92 / 255, blue: 92 / 255)
-    static let onAccent = Color(red: 20 / 255, green: 17 / 255, blue: 10 / 255)
-}
-
-extension Font {
-    static func mobileDeckSans(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .default)
-    }
-
-    static func mobileDeckMono(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
-    }
-}
 
 private enum MobileDeckTab: String, CaseIterable, Identifiable {
     case command
@@ -427,7 +400,7 @@ struct MobileFlightDeckView: View {
                         .font(.mobileDeckSans(12))
                         .foregroundStyle(MobileFlightDeckPalette.secondary)
                         .lineLimit(1)
-                    Text("\(servers.active?.name.uppercased() ?? "DEVICE") · \((session.agent ?? .shell).displayName.uppercased()) · \(relativeMobileTime(session.lastOutputAt))")
+                    Text("\(servers.active?.name ?? "Device") · \((session.agent ?? .shell).displayName) · \(relativeMobileTime(session.lastOutputAt))")
                         .font(.mobileDeckMono(8))
                         .foregroundStyle(MobileFlightDeckPalette.muted)
                         .lineLimit(1)
@@ -438,7 +411,7 @@ struct MobileFlightDeckView: View {
                         .font(.mobileDeckSans(11, weight: .bold))
                         .foregroundStyle(MobileFlightDeckPalette.muted)
                 } else {
-                    Text((session.agent ?? .shell).displayName.uppercased())
+                    Text((session.agent ?? .shell).displayName)
                         .font(.mobileDeckMono(8))
                         .foregroundStyle(MobileFlightDeckPalette.secondary)
                 }
@@ -482,7 +455,7 @@ struct MobileFlightDeckView: View {
                                     Text(workspace.name)
                                         .font(.mobileDeckSans(16, weight: .semibold))
                                     Spacer()
-                                    Text("\(workspace.worktrees.count) CHECKOUTS")
+                                    Text("\(workspace.worktrees.count) checkouts")
                                         .font(.mobileDeckMono(8))
                                         .foregroundStyle(MobileFlightDeckPalette.muted)
                                 }
@@ -537,9 +510,9 @@ struct MobileFlightDeckView: View {
                                     .foregroundStyle(MobileFlightDeckPalette.secondary)
                                     .lineLimit(2)
                                 HStack {
-                                    Text("\(loop.workspaceName.uppercased()) · \(loop.agent.displayName.uppercased())")
+                                    Text("\(loop.workspaceName) · \(loop.agent.displayName)")
                                     Spacer()
-                                    Text(loop.schedule.summary.uppercased())
+                                    Text(loop.schedule.summary)
                                     Image(systemName: "chevron.right")
                                         .font(.mobileDeckSans(9, weight: .bold))
                                         .foregroundStyle(MobileFlightDeckPalette.muted)
@@ -618,7 +591,7 @@ struct MobileFlightDeckView: View {
                 .foregroundStyle(MobileFlightDeckPalette.onAccent)
                 .padding(.horizontal, 16)
                 .frame(height: 38)
-                .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 9))
+                .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
                 .buttonStyle(.plain)
         }
         .padding(16)
@@ -688,7 +661,7 @@ private struct MobileDeviceSelector: View {
                 ForEach(servers.servers) { server in
                     deviceRow(
                         title: server.name,
-                        subtitle: "\(server.deviceID?.uppercased() ?? "DEVICE") · CONNECTED",
+                        subtitle: "\(server.deviceID?.uppercased() ?? "Device") · CONNECTED",
                         selected: server.id == servers.activeID
                     ) {
                         servers.activeID = server.id
@@ -708,7 +681,7 @@ private struct MobileDeviceSelector: View {
                 .font(.mobileDeckSans(14, weight: .semibold))
                 .foregroundStyle(MobileFlightDeckPalette.amber)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(MobileFlightDeckPalette.accentBorder))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.accentBorder))
             }
             .buttonStyle(.plain)
             .padding(.top, 12)
@@ -737,7 +710,7 @@ private struct MobileDeviceSelector: View {
                     Text(title)
                         .font(.mobileDeckSans(15, weight: .semibold))
                         .foregroundStyle(MobileFlightDeckPalette.text)
-                    Text(subtitle.uppercased())
+                    Text(subtitle)
                         .font(.mobileDeckMono(8))
                         .foregroundStyle(MobileFlightDeckPalette.secondary)
                 }
@@ -750,7 +723,7 @@ private struct MobileDeviceSelector: View {
             }
             .padding(.horizontal, 13)
             .frame(height: 58)
-            .background(selected ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 14))
+            .background(selected ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -785,14 +758,14 @@ private struct MobileArchivesView: View {
                     .foregroundStyle(MobileFlightDeckPalette.secondary)
                     .padding(.horizontal, 13)
                     .frame(height: 38)
-                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.border))
+                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.border))
 
                     HStack {
                         Text("Recently archived")
                             .font(.mobileDeckSans(16, weight: .semibold))
                         Spacer()
-                        Text("HIDDEN FROM LIVE QUEUE")
+                        Text("Hidden from live queue")
                             .font(.mobileDeckMono(8))
                             .foregroundStyle(MobileFlightDeckPalette.muted)
                     }
@@ -819,7 +792,7 @@ private struct MobileArchivesView: View {
                                         .font(.mobileDeckSans(12))
                                         .foregroundStyle(MobileFlightDeckPalette.secondary)
                                         .lineLimit(1)
-                                    Text("\(archive.agent.displayName.uppercased()) · ARCHIVED")
+                                    Text("\(archive.agent.displayName) · archived")
                                         .font(.mobileDeckMono(8))
                                         .foregroundStyle(MobileFlightDeckPalette.muted)
                                 }
@@ -880,7 +853,7 @@ private struct MobileConnectionsView: View {
                                         Text(server.name)
                                             .font(.mobileDeckSans(15, weight: .semibold))
                                             .foregroundStyle(MobileFlightDeckPalette.text)
-                                        Text("\(server.deviceID?.uppercased() ?? "DEVICE") · CONNECTED")
+                                        Text("\(server.deviceID?.uppercased() ?? "Device") · CONNECTED")
                                             .font(.mobileDeckMono(8))
                                             .foregroundStyle(MobileFlightDeckPalette.secondary)
                                     }
@@ -902,7 +875,7 @@ private struct MobileConnectionsView: View {
                     .mobileDeckCard(radius: 12)
 
                     if let selected = servers.active {
-                        Text("SELECTED DEVICE")
+                        Text("Selected device")
                             .font(.mobileDeckMono(9))
                             .foregroundStyle(MobileFlightDeckPalette.muted)
                         VStack(alignment: .leading, spacing: 12) {
@@ -910,12 +883,12 @@ private struct MobileConnectionsView: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(selected.name)
                                         .font(.mobileDeckSans(17, weight: .semibold))
-                                    Text("SECURE LINK VERIFIED")
+                                    Text("Secure link verified")
                                         .font(.mobileDeckMono(8))
                                         .foregroundStyle(MobileFlightDeckPalette.green)
                                 }
                                 Spacer()
-                                Text("ACTIVE")
+                                Text("Active")
                                     .font(.mobileDeckMono(8))
                                     .foregroundStyle(MobileFlightDeckPalette.amber)
                             }
@@ -930,7 +903,7 @@ private struct MobileConnectionsView: View {
                                     .font(.mobileDeckSans(13, weight: .bold))
                                     .foregroundStyle(MobileFlightDeckPalette.onAccent)
                                     .frame(maxWidth: .infinity, minHeight: 42)
-                                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 10))
+                                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
                             }
                             .buttonStyle(.plain)
 
@@ -938,7 +911,7 @@ private struct MobileConnectionsView: View {
                                 .font(.mobileDeckSans(13, weight: .semibold))
                                 .foregroundStyle(MobileFlightDeckPalette.secondary)
                                 .frame(maxWidth: .infinity, minHeight: 42)
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.border))
+                                .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.border))
                                 .buttonStyle(.plain)
                         }
                         .padding(15)
@@ -981,7 +954,7 @@ private struct MobileDeviceDoctorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            mobileDetailHeader(title: "Device Doctor", subtitle: server?.name.uppercased() ?? "NO DEVICE", trailing: "Run", onBack: onClose) {
+            mobileDetailHeader(title: "Device Doctor", subtitle: server?.name ?? "No device", trailing: "Run", onBack: onClose) {
                 Task { await runDiagnostics() }
             }
             ScrollView {
@@ -1096,8 +1069,8 @@ extension View {
         font(.mobileDeckSans(13, weight: .bold))
             .foregroundStyle(primary ? MobileFlightDeckPalette.onAccent : MobileFlightDeckPalette.text)
             .frame(maxWidth: .infinity, minHeight: 42)
-            .background(primary ? MobileFlightDeckPalette.amber : Color.clear, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(primary ? Color.clear : MobileFlightDeckPalette.border))
+            .background(primary ? MobileFlightDeckPalette.amber : Color.clear, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(primary ? Color.clear : MobileFlightDeckPalette.border))
             .buttonStyle(.plain)
     }
 }
@@ -1141,15 +1114,15 @@ private struct MobileCommandMenu: View {
                 divider
                 menuRow("stethoscope", "Device Doctor", subtitle: "Check connection health", action: onDoctor)
             }
-            .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(MobileFlightDeckPalette.border))
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
+            .clipShape(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
 
             Button("Cancel") { dismiss() }
                 .font(.mobileDeckSans(14, weight: .semibold))
                 .foregroundStyle(MobileFlightDeckPalette.text)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 12))
+                .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
                 .buttonStyle(.plain)
                 .padding(.top, 12)
         }
@@ -1237,7 +1210,7 @@ private struct MobileInboxContent: View {
                                         .font(.mobileDeckMono(8, weight: .semibold))
                                         .foregroundStyle(MobileFlightDeckPalette.amber)
                                     Spacer()
-                                    Text("\(item.serverName.uppercased()) · \(relativeMobileTime(item.waitingSince / 1000))")
+                                    Text("\(item.serverName) · \(relativeMobileTime(item.waitingSince / 1000))")
                                         .font(.mobileDeckMono(8))
                                         .foregroundStyle(MobileFlightDeckPalette.muted)
                                 }
@@ -1254,19 +1227,19 @@ private struct MobileInboxContent: View {
                                         .foregroundStyle(item.question == nil ? MobileFlightDeckPalette.onAccent : MobileFlightDeckPalette.amber)
                                         .padding(.horizontal, 15)
                                         .frame(height: 38)
-                                        .background(item.question == nil ? MobileFlightDeckPalette.amber : Color.clear, in: RoundedRectangle(cornerRadius: 10))
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.amber.opacity(item.question == nil ? 0 : 0.7)))
+                                        .background(item.question == nil ? MobileFlightDeckPalette.amber : Color.clear, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
+                                        .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.amber.opacity(item.question == nil ? 0 : 0.7)))
                                     Text("Open")
                                         .font(.mobileDeckSans(12))
                                         .foregroundStyle(MobileFlightDeckPalette.secondary)
                                         .padding(.horizontal, 15)
                                         .frame(height: 38)
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.border))
+                                        .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.border))
                                 }
                             }
                             .padding(16)
-                            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(MobileFlightDeckPalette.border))
+                            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1358,7 +1331,7 @@ private struct MobilePullRequestsView: View {
                 Text("Pull requests")
                     .font(.mobileDeckSans(24, weight: .bold))
                     .tracking(-0.6)
-                Text("AUTHORED BY YOU · \(pullRequests.count) TOTAL")
+                Text("Authored by you · \(pullRequests.count) total")
                     .font(.mobileDeckMono(8))
                     .foregroundStyle(MobileFlightDeckPalette.muted)
             }
@@ -1388,15 +1361,15 @@ private struct MobilePullRequestsView: View {
                         .font(.mobileDeckSans(13, weight: option == filter ? .semibold : .regular))
                         .foregroundStyle(option == filter ? MobileFlightDeckPalette.text : MobileFlightDeckPalette.secondary)
                         .frame(maxWidth: .infinity, minHeight: 32)
-                        .background(option == filter ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                        .background(option == filter ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(4)
         .frame(height: 42)
-        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.border))
+        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
     }
 
     private func count(for filter: PullRequestFilter) -> Int {
@@ -1422,7 +1395,7 @@ private struct MobilePullRequestsView: View {
                         .font(.mobileDeckSans(16, weight: .semibold))
                         .foregroundStyle(MobileFlightDeckPalette.text)
                         .multilineTextAlignment(.leading)
-                    Text("\(pullRequest.repository.uppercased()) · \(pullRequest.headRefName.uppercased())")
+                    Text("\(pullRequest.repository) · \(pullRequest.headRefName)")
                         .font(.mobileDeckMono(8))
                         .foregroundStyle(MobileFlightDeckPalette.muted)
                         .lineLimit(1)
@@ -1446,7 +1419,7 @@ private struct MobilePullRequestsView: View {
                 if activeSession != nil {
                     HStack(spacing: 5) {
                         Circle().fill(MobileFlightDeckPalette.green).frame(width: 6, height: 6)
-                        Text("ACTIVE")
+                        Text("Active")
                     }
                     .foregroundStyle(MobileFlightDeckPalette.green)
                 } else {
@@ -1458,9 +1431,9 @@ private struct MobilePullRequestsView: View {
             .padding(.leading, 38)
         }
         .padding(14)
-        .background(pullRequest.failedCheckCount > 0 ? MobileFlightDeckPalette.raised : MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        .background(pullRequest.failedCheckCount > 0 ? MobileFlightDeckPalette.raised : MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                 .stroke(pullRequest.failedCheckCount > 0 ? Color.clear : MobileFlightDeckPalette.border)
         }
         .overlay(alignment: .leading) {
@@ -1532,7 +1505,7 @@ private struct MobilePullRequestDetailView: View {
             VStack(spacing: 1) {
                 Text("Pull Request #\(pullRequest.number)")
                     .font(.mobileDeckSans(16, weight: .semibold))
-                Text("\(pullRequest.repository.uppercased()) · \(pullRequest.headRefName.uppercased())")
+                Text("\(pullRequest.repository) · \(pullRequest.headRefName)")
                     .font(.mobileDeckMono(8))
                     .foregroundStyle(MobileFlightDeckPalette.muted)
                     .lineLimit(1)
@@ -1568,7 +1541,7 @@ private struct MobilePullRequestDetailView: View {
                     .frame(height: 22)
                     .overlay(Rectangle().stroke(pullRequest.isDraft ? MobileFlightDeckPalette.strongBorder : MobileFlightDeckPalette.green))
             }
-            Text("\(pullRequest.headRefName.uppercased()) → \(pullRequest.baseRefName.uppercased()) · UPDATED \(relativeMobileISOTime(pullRequest.updatedAt))")
+            Text("\(pullRequest.headRefName) → \(pullRequest.baseRefName) · updated \(relativeMobileISOTime(pullRequest.updatedAt))")
                 .font(.mobileDeckMono(8))
                 .foregroundStyle(MobileFlightDeckPalette.muted)
                 .lineLimit(1)
@@ -1595,8 +1568,8 @@ private struct MobilePullRequestDetailView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MobileFlightDeckPalette.raised, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(color.opacity(0.75)))
+        .background(MobileFlightDeckPalette.raised, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(color.opacity(0.75)))
     }
 
     private var telemetry: some View {
@@ -1625,8 +1598,8 @@ private struct MobilePullRequestDetailView: View {
         }
         .padding(.horizontal, isChecksView ? 11 : 13)
         .frame(maxWidth: .infinity, minHeight: isChecksView ? 72 : 76, alignment: .leading)
-        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.border))
+        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
     }
 
     private var failedChecks: some View {
@@ -1635,7 +1608,7 @@ private struct MobilePullRequestDetailView: View {
                 Text("Failed checks")
                     .font(.mobileDeckSans(16, weight: .semibold))
                 Spacer()
-                Text("LATEST COMMIT")
+                Text("Latest commit")
                     .font(.mobileDeckMono(8))
                     .foregroundStyle(MobileFlightDeckPalette.muted)
             }
@@ -1645,10 +1618,10 @@ private struct MobilePullRequestDetailView: View {
                         Text("×")
                             .foregroundStyle(MobileFlightDeckPalette.red)
                             .frame(width: 24, alignment: .leading)
-                        Text(check.name.uppercased())
+                        Text(check.name)
                             .font(.mobileDeckMono(10, weight: .medium))
                         Spacer()
-                        Text("FAIL")
+                        Text("Fail")
                             .font(.mobileDeckMono(9))
                             .foregroundStyle(MobileFlightDeckPalette.red)
                     }
@@ -1659,12 +1632,12 @@ private struct MobilePullRequestDetailView: View {
                     }
                 }
             }
-            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.border))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
+            .clipShape(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("LATEST FAILURE")
+                Text("Latest failure")
                     .font(.mobileDeckMono(8))
                     .foregroundStyle(MobileFlightDeckPalette.muted)
                 Text("Open the active session or terminal to inspect the failure output.")
@@ -1676,8 +1649,8 @@ private struct MobilePullRequestDetailView: View {
             }
             .padding(13)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MobileFlightDeckPalette.terminal, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.border))
+            .background(MobileFlightDeckPalette.terminal, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
         }
     }
 
@@ -1687,7 +1660,7 @@ private struct MobilePullRequestDetailView: View {
                 Text("Unread review activity")
                     .font(.mobileDeckSans(16, weight: .semibold))
                 Spacer()
-                Text("\(pullRequest.resolvedUnreadComments.count) TOTAL")
+                Text("\(pullRequest.resolvedUnreadComments.count) total")
                     .font(.mobileDeckMono(8))
                     .foregroundStyle(MobileFlightDeckPalette.muted)
             }
@@ -1740,7 +1713,7 @@ private struct MobilePullRequestDetailView: View {
                     .font(.mobileDeckSans(13, weight: .bold))
                     .foregroundStyle(MobileFlightDeckPalette.onAccent)
                     .frame(maxWidth: .infinity, minHeight: 42)
-                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 11))
+                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(launching)
@@ -1756,7 +1729,7 @@ private struct MobilePullRequestDetailView: View {
                     .font(.mobileDeckSans(13))
                     .foregroundStyle(MobileFlightDeckPalette.secondary)
                     .frame(width: isChecksView ? 96 : 100, height: 42)
-                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(MobileFlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.border))
             }
             .buttonStyle(.plain)
         }

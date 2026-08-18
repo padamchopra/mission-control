@@ -35,13 +35,13 @@ struct SessionCommandPalette: View {
                             Text(session.name).foregroundStyle(.primary)
                             Text(session.preview ?? session.panePath)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(MCColor.mutedForeground)
                                 .lineLimit(1)
                         }
                         Spacer()
                         Text(session.resolvedState.rawValue.replacingOccurrences(of: "_", with: " "))
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MCColor.mutedForeground)
                     }
                 }
             }
@@ -107,12 +107,14 @@ struct SessionCommandPalette: View {
         }
     }
 
+    /// Token colours rather than `.orange`/`.blue`/`.green`, which did not match
+    /// the state colours anywhere else in the app.
     private func color(for state: SessionState) -> Color {
         switch state {
-        case .needsInput: return .orange
-        case .working: return .blue
-        case .idle: return .green
-        case .unknown: return .secondary
+        case .needsInput: return MCColor.warningForeground
+        case .working: return MCColor.primary
+        case .idle: return MCColor.successForeground
+        case .unknown: return MCColor.mutedForeground
         }
     }
 }

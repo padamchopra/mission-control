@@ -97,7 +97,7 @@ struct ChatView: View {
                         .lineLimit(1)
                     Text(chat.map { conversationBasename($0.cwd) } ?? "")
                         .font(.caption2.monospaced())
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 4)
@@ -111,7 +111,7 @@ struct ChatView: View {
                 if let usage = chat?.context {
                     Text("\(usage.percent)%")
                         .font(.caption2.monospaced())
-                        .foregroundStyle(usage.isTight ? .orange : Color(white: 0.5))
+                        .foregroundStyle(usage.isTight ? .orange : MCColor.mutedForeground)
                         .help("Context used")
                 }
             }
@@ -133,7 +133,7 @@ struct ChatView: View {
                 Button { stop() } label: {
                     Label("Stop", systemImage: "stop.fill")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MCColor.errorForeground)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(Color.red.opacity(0.12), in: Capsule())
@@ -146,7 +146,7 @@ struct ChatView: View {
             case .error:
                 badge("Failed", color: .red)
             case .idle:
-                badge(chat.live ? "Ready" : "Idle", color: Color(white: 0.45))
+                badge(chat.live ? "Ready" : "Idle", color: MCColor.mutedForeground)
             }
         }
     }
@@ -182,7 +182,7 @@ struct ChatView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(white: 0.6))
+                .foregroundStyle(MCColor.mutedForeground)
                 .frame(width: 34, height: 34)
                 .background(ConversationStyle.surface, in: Circle())
                 .overlay(Circle().stroke(ConversationStyle.border))
@@ -241,7 +241,7 @@ struct ChatView: View {
             Text(title).font(.caption2.weight(.semibold))
             Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
         }
-        .foregroundStyle(tint ?? Color(white: 0.7))
+        .foregroundStyle(tint ?? MCColor.foreground.opacity(0.72))
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(ConversationStyle.surface, in: Capsule())
@@ -337,13 +337,13 @@ struct ChatView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Claude is waiting in \(conversationBasename(chat.cwd))")
                 .font(.headline)
-                .foregroundStyle(Color(white: 0.85))
+                .foregroundStyle(MCColor.foreground)
             Text(chat.cwd)
                 .font(.caption2.monospaced())
-                .foregroundStyle(Color(white: 0.45))
+                .foregroundStyle(MCColor.mutedForeground)
             Text("It reads your Claude Code settings, CLAUDE.md, and skills from this directory — the same setup your terminal sessions run with.")
                 .font(.callout)
-                .foregroundStyle(Color(white: 0.55))
+                .foregroundStyle(MCColor.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 10)
@@ -361,31 +361,31 @@ struct ChatView: View {
             HStack(spacing: 7) {
                 Image(systemName: "hand.raised.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Text("Waiting on you")
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Spacer(minLength: 4)
-                Text(approval.tool.uppercased())
+                Text(approval.tool)
                     .font(.caption2.monospaced().weight(.semibold))
-                    .foregroundStyle(Color(white: 0.45))
+                    .foregroundStyle(MCColor.mutedForeground)
             }
 
             Text(approval.title ?? "\(approval.verb) \(approval.arg)")
                 .font(.callout)
-                .foregroundStyle(Color(white: 0.92))
+                .foregroundStyle(MCColor.foreground)
                 .fixedSize(horizontal: false, vertical: true)
 
             if approval.title != nil, !approval.arg.isEmpty {
                 Text("\(approval.verb) \(approval.arg)")
                     .font(.caption.monospaced())
-                    .foregroundStyle(Color(white: 0.6))
+                    .foregroundStyle(MCColor.mutedForeground)
                     .lineLimit(3)
             }
             if let reason = approval.reason, !reason.isEmpty {
                 Text(reason)
                     .font(.caption)
-                    .foregroundStyle(Color(white: 0.5))
+                    .foregroundStyle(MCColor.mutedForeground)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let plan = approval.plan, !plan.isEmpty {
@@ -395,7 +395,7 @@ struct ChatView: View {
                 }
                 .frame(maxHeight: 260)
                 .padding(10)
-                .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
+                .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
             }
             if let diff = approval.diff, !diff.isEmpty {
                 ConversationDiffView(file: approval.file, diff: diff)
@@ -422,9 +422,9 @@ struct ChatView: View {
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(MCColor.popover, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                 .stroke(Color.orange.opacity(0.4), lineWidth: 1)
         )
     }
@@ -458,11 +458,11 @@ struct ChatView: View {
                         .font(.subheadline.weight(.semibold))
                     Text("\(done) of \(todos.count)")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(Color(white: 0.55))
+                        .foregroundStyle(MCColor.mutedForeground)
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .rotationEffect(.degrees(planExpanded ? 0 : -90))
                 }
                 .padding(.horizontal, 16)
@@ -480,11 +480,11 @@ struct ChatView: View {
                                   ? "checkmark.circle.fill"
                                   : todo.status == "in_progress" ? "circle.lefthalf.filled" : "circle")
                                 .font(.system(size: 13))
-                                .foregroundStyle(todo.status == "completed" ? .green : Color(white: 0.45))
+                                .foregroundStyle(todo.status == "completed" ? .green : MCColor.mutedForeground)
                             Text(todo.content)
                                 .font(.caption)
-                                .foregroundStyle(todo.status == "completed" ? Color(white: 0.5) : Color(white: 0.9))
-                                .strikethrough(todo.status == "completed", color: Color(white: 0.4))
+                                .foregroundStyle(todo.status == "completed" ? MCColor.mutedForeground : MCColor.foreground)
+                                .strikethrough(todo.status == "completed", color: MCColor.mutedForeground)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -493,8 +493,8 @@ struct ChatView: View {
                 .padding(.bottom, 12)
             }
         }
-        .background(Color(white: 0.09))
-        .overlay(alignment: .bottom) { Rectangle().fill(Color(white: 0.18)).frame(height: 0.5) }
+        .background(MCColor.popover)
+        .overlay(alignment: .bottom) { Rectangle().fill(MCColor.border).frame(height: 0.5) }
     }
 
     // MARK: - Actions

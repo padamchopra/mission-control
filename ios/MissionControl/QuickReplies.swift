@@ -123,7 +123,7 @@ struct QuickRepliesView: View {
             } else {
                 Section {
                     Text("Connect to a server to set up quick replies. They're stored on the server and shared with every device that connects to it.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MCColor.mutedForeground)
                 }
             }
         }

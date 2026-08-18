@@ -137,8 +137,8 @@ struct ChatListView: View {
             .foregroundStyle(ConversationStyle.accent)
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ConversationStyle.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(ConversationStyle.accent.opacity(0.4)))
+            .background(ConversationStyle.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(ConversationStyle.accent.opacity(0.4)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -150,14 +150,14 @@ struct ChatListView: View {
         Text(title.uppercased())
             .font(.caption2.monospaced().weight(.bold))
             .kerning(0.8)
-            .foregroundStyle(Color(white: 0.45))
+            .foregroundStyle(MCColor.mutedForeground)
             .padding(.top, 4)
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) { content() }
-            .background(ConversationStyle.surface, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(ConversationStyle.border))
+            .background(ConversationStyle.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(ConversationStyle.border))
     }
 
     private func row(_ chat: ChatSummary) -> some View {
@@ -175,13 +175,13 @@ struct ChatListView: View {
                         Spacer(minLength: 4)
                         Text(chat.updatedDate, style: .relative)
                             .font(.caption2)
-                            .foregroundStyle(Color(white: 0.4))
+                            .foregroundStyle(MCColor.mutedForeground)
                             .lineLimit(1)
                     }
                     HStack(spacing: 6) {
                         Label(chat.folder, systemImage: "folder")
                             .font(.caption2.monospaced())
-                            .foregroundStyle(Color(white: 0.5))
+                            .foregroundStyle(MCColor.mutedForeground)
                             .lineLimit(1)
                         if let model = chat.model {
                             tag(model)
@@ -196,7 +196,7 @@ struct ChatListView: View {
                     if chat.state == .needsInput {
                         Label("waiting on you", systemImage: "hand.raised.fill")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MCColor.warningForeground)
                     } else if chat.state == .working {
                         Label(chat.action ?? "working", systemImage: "circle.dotted")
                             .font(.caption2)
@@ -205,7 +205,7 @@ struct ChatListView: View {
                     } else if let preview = chat.preview, !preview.isEmpty {
                         Text(preview)
                             .font(.caption)
-                            .foregroundStyle(Color(white: 0.5))
+                            .foregroundStyle(MCColor.mutedForeground)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                     }
@@ -229,7 +229,7 @@ struct ChatListView: View {
         }
     }
 
-    private func tag(_ text: String, tint: Color = Color(white: 0.5)) -> some View {
+    private func tag(_ text: String, tint: Color = MCColor.mutedForeground) -> some View {
         Text(text)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(tint)
@@ -243,7 +243,7 @@ struct ChatListView: View {
         case .needsInput: return .orange
         case .working: return ConversationStyle.verb
         case .error: return .red
-        case .idle: return Color(white: 0.35)
+        case .idle: return MCColor.mutedForeground
         }
     }
 
@@ -253,13 +253,13 @@ struct ChatListView: View {
                 .font(.subheadline.weight(.semibold))
             Text(message)
                 .font(.caption)
-                .foregroundStyle(Color(white: 0.55))
+                .foregroundStyle(MCColor.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ConversationStyle.surface, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(ConversationStyle.border))
+        .background(ConversationStyle.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(ConversationStyle.border))
     }
 }
 
@@ -307,13 +307,13 @@ struct NewChatSheet: View {
                                         Text(workspace.name)
                                         Text(workspace.path)
                                             .font(.caption2.monospaced())
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(MCColor.mutedForeground)
                                             .lineLimit(1)
                                             .truncationMode(.head)
                                     }
                                     Spacer()
                                     if path == workspace.path {
-                                        Image(systemName: "checkmark").foregroundStyle(.orange)
+                                        Image(systemName: "checkmark").foregroundStyle(MCColor.warningForeground)
                                     }
                                 }
                             }
@@ -328,13 +328,13 @@ struct NewChatSheet: View {
                                                 .font(.subheadline)
                                             Text(worktree.path)
                                                 .font(.caption2.monospaced())
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(MCColor.mutedForeground)
                                                 .lineLimit(1)
                                                 .truncationMode(.head)
                                         }
                                         Spacer()
                                         if path == worktree.path {
-                                            Image(systemName: "checkmark").foregroundStyle(.orange)
+                                            Image(systemName: "checkmark").foregroundStyle(MCColor.warningForeground)
                                         }
                                     }
                                 }
@@ -360,7 +360,7 @@ struct NewChatSheet: View {
                     }
                     Text(permissionMode.detail)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MCColor.mutedForeground)
                 }
 
                 Section("Optional") {
@@ -372,7 +372,7 @@ struct NewChatSheet: View {
                 if let error {
                     Text(error)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MCColor.errorForeground)
                 }
             }
             .navigationTitle("New chat")
