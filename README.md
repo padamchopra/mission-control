@@ -72,7 +72,33 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   chips, fields, rows, keycaps); `CommandPalette.swift` is the ⌘K palette.
   `ThemeCompat.swift` maps the app's two older palettes onto the token set and is
   meant to shrink to nothing.
+- **`web/`** — the desktop UI: React 19, Tailwind v4, and shadcn-style primitives
+  owned in-tree (`src/components/ui`). Design tokens live in `src/index.css`,
+  ported from T3 Code's own CSS. `npm run shots` renders the app and its
+  interactions to PNGs with Playwright's cached Chromium, so a UI change can be
+  looked at without a human taking screenshots.
+- **`desktop/`** — the Electron shell. Deliberately thin: it owns the window
+  (`titleBarStyle: hiddenInset`, traffic lights at 16/18) and nothing else, so
+  the UI stays a plain web app that runs in a browser.
 - **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
+
+## Running the desktop app
+
+```sh
+npm run install:all     # server, web, desktop
+npm run dev:web         # Vite on :5173
+npm run dev             # Electron, pointed at the dev server
+```
+
+`VITE_MC_FIXTURE=1 npm run dev:web` fills the window with sample data, which is
+how the layout gets reviewed without a Mac attached. To run against a real
+server in a plain browser, set `MC_SERVER_URL` and `MC_TOKEN` — Vite proxies
+`/api` and injects the bearer header, so the token never reaches the page.
+
+```sh
+npm run shots        # render the window and its interactions to /tmp/mc-shots
+npm run live-check   # start a tmux session; assert the window picks it up
+```
 
 ## Features
 

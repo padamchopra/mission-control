@@ -1,0 +1,17 @@
+{
+  "name": "mission-control",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Run Claude Code on your Macs from anywhere.",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix web install && npm --prefix desktop install",
+    "dev": "MC_DEV_SERVER_URL=http://127.0.0.1:5173 npm --prefix desktop run start",
+    "dev:web": "npm --prefix web run dev",
+    "dev:server": "npm --prefix server run build && npm --prefix server start",
+    "build": "npm --prefix web run build && npm --prefix desktop run build",
+    "typecheck": "npm --prefix web run typecheck && npm --prefix desktop run typecheck",
+    "test": "npm --prefix server test",
+    "shots": "npm --prefix web run shots",
+    "live-check": "npm --prefix web run live-check"
+  }
+}
