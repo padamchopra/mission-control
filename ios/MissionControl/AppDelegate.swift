@@ -113,7 +113,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        if let session = response.notification.request.content.userInfo["session"] as? String {
+        let info = response.notification.request.content.userInfo
+        // A chat's banner names its own destination; a session's is implied by
+        // the session name, which is how every older server reports it.
+        if let click = info["click"] as? String,
+           let url = URL(string: click),
+           url.host == "chat",
+           let id = url.pathComponents.dropFirst().first {
+            await MainActor.run { AppRouter.shared.openChat = id }
+            return
+        }
+        if let session = info["session"] as? String {
             await MainActor.run { AppRouter.shared.openSession = session }
         }
     }

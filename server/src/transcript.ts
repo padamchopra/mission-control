@@ -127,10 +127,10 @@ const MAX_TAIL = 1_500_000;
 // smaller window than the feed does — it runs for every session on the fleet
 // poll, not just the one on screen.
 const USAGE_TAIL = 400_000;
-const MAX_TEXT = 4000;
-const MAX_THINK = 1200;
+export const MAX_TEXT = 4000;
+export const MAX_THINK = 1200;
 const MAX_ARG = 200;
-const MAX_OUTPUT = 400;
+export const MAX_OUTPUT = 400;
 // Option previews are code or prose drafts, so they need real room — but they're
 // rendered collapsed, so this is a ceiling rather than a target.
 const MAX_PREVIEW = 2500;
@@ -526,7 +526,7 @@ function codexOutputText(output: unknown): string | undefined {
   return parts.length ? parts.join("\n") : undefined;
 }
 
-function describeTool(name: unknown, input: any): { verb: string; arg: string; file?: string; skill?: string } {
+export function describeTool(name: unknown, input: any): { verb: string; arg: string; file?: string; skill?: string } {
   const n = typeof name === "string" ? name : "tool";
   const inp = input && typeof input === "object" ? input : {};
   switch (n) {
@@ -570,7 +570,7 @@ function describeTool(name: unknown, input: any): { verb: string; arg: string; f
   }
 }
 
-function buildDiff(name: unknown, input: any): ConvDiffLine[] {
+export function buildDiff(name: unknown, input: any): ConvDiffLine[] {
   const inp = input && typeof input === "object" ? input : {};
   if (name === "Edit") return pairDiff(str(inp.old_string), str(inp.new_string));
   if (name === "MultiEdit" && Array.isArray(inp.edits)) {
@@ -590,7 +590,7 @@ function buildDiff(name: unknown, input: any): ConvDiffLine[] {
 // Accurate (uncapped) added/removed line counts for the Changes inspector,
 // counted the same naive way the diff is built: every old line is a deletion,
 // every new line an addition.
-function countDiff(name: unknown, input: any): { adds: number; dels: number } {
+export function countDiff(name: unknown, input: any): { adds: number; dels: number } {
   const inp = input && typeof input === "object" ? input : {};
   if (name === "Edit") return { dels: lineCount(str(inp.old_string)), adds: lineCount(str(inp.new_string)) };
   if (name === "MultiEdit" && Array.isArray(inp.edits)) {
@@ -624,7 +624,7 @@ function sideLines(text: string, kind: "add" | "del"): ConvDiffLine[] {
   return shown;
 }
 
-function buildQuestions(input: any): ConvQuestion[] {
+export function buildQuestions(input: any): ConvQuestion[] {
   const qs = input && Array.isArray(input.questions) ? input.questions : [];
   const out: ConvQuestion[] = [];
   for (const q of qs) {
@@ -655,7 +655,7 @@ function buildQuestions(input: any): ConvQuestion[] {
 // Mark the option(s) the user picked from `toolUseResult.answers` (question text
 // → chosen label, or an array for multiSelect). A pick that matches no listed
 // option is an "Other" free-text response, kept on `answer`.
-function applyAnswers(questions: ConvQuestion[], answers: unknown): void {
+export function applyAnswers(questions: ConvQuestion[], answers: unknown): void {
   if (!answers || typeof answers !== "object") return;
   const map = answers as Record<string, unknown>;
   const byTrimmed = new Map<string, unknown>();
@@ -676,7 +676,7 @@ function applyAnswers(questions: ConvQuestion[], answers: unknown): void {
 
 // Notes the user typed alongside their pick, keyed by question text the same way
 // answers are. Defensive about the shape — this rides on an optional field.
-function applyNotes(questions: ConvQuestion[], annotations: unknown): void {
+export function applyNotes(questions: ConvQuestion[], annotations: unknown): void {
   if (!annotations || typeof annotations !== "object") return;
   const map = annotations as Record<string, any>;
   const byTrimmed = new Map<string, any>();
@@ -688,7 +688,7 @@ function applyNotes(questions: ConvQuestion[], annotations: unknown): void {
   }
 }
 
-function extractTodos(input: any): ConvTodo[] {
+export function extractTodos(input: any): ConvTodo[] {
   const todos = input && Array.isArray(input.todos)
     ? input.todos
     : input && Array.isArray(input.plan)
@@ -713,7 +713,7 @@ function userText(content: unknown): string {
   return "";
 }
 
-function resultText(content: unknown): string | undefined {
+export function resultText(content: unknown): string | undefined {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const joined = content
@@ -745,7 +745,7 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function clip(text: string, max: number): string {
+export function clip(text: string, max: number): string {
   const t = text.trim();
   return t.length > max ? t.slice(0, max) + "…" : t;
 }

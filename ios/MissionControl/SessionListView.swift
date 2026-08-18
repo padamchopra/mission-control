@@ -76,6 +76,8 @@ struct SessionListView: View {
                 store.addOrUpdate(url: config.url, token: config.token)
             } else if url.host == "session", let name = url.pathComponents.dropFirst().first {
                 path = [name]
+            } else if url.host == "chat", let id = url.pathComponents.dropFirst().first {
+                router.openChat = id
             }
         }
         .onChange(of: router.openSession) { _, session in

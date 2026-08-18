@@ -1,48 +1,5 @@
 import SwiftUI
 
-// Whether the feed is scrolled to its end, measured against the viewport height
-// below. Reported by the content container — not by a sentinel row, which the
-// LazyVStack unmounts once it leaves the render window, reporting "at bottom"
-// exactly when the user is furthest from it. Publishing the verdict rather than a
-// raw offset also keeps scrolling off the state-write path: it changes on
-// crossings, not on every frame.
-private struct AtBottomKey: PreferenceKey {
-    static var defaultValue = true
-    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = nextValue() }
-}
-
-private struct ViewportHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-/// Three dots that pulse in sequence — a lightweight "thinking" animation that
-/// reads as activity even before the agent produces any output.
-private struct TypingIndicator: View {
-    @State private var animating = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    #if targetEnvironment(macCatalyst)
-                    .fill(FlightDeckPalette.green)
-                    #else
-                    .fill(Color(red: 0.42, green: 0.71, blue: 1.0))
-                    #endif
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(animating ? 1.0 : 0.5)
-                    .opacity(animating ? 1.0 : 0.35)
-                    .animation(
-                        .easeInOut(duration: 0.6).repeatForever().delay(Double(index) * 0.2),
-                        value: animating
-                    )
-            }
-        }
-        .onAppear { animating = true }
-    }
-}
-
 /// A native, phone-friendly rendering of an agent transcript:
 /// user prompts, assistant text, collapsible reasoning, tool calls with inline
 /// diffs/output, and the live plan. It polls the server the same way the
@@ -77,10 +34,6 @@ struct ConversationView: View {
     private static let verbColor = MobileFlightDeckPalette.green
     #endif
     private static let scrollSpace = "convScroll"
-    // How far off the end still counts as "at bottom": enough that the button
-    // doesn't flash while the feed settles, small enough that one scrolled-off
-    // message brings it back.
-    private static let bottomSlack: CGFloat = 60
     private var agent: AgentKind { conversation?.agent ?? .claude }
 
     var body: some View {
@@ -169,7 +122,7 @@ struct ConversationView: View {
                             row(entry).id(entry.id)
                         }
                         if conversation.state == "working" {
-                            workingRow(conversation.action).id("WORKING")
+                            ConversationWorkingRow(action: conversation.action).id("WORKING")
                         }
                         if let activeQuestion = conversation.activeQuestion {
                             activeQuestionRow(activeQuestion).id("QUESTION-\(activeQuestion.requestId)")
@@ -197,19 +150,19 @@ struct ConversationView: View {
                     // means the user has scrolled up.
                     .background(GeometryReader { geo in
                         Color.clear.preference(
-                            key: AtBottomKey.self,
+                            key: ConversationAtBottomKey.self,
                             value: viewportHeight <= 0
-                                || geo.frame(in: .named(Self.scrollSpace)).maxY <= viewportHeight + Self.bottomSlack
+                                || geo.frame(in: .named(Self.scrollSpace)).maxY <= viewportHeight + conversationBottomSlack
                         )
                     })
                 }
                 .coordinateSpace(name: Self.scrollSpace)
                 .scrollDismissesKeyboard(.interactively)
                 .background(GeometryReader { geo in
-                    Color.clear.preference(key: ViewportHeightKey.self, value: geo.size.height)
+                    Color.clear.preference(key: ConversationViewportHeightKey.self, value: geo.size.height)
                 })
-                .onPreferenceChange(AtBottomKey.self) { isAtBottom = $0 }
-                .onPreferenceChange(ViewportHeightKey.self) { viewportHeight = $0 }
+                .onPreferenceChange(ConversationAtBottomKey.self) { isAtBottom = $0 }
+                .onPreferenceChange(ConversationViewportHeightKey.self) { viewportHeight = $0 }
                 .onChange(of: conversation.entries.count) { _, _ in
                     // Don't yank the user down while they're reading history; the
                     // jump button is there for that. Only follow new content when
@@ -456,48 +409,8 @@ struct ConversationView: View {
         }
     }
 
-    @ViewBuilder
     private func row(_ entry: ConversationEntry) -> some View {
-        switch entry.kind {
-        case "user": userRow(entry.text ?? "")
-        case "assistant": assistantRow(entry.text ?? "")
-        case "thinking": thinkingRow(entry)
-        case "tool":
-            if let questions = entry.questions, !questions.isEmpty {
-                questionRow(entry, questions)
-            } else {
-                toolRow(entry)
-            }
-        default: EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private func userRow(_ text: String) -> some View {
-        #if targetEnvironment(macCatalyst)
-        HStack {
-            Spacer(minLength: 52)
-            Text(text)
-                .font(.flightSans(11))
-                .foregroundStyle(FlightDeckPalette.text)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(FlightDeckPalette.raised)
-                .overlay(Rectangle().stroke(FlightDeckPalette.amber.opacity(0.55)))
-                .textSelection(.enabled)
-        }
-        #else
-        HStack {
-            Spacer(minLength: 44)
-            Text(text)
-                .font(.callout)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 9)
-                .background(Self.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                .textSelection(.enabled)
-        }
-        #endif
+        ConversationEntryRow(entry: entry, expanded: $expanded)
     }
 
     // The pane's question, parsed into the same card an answered one gets — and
@@ -538,11 +451,13 @@ struct ConversationView: View {
                     .textSelection(.enabled)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                        optionRow(
-                            option,
+                        ConversationOptionRow(
+                            option: option,
                             number: index + 1,
                             id: "PROMPT-o\(index)",
+                            expanded: $expanded,
                             live: true,
+                            disabled: acting,
                             onChoose: { choose(index, label: option.label) }
                         )
                     }
@@ -577,157 +492,16 @@ struct ConversationView: View {
     /// the blocking hook by request id, so selections work even though no
     /// terminal dialog has been rendered yet.
     private func activeQuestionRow(_ request: ActiveQuestionRequest) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 7) {
-                Image(systemName: "questionmark.bubble.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.orange)
-                Text("Waiting on you")
-                    .font(.system(.caption, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.orange)
-                Spacer(minLength: 4)
-                Text(request.questions.count == 1 ? "QUESTION" : "\(request.questions.count) QUESTIONS")
-                    .font(.caption2.monospaced().weight(.semibold))
-                    .foregroundStyle(Color(white: 0.45))
-            }
-
-            ForEach(Array(request.questions.enumerated()), id: \.offset) { index, question in
-                structuredQuestion(question, number: request.questions.count > 1 ? index + 1 : nil)
-            }
-
-            Button {
-                submit(request)
-            } label: {
-                HStack(spacing: 7) {
-                    if acting { ProgressView().controlSize(.small) }
-                    Text("Submit answer")
-                        .font(.callout.weight(.semibold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.orange)
-            .disabled(acting || answers(for: request) == nil)
-        }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+        ConversationQuestionPrompt(
+            questions: request.questions,
+            selections: $questionSelections,
+            customAnswers: $questionCustomAnswers,
+            submitting: acting,
+            onSubmit: { answers in submit(request, answers: answers) }
         )
     }
 
-    private func structuredQuestion(_ question: ConversationQuestion, number: Int?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let header = question.header, !header.isEmpty {
-                Text(number.map { "\($0). \(header.uppercased())" } ?? header.uppercased())
-                    .font(.caption2.weight(.bold))
-                    .kerning(0.6)
-                    .foregroundStyle(Color(white: 0.5))
-            }
-            Text(question.question)
-                .font(.callout)
-                .foregroundStyle(Color(white: 0.9))
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            ForEach(Array(question.options.enumerated()), id: \.offset) { _, option in
-                structuredOption(option, question: question)
-            }
-
-            TextField(
-                question.multiSelect == true ? "Or type another answer" : "Type another answer",
-                text: customAnswerBinding(question.question)
-            )
-            .textFieldStyle(.roundedBorder)
-            .font(.callout)
-
-            if question.multiSelect == true {
-                Text("Select one or more options.")
-                    .font(.caption2)
-                    .foregroundStyle(Color(white: 0.45))
-            }
-        }
-    }
-
-    private func structuredOption(
-        _ option: ConversationQuestionOption,
-        question: ConversationQuestion
-    ) -> some View {
-        let selected = questionSelections[question.question]?.contains(option.label) == true
-        return Button {
-            var selections = questionSelections[question.question] ?? []
-            if question.multiSelect == true {
-                if selected { selections.remove(option.label) } else { selections.insert(option.label) }
-            } else {
-                selections = [option.label]
-            }
-            questionSelections[question.question] = selections
-            questionCustomAnswers[question.question] = ""
-        } label: {
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: selected
-                    ? (question.multiSelect == true ? "checkmark.square.fill" : "largecircle.fill.circle")
-                    : (question.multiSelect == true ? "square" : "circle"))
-                    .foregroundStyle(selected ? Color.orange : Color(white: 0.5))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(option.label)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(Color(white: 0.9))
-                    if let description = option.description, !description.isEmpty {
-                        Text(description)
-                            .font(.caption)
-                            .foregroundStyle(Color(white: 0.55))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? Color.orange.opacity(0.12) : Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? Color.orange.opacity(0.55) : Color.white.opacity(0.08))
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func customAnswerBinding(_ question: String) -> Binding<String> {
-        Binding(
-            get: { questionCustomAnswers[question] ?? "" },
-            set: { value in
-                questionCustomAnswers[question] = value
-                if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    questionSelections[question] = []
-                }
-            }
-        )
-    }
-
-    private func answers(for request: ActiveQuestionRequest) -> [String: String]? {
-        var answers: [String: String] = [:]
-        for question in request.questions {
-            let custom = (questionCustomAnswers[question.question] ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !custom.isEmpty {
-                answers[question.question] = custom
-                continue
-            }
-            let selected = question.options.compactMap { option in
-                questionSelections[question.question]?.contains(option.label) == true ? option.label : nil
-            }
-            guard !selected.isEmpty else { return nil }
-            answers[question.question] = selected.joined(separator: ", ")
-        }
-        return answers
-    }
-
-    private func submit(_ request: ActiveQuestionRequest) {
-        guard let answers = answers(for: request) else { return }
+    private func submit(_ request: ActiveQuestionRequest, answers: [String: String]) {
         act("Answered \(sessionName)") { api in
             try await api.answerQuestion(sessionName, requestId: request.requestId, answers: answers)
         }
@@ -806,337 +580,6 @@ struct ConversationView: View {
                     .foregroundStyle(Color(white: 0.5))
             }
         }
-    }
-
-    private func assistantRow(_ text: String) -> some View {
-        #if targetEnvironment(macCatalyst)
-        MarkdownText(text: text, color: FlightDeckPalette.text)
-            .font(.flightSans(11))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-        #else
-        MarkdownText(text: text)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-        #endif
-    }
-
-    // Live "Claude is processing" indicator, shown at the tail of the feed while
-    // the session's hook state is `working`. Mirrors the thinking/spinner line
-    // the terminal shows so you know it's busy without switching to the terminal.
-    private func workingRow(_ action: String?) -> some View {
-        HStack(spacing: 10) {
-            TypingIndicator()
-            Text(action?.isEmpty == false ? action! : "Thinking…")
-                .font(.callout)
-                .foregroundStyle(Color(white: 0.6))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 2)
-    }
-
-    private func thinkingRow(_ entry: ConversationEntry) -> some View {
-        let isOpen = expanded.contains(entry.id)
-        return VStack(alignment: .leading, spacing: 5) {
-            Button { toggle(entry.id) } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "brain")
-                    Text("Reasoning")
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").font(.system(size: 9))
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(white: 0.5))
-            }
-            .buttonStyle(.plain)
-            Text(entry.text ?? "")
-                .font(.caption)
-                .foregroundStyle(Color(white: 0.55))
-                .lineLimit(isOpen ? nil : 2)
-                .textSelection(.enabled)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func toolRow(_ entry: ConversationEntry) -> some View {
-        let isOpen = expanded.contains(entry.id)
-        let hasDetail = (entry.diff?.isEmpty == false) || (entry.output?.isEmpty == false)
-        return VStack(alignment: .leading, spacing: 8) {
-            Button { if hasDetail { toggle(entry.id) } } label: {
-                HStack(spacing: 8) {
-                    statusIcon(entry.status)
-                    Text(entry.verb ?? entry.tool ?? "Tool")
-                        .font(.system(.caption, design: .monospaced).weight(.semibold))
-                        .foregroundStyle(Self.verbColor)
-                    if let arg = entry.arg, !arg.isEmpty {
-                        Text(arg)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Color(white: 0.6))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 4)
-                    if hasDetail {
-                        Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color(white: 0.45))
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-            }
-            .buttonStyle(.plain)
-
-            if isOpen {
-                if let diff = entry.diff, !diff.isEmpty {
-                    diffView(file: entry.file, diff: diff)
-                }
-                if let output = entry.output, !output.isEmpty {
-                    Text(output)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.6))
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 9))
-                        .textSelection(.enabled)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // AskUserQuestion: Claude asked the user something. Rendered as an always-open
-    // card — the questions, their options, and which one the user picked (or the
-    // free-text answer they typed instead).
-    private func questionRow(_ entry: ConversationEntry, _ questions: [ConversationQuestion]) -> some View {
-        let answered = entry.status == "ok"
-        return VStack(alignment: .leading, spacing: 13) {
-            HStack(spacing: 7) {
-                Image(systemName: "questionmark.bubble.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Self.verbColor)
-                Text("Asked you")
-                    .font(.system(.caption, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(Self.verbColor)
-                Spacer(minLength: 4)
-                if answered {
-                    Label("answered", systemImage: "checkmark")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.green)
-                } else {
-                    Label("waiting", systemImage: "clock")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange)
-                }
-            }
-            ForEach(Array(questions.enumerated()), id: \.offset) { index, question in
-                questionBlock(question, id: "\(entry.id)-q\(index)")
-            }
-        }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-
-    private func questionBlock(_ question: ConversationQuestion, id: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                if let header = question.header, !header.isEmpty {
-                    Text(header.uppercased())
-                        .font(.caption2.weight(.bold))
-                        .kerning(0.6)
-                        .foregroundStyle(Color(white: 0.5))
-                }
-                if question.multiSelect == true {
-                    Text("pick any")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color(white: 0.45))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color(white: 0.18), in: Capsule())
-                }
-            }
-            Text(question.question)
-                .font(.callout)
-                .foregroundStyle(Color(white: 0.9))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                    optionRow(option, number: index + 1, id: "\(id)-o\(index)")
-                }
-                if let answer = question.answer, !answer.isEmpty {
-                    freeAnswerRow(answer)
-                }
-                if let notes = question.notes, !notes.isEmpty {
-                    freeAnswerRow(notes, title: "Your notes")
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func optionRow(
-        _ option: ConversationQuestionOption,
-        number: Int,
-        id: String,
-        live: Bool = false,
-        onChoose: (() -> Void)? = nil
-    ) -> some View {
-        let selected = option.selected == true
-        let hasPreview = option.preview?.isEmpty == false
-        let isOpen = expanded.contains(id)
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .top, spacing: 9) {
-                // The preview toggle is its own control, so only the label area
-                // takes the tap — nesting buttons would swallow one of them.
-                if let onChoose {
-                    Button(action: onChoose) {
-                        optionLabel(option, number: number, selected: selected, live: live)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(acting)
-                } else {
-                    optionLabel(option, number: number, selected: selected, live: live)
-                }
-                Spacer(minLength: 0)
-                if hasPreview {
-                    Button { toggle(id) } label: {
-                        HStack(spacing: 3) {
-                            Text(isOpen ? "Hide" : "Preview")
-                            Image(systemName: isOpen ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 8))
-                        }
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Self.verbColor)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            // Collapsed by default: a preview is often a full file draft, and
-            // three of them expanded would bury the question itself.
-            if isOpen, let preview = option.preview {
-                Text(preview)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.72))
-                    .textSelection(.enabled)
-                    .padding(9)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
-            }
-        }
-        .padding(9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selected ? Self.accent.opacity(0.14) : Color(white: 0.07),
-                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(selected ? Self.accent.opacity(0.55) : Color.clear, lineWidth: 1)
-        )
-    }
-
-    // `selected` means two different things: the option the user picked, on an
-    // answered question, and the row the cursor sits on, in a live one. Same
-    // highlight, different glyph, so neither reads as the other.
-    private func optionLabel(
-        _ option: ConversationQuestionOption,
-        number: Int,
-        selected: Bool,
-        live: Bool
-    ) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: live
-                  ? (selected ? "chevron.right.circle.fill" : "circle")
-                  : (selected ? "checkmark.circle.fill" : "circle"))
-                .font(.system(size: 14))
-                .foregroundStyle(selected ? Self.accent : Color(white: 0.3))
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
-                // Numbered to match the terminal's own list, so "option 2"
-                // means the same thing in both places.
-                Text("\(number). \(option.label)")
-                    .font(.caption.weight(selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? .white : Color(white: 0.75))
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let description = option.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption2)
-                        .foregroundStyle(Color(white: 0.5))
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    private func freeAnswerRow(_ answer: String, title: String = "Your answer") -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14))
-                .foregroundStyle(Self.accent)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color(white: 0.5))
-                Text(answer)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .textSelection(.enabled)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Self.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(Self.accent.opacity(0.55), lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
-    private func statusIcon(_ status: String?) -> some View {
-        switch status {
-        case "ok":
-            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.green)
-        case "error":
-            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.red)
-        default:
-            Image(systemName: "circle").font(.system(size: 7)).foregroundStyle(Color(white: 0.4))
-        }
-    }
-
-    private func diffView(file: String?, diff: [ConversationDiffLine]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let file, !file.isEmpty {
-                Text(basename(file))
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.5))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(white: 0.12))
-            }
-            ForEach(Array(diff.enumerated()), id: \.offset) { _, line in
-                Text(diffPrefix(line.kind) + line.text)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(diffColor(line.kind))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 1)
-                    .background(diffBackground(line.kind))
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color(white: 0.18)))
     }
 
     // The plan, pinned above the scrolling feed so progress stays glanceable no
@@ -1424,33 +867,5 @@ struct ConversationView: View {
 
     private func toggle(_ id: String) {
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
-    }
-
-    private func basename(_ path: String) -> String {
-        path.split(separator: "/").last.map(String.init) ?? path
-    }
-
-    private func diffPrefix(_ kind: String) -> String {
-        switch kind {
-        case "add": return "+ "
-        case "del": return "- "
-        default: return "  "
-        }
-    }
-
-    private func diffColor(_ kind: String) -> Color {
-        switch kind {
-        case "add": return Color(red: 0.6, green: 0.91, blue: 0.69)
-        case "del": return Color(red: 1.0, green: 0.6, blue: 0.58)
-        default: return Color(white: 0.45)
-        }
-    }
-
-    private func diffBackground(_ kind: String) -> Color {
-        switch kind {
-        case "add": return Color.green.opacity(0.13)
-        case "del": return Color.red.opacity(0.13)
-        default: return Color.clear
-        }
     }
 }

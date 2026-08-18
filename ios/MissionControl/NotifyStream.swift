@@ -102,6 +102,15 @@ final class NotifyStreamManager: NSObject {
             if let push = try? JSONDecoder().decode(QuickRepliesPush.self, from: data) {
                 await QuickRepliesStore.shared.applyPushed(push.replies, for: server)
             }
+        // A chat's feed and state, patched as the turn happens. This is the only
+        // way a chat updates live: the server owns the Claude process, so there
+        // is nothing for the client to poll faster than it can be told.
+        case "chat":
+            if let push = try? JSONDecoder().decode(ChatPushPayload.self, from: data) {
+                await PushChannel.shared.emit(push.event(from: server))
+            }
+        case "chats":
+            await PushChannel.shared.emitChatListChange(server.url)
         default:
             guard presentsNotifications else { return }
             if let event = try? JSONDecoder().decode(NotifyEvent.self, from: data) {
@@ -123,7 +132,7 @@ final class NotifyStreamManager: NSObject {
         content.title = event.title
         content.body = event.message
         content.sound = event.highPriority ? .default : nil
-        content.userInfo = ["session": event.session]
+        content.userInfo = ["session": event.session, "click": event.click ?? ""]
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }
@@ -134,6 +143,9 @@ struct NotifyEvent: Codable {
     let title: String
     let message: String
     let highPriority: Bool
+    /// Where tapping should land, when it isn't a tmux session — a chat sets
+    /// `missioncontrol://chat/<id>`.
+    var click: String?
 }
 
 /// One session's hook-driven state, pushed the instant it changes. Mirrors the
@@ -149,6 +161,26 @@ struct SessionPush {
     let interactionRequestId: String?
 }
 
+/// One chat's feed and state, pushed as Claude works. A push that carries
+/// `state` carries the whole scalar set, so a nil `approval` there means the
+/// request was answered rather than "no news".
+struct ChatPush {
+    let serverURL: String
+    let chatId: String
+    var entries: [ConversationEntry]?
+    var removed: [String]?
+    var state: ChatState?
+    var action: String?
+    var approval: ChatApproval?
+    var question: ChatQuestionRequest?
+    var todos: [ConversationTodo]?
+    var context: ContextUsage?
+    var title: String?
+    var live: Bool?
+    var error: String?
+    var updatedAt: TimeInterval?
+}
+
 /// Where live updates surface for the rest of the app. Views subscribe to the
 /// subjects to repaint immediately, and read `isLive` to decide how hard to
 /// poll: a server that pushes needs only a slow safety net, while one that
@@ -159,6 +191,8 @@ final class PushChannel: ObservableObject {
 
     let sessionUpdates = PassthroughSubject<SessionPush, Never>()
     let sessionListChanges = PassthroughSubject<String, Never>()
+    let chatUpdates = PassthroughSubject<ChatPush, Never>()
+    let chatListChanges = PassthroughSubject<String, Never>()
     @Published private(set) var liveServers: Set<String> = []
 
     private init() {}
@@ -172,6 +206,10 @@ final class PushChannel: ObservableObject {
     func emit(_ push: SessionPush) { sessionUpdates.send(push) }
 
     func emitSessionListChange(_ serverURL: String) { sessionListChanges.send(serverURL) }
+
+    func emit(_ push: ChatPush) { chatUpdates.send(push) }
+
+    func emitChatListChange(_ serverURL: String) { chatListChanges.send(serverURL) }
 }
 
 // Just enough to tell notify-stream message kinds apart before fully decoding.
@@ -204,4 +242,39 @@ private struct SessionPushPayload: Decodable {
 
 private struct QuickRepliesPush: Decodable {
     let replies: [String]
+}
+
+private struct ChatPushPayload: Decodable {
+    let chatId: String
+    var entries: [ConversationEntry]?
+    var removed: [String]?
+    var state: ChatState?
+    var action: String?
+    var approval: ChatApproval?
+    var question: ChatQuestionRequest?
+    var todos: [ConversationTodo]?
+    var context: ContextUsage?
+    var title: String?
+    var live: Bool?
+    var error: String?
+    var updatedAt: TimeInterval?
+
+    func event(from server: Server) -> ChatPush {
+        ChatPush(
+            serverURL: server.url,
+            chatId: chatId,
+            entries: entries,
+            removed: removed,
+            state: state,
+            action: action,
+            approval: approval,
+            question: question,
+            todos: todos,
+            context: context,
+            title: title,
+            live: live,
+            error: error,
+            updatedAt: updatedAt
+        )
+    }
 }

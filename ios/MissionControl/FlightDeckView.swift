@@ -308,6 +308,7 @@ private final class FlightDeckStore: ObservableObject {
 private enum FlightDeckSection: String, CaseIterable, Identifiable {
     case inbox
     case commandCenter
+    case chats
     case workspaces
     case pullRequests
     case loops
@@ -317,6 +318,7 @@ private enum FlightDeckSection: String, CaseIterable, Identifiable {
         switch self {
         case .inbox: return "Inbox"
         case .commandCenter: return "Command center"
+        case .chats: return "Chats"
         case .workspaces: return "Workspaces"
         case .pullRequests: return "Pull requests"
         case .loops: return "Loops"
@@ -326,6 +328,7 @@ private enum FlightDeckSection: String, CaseIterable, Identifiable {
         switch self {
         case .inbox: return "IN"
         case .commandCenter: return "CC"
+        case .chats: return "CH"
         case .workspaces: return "WS"
         case .pullRequests: return "PR"
         case .loops: return "LP"
@@ -393,6 +396,7 @@ struct FlightDeckView: View {
     @State private var selectedWorkspaceID: String?
     @State private var selectedLoopID: String?
     @State private var selectedPullRequestID: String?
+    @State private var selectedChatID: String?
     @State private var selectedInboxItemID: String?
     @State private var selectedArchiveID: String?
     @State private var showingArchives = false
@@ -491,6 +495,16 @@ struct FlightDeckView: View {
                   let agent = deck.agents.first(where: { $0.session.name == sessionName }) else { return }
             select(agent)
             router.openSession = nil
+        }
+        // A chat notification tapped in a Mac banner opens the chat itself; the
+        // list beside it is already showing every other one.
+        .onChange(of: router.openChat) { _, id in
+            guard let id else { return }
+            section = .chats
+            showingArchives = false
+            showConnections = false
+            selectedChatID = id
+            router.openChat = nil
         }
         .onChange(of: router.isCommandPalettePresented) { _, presented in
             if presented {
@@ -898,12 +912,40 @@ struct FlightDeckView: View {
                 inboxView(inspectorWidth: inspectorWidth)
             case .commandCenter:
                 commandCenter(inboxOnly: false, inspectorWidth: inspectorWidth)
+            case .chats:
+                chatsView
             case .workspaces:
                 workspacesView
             case .pullRequests:
                 pullRequestsView
             case .loops:
                 loopsView
+            }
+        }
+    }
+
+    /// Chats the server runs itself, list beside feed. The phone stacks these
+    /// two; a Mac has the room to keep both.
+    private var chatsView: some View {
+        HStack(spacing: 0) {
+            ChatListView(selection: $selectedChatID)
+                .frame(width: 360)
+            Rectangle().fill(FlightDeckPalette.border).frame(width: 1)
+            if let selectedChatID {
+                ChatView(chatID: selectedChatID)
+                    .id(selectedChatID)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("NO CHAT SELECTED")
+                        .font(.flightMono(8, weight: .bold))
+                        .foregroundStyle(FlightDeckPalette.warm)
+                    Text("Pick a chat, or start one against any repository on a connected Mac.")
+                        .font(.flightSans(12))
+                        .foregroundStyle(FlightDeckPalette.secondary)
+                }
+                .padding(28)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(FlightDeckPalette.background)
             }
         }
     }

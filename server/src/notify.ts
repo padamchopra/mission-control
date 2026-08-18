@@ -7,6 +7,9 @@ export interface NotifyEvent {
   title: string;
   message: string;
   highPriority: boolean;
+  /// Where tapping the push should land. Defaults to the session deep link;
+  /// chats set their own, since they have no tmux session behind them.
+  click?: string;
 }
 
 const THROTTLE_MS = 5 * 60_000;
@@ -123,7 +126,7 @@ async function sendNtfy(evt: NotifyEvent): Promise<void> {
       method: "POST",
       headers: {
         Title: sanitizeHeader(evt.title),
-        Click: `missioncontrol://session/${encodeURIComponent(evt.session)}`,
+        Click: evt.click ?? `missioncontrol://session/${encodeURIComponent(evt.session)}`,
         Priority: evt.highPriority ? "high" : "default",
         Tags: evt.highPriority ? "bell" : "white_check_mark",
       },

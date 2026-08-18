@@ -4,6 +4,19 @@ import { WebSocketServer } from "ws";
 import { config } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
+import {
+  createChat,
+  deleteChat,
+  getChat,
+  interruptChat,
+  listChats,
+  respondToApproval,
+  respondToQuestion,
+  sendChatMessage,
+  stopChat,
+  chatCwd,
+  updateChat,
+} from "./chat.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, pushSession, pushSessionList } from "./notify.js";
@@ -239,6 +252,131 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "repository and pull request number are required" });
       }
       return json(res, 200, { timeline: await pullRequestTimeline(repository, number) });
+    }
+
+    // Chats are Mission Control's own Claude conversations: the server drives
+    // the Agent SDK, so unlike a tmux session there is no terminal to fall back
+    // to and every interaction — messages, approvals, questions — lands here.
+    if (req.method === "GET" && url.pathname === "/chats") {
+      return json(res, 200, { chats: listChats() });
+    }
+    if (req.method === "POST" && url.pathname === "/chats") {
+      const body = await readJson(req);
+      try {
+        return json(res, 200, { chat: createChat({
+          cwd: String(body.cwd ?? ""),
+          title: typeof body.title === "string" ? body.title : undefined,
+          model: typeof body.model === "string" && body.model ? body.model : undefined,
+          permissionMode: body.permissionMode,
+        }) });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not create the chat" });
+      }
+    }
+    if (parts[0] === "chats" && parts[1]) {
+      const id = decodeURIComponent(parts[1]);
+      if (req.method === "GET" && parts.length === 2) {
+        const chat = getChat(id);
+        return chat ? json(res, 200, chat) : json(res, 404, { error: "no such chat" });
+      }
+      if (req.method === "PATCH" && parts.length === 2) {
+        const body = await readJson(req);
+        try {
+          return json(res, 200, { chat: updateChat(id, {
+            title: typeof body.title === "string" ? body.title : undefined,
+            model: body.model === null ? null : typeof body.model === "string" ? body.model : undefined,
+            permissionMode: body.permissionMode,
+          }) });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
+      if (req.method === "DELETE" && parts.length === 2) {
+        try {
+          deleteChat(id);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "message") {
+        const body = await readJson(req);
+        try {
+          await sendChatMessage(id, String(body.text ?? ""));
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 409, { error: (error as Error).message || "could not send the message" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "interrupt") {
+        try {
+          await interruptChat(id);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "stop") {
+        try {
+          stopChat(id);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
+      // Approvals and questions are answered by request id, so a card left open
+      // on a second device refuses instead of answering the next prompt.
+      if (req.method === "POST" && parts[2] === "approval") {
+        const body = await readJson(req);
+        const decision = String(body.decision ?? "");
+        if (decision !== "allow" && decision !== "allowAlways" && decision !== "deny") {
+          return json(res, 400, { error: "decision must be allow, allowAlways, or deny" });
+        }
+        try {
+          respondToApproval(id, String(body.requestId ?? ""), decision);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 409, { error: (error as Error).message || "that request is no longer waiting" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "question") {
+        const body = await readJson(req);
+        const answers = body.answers && typeof body.answers === "object" ? body.answers as Record<string, unknown> : {};
+        try {
+          respondToQuestion(id, String(body.requestId ?? ""), answers);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 409, { error: (error as Error).message || "that question is no longer waiting" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "upload") {
+        const filename = String(req.headers["x-filename"] ?? "upload.bin");
+        const data = await readRawBody(req, MAX_UPLOAD_BYTES);
+        try {
+          // Resolve the chat first, so an upload can only ever land under an id
+          // the server itself minted.
+          chatCwd(id);
+          return json(res, 200, { path: saveUpload(`chat-${id}`, filename, data) });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
+      // The composer's @file and /skill pickers, resolved against the chat's
+      // own directory rather than a tmux pane's.
+      if (req.method === "GET" && parts[2] === "files") {
+        try {
+          return json(res, 200, { files: await findProjectFiles(chatCwd(id), url.searchParams.get("q") ?? "") });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
+      if (req.method === "GET" && parts[2] === "skills") {
+        try {
+          return json(res, 200, { skills: await findSkills(chatCwd(id), url.searchParams.get("q") ?? "") });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
     }
 
     if (req.method === "GET" && url.pathname === "/sessions") {

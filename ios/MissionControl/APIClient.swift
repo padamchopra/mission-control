@@ -87,6 +87,120 @@ struct APIClient {
         )
     }
 
+    // MARK: - Chats
+
+    /// Every chat on this server, newest activity first.
+    func chats() async throws -> [ChatSummary] {
+        let data = try await request("GET", "chats", timeout: 20)
+        return try JSONDecoder().decode(ChatsResponse.self, from: data).chats
+    }
+
+    func chat(_ id: String) async throws -> ChatDetail {
+        let data = try await request("GET", "chats/\(id)", timeout: 20)
+        return try JSONDecoder().decode(ChatDetail.self, from: data)
+    }
+
+    @discardableResult
+    func createChat(
+        cwd: String,
+        title: String?,
+        model: String?,
+        permissionMode: ChatPermissionMode
+    ) async throws -> ChatSummary {
+        var payload: [String: Any] = ["cwd": cwd, "permissionMode": permissionMode.rawValue]
+        if let title, !title.isEmpty { payload["title"] = title }
+        if let model, !model.isEmpty { payload["model"] = model }
+        let data = try await request("POST", "chats", body: payload, timeout: 30)
+        return try JSONDecoder().decode(ChatResponse.self, from: data).chat
+    }
+
+    @discardableResult
+    func updateChat(
+        _ id: String,
+        title: String? = nil,
+        model: String?? = nil,
+        permissionMode: ChatPermissionMode? = nil
+    ) async throws -> ChatSummary {
+        var payload: [String: Any] = [:]
+        if let title { payload["title"] = title }
+        // Double optional: `.some(nil)` clears the model back to the account
+        // default, while omitting it leaves the current choice alone.
+        if let model {
+            payload["model"] = model.map { $0 as Any } ?? NSNull()
+        }
+        if let permissionMode { payload["permissionMode"] = permissionMode.rawValue }
+        let data = try await request("PATCH", "chats/\(id)", body: payload)
+        return try JSONDecoder().decode(ChatResponse.self, from: data).chat
+    }
+
+    func sendChatMessage(_ id: String, text: String) async throws {
+        _ = try await request("POST", "chats/\(id)/message", body: ["text": text], timeout: 30)
+    }
+
+    func interruptChat(_ id: String) async throws {
+        _ = try await request("POST", "chats/\(id)/interrupt", timeout: 20)
+    }
+
+    /// Retires the Claude process without losing the chat: the next message
+    /// resumes the same conversation.
+    func stopChat(_ id: String) async throws {
+        _ = try await request("POST", "chats/\(id)/stop")
+    }
+
+    /// Answers a parked tool request by id, so a card left open on another
+    /// device refuses rather than approving whatever came next.
+    func respondToChatApproval(_ id: String, requestId: String, decision: String) async throws {
+        _ = try await request(
+            "POST",
+            "chats/\(id)/approval",
+            body: ["requestId": requestId, "decision": decision]
+        )
+    }
+
+    func answerChatQuestion(_ id: String, requestId: String, answers: [String: String]) async throws {
+        _ = try await request(
+            "POST",
+            "chats/\(id)/question",
+            body: ["requestId": requestId, "answers": answers]
+        )
+    }
+
+    func deleteChat(_ id: String) async throws {
+        _ = try await request("DELETE", "chats/\(id)")
+    }
+
+    func chatFiles(_ id: String, matching query: String) async throws -> [FileSuggestion] {
+        let data = try await request(
+            "GET",
+            "chats/\(id)/files",
+            query: [URLQueryItem(name: "q", value: query)]
+        )
+        return try JSONDecoder().decode(FileSuggestionsResponse.self, from: data).files
+    }
+
+    func chatSkills(_ id: String, matching query: String) async throws -> [SkillSuggestion] {
+        let data = try await request(
+            "GET",
+            "chats/\(id)/skills",
+            query: [URLQueryItem(name: "q", value: query)]
+        )
+        return try JSONDecoder().decode(SkillSuggestionsResponse.self, from: data).skills
+    }
+
+    func uploadToChat(_ id: String, data payload: Data, filename: String, contentType: String) async throws -> String {
+        var request = URLRequest(url: baseURL.appendingPathComponent("chats/\(id)/upload"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue(filename, forHTTPHeaderField: "X-Filename")
+        let (data, response) = try await URLSession.shared.upload(for: request, from: payload)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APIError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        return try JSONDecoder().decode(UploadResponse.self, from: data).path
+    }
+
     func snapshot(_ session: String, lines: Int = 1_200) async throws -> String {
         let data = try await request(
             "GET",

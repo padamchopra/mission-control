@@ -31,6 +31,7 @@ extension Font {
 
 private enum MobileDeckTab: String, CaseIterable, Identifiable {
     case command
+    case chat
     case inbox
     case workspaces
     case loops
@@ -40,6 +41,7 @@ private enum MobileDeckTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .command: return "slider.horizontal.3"
+        case .chat: return "bubble.left.and.bubble.right"
         case .inbox: return "tray"
         case .workspaces: return "folder"
         case .loops: return "arrow.trianglehead.2.clockwise.rotate.90"
@@ -58,6 +60,7 @@ struct MobileFlightDeckView: View {
 
     @ObservedObject private var servers = ServerStore.shared
     @ObservedObject private var inbox = InboxStore.shared
+    @ObservedObject private var chats = ChatStore.shared
     @EnvironmentObject private var router: AppRouter
 
     @State private var selectedTab: MobileDeckTab = .command
@@ -110,6 +113,10 @@ struct MobileFlightDeckView: View {
         .task(id: servers.activeID) { await loadSupplementaryData(refresh: false) }
         .onReceive(PushChannel.shared.sessionListChanges) { _ in
             Task { await loadSupplementaryData(refresh: false) }
+        }
+        // A chat opened from a push has to bring its tab with it.
+        .onChange(of: router.openChat) { _, id in
+            if id != nil { selectedTab = .chat }
         }
         .sheet(isPresented: $showCommandMenu) {
             MobileCommandMenu(
@@ -260,12 +267,18 @@ struct MobileFlightDeckView: View {
                 .accessibilityLabel("Mission Control menu")
             }
 
-            Text(selectedTab == .command ? "Command Center" : selectedTab.title)
+            Text(headerTitle)
                 .font(.mobileDeckSans(28, weight: .bold))
                 .tracking(-0.7)
 
             if selectedTab == .command {
                 fleetStrip
+            } else if selectedTab == .chat {
+                Text(chats.chats.isEmpty
+                     ? "Claude conversations this Mac runs for you"
+                     : "\(chats.chats.count) chat\(chats.chats.count == 1 ? "" : "s") · \(chats.waitingCount) waiting on you")
+                    .font(.mobileDeckSans(13))
+                    .foregroundStyle(MobileFlightDeckPalette.secondary)
             } else if selectedTab == .inbox {
                 Text("\(inbox.count) decision\(inbox.count == 1 ? "" : "s") need your attention")
                     .font(.mobileDeckSans(13))
@@ -284,6 +297,14 @@ struct MobileFlightDeckView: View {
         .padding(.top, 8)
         .padding(.bottom, 12)
         .background(MobileFlightDeckPalette.background)
+    }
+
+    private var headerTitle: String {
+        switch selectedTab {
+        case .command: return "Command Center"
+        case .chat: return "Chats"
+        default: return selectedTab.title
+        }
     }
 
     private var deviceMenu: some View {
@@ -325,6 +346,8 @@ struct MobileFlightDeckView: View {
         switch selectedTab {
         case .command:
             commandContent
+        case .chat:
+            ChatListView()
         case .inbox:
             inboxContent
         case .workspaces:
@@ -544,6 +567,14 @@ struct MobileFlightDeckView: View {
                     VStack(spacing: 3) {
                         Image(systemName: tab.icon)
                             .font(.mobileDeckSans(15, weight: .medium))
+                            .overlay(alignment: .topTrailing) {
+                                if tab == .chat, chats.waitingCount > 0 {
+                                    Circle()
+                                        .fill(MobileFlightDeckPalette.amber)
+                                        .frame(width: 7, height: 7)
+                                        .offset(x: 5, y: -2)
+                                }
+                            }
                         Text(tab.title)
                             .font(.mobileDeckSans(10, weight: selectedTab == tab ? .semibold : .medium))
                     }
