@@ -69,11 +69,7 @@ struct TerminalScreen: View {
 
     var body: some View {
         content
-        #if targetEnvironment(macCatalyst)
             .background(FlightDeckPalette.background)
-        #else
-            .background(MobileFlightDeckPalette.background)
-        #endif
         .navigationTitle(sessionName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -229,9 +225,9 @@ struct TerminalScreen: View {
                             .autocorrectionDisabled()
                     }
                 } actions: {
-                    Button("CANCEL") { showSaveWorkspace = false }
+                    Button("Cancel") { showSaveWorkspace = false }
                         .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                    Button("SAVE WORKSPACE") {
+                    Button("Save workspace") {
                         showSaveWorkspace = false
                         saveWorkspace()
                     }
@@ -250,9 +246,9 @@ struct TerminalScreen: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 } actions: {
-                    Button("CANCEL") { showRename = false }
+                    Button("Cancel") { showRename = false }
                         .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                    Button("RENAME") {
+                    Button("Rename") {
                         showRename = false
                         rename()
                     }
@@ -281,9 +277,9 @@ struct TerminalScreen: View {
                 ) {
                     EmptyView()
                 } actions: {
-                    Button("CANCEL") { showKillConfirmation = false }
+                    Button("Cancel") { showKillConfirmation = false }
                         .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                    Button("KILL \(sessionName.uppercased())") {
+                    Button("KILL \(sessionName)") {
                         showKillConfirmation = false
                         Task { await killWithCleanup() }
                     }
@@ -299,9 +295,9 @@ struct TerminalScreen: View {
                 ) {
                     EmptyView()
                 } actions: {
-                    Button("CANCEL") { showArchiveConfirmation = false }
+                    Button("Cancel") { showArchiveConfirmation = false }
                         .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                    Button("ARCHIVE \(sessionName.uppercased())") {
+                    Button("ARCHIVE \(sessionName)") {
                         showArchiveConfirmation = false
                         Task { await archiveConversation() }
                     }
@@ -369,8 +365,8 @@ struct TerminalScreen: View {
             Spacer(minLength: 8)
 
             HStack(spacing: 0) {
-                flightModeButton("CONVERSATION", .conversation)
-                flightModeButton("TERMINAL", .terminal)
+                flightModeButton("Conversation", .conversation)
+                flightModeButton("Terminal", .terminal)
             }
             .overlay(Rectangle().stroke(FlightDeckPalette.border))
 
@@ -423,14 +419,14 @@ struct TerminalScreen: View {
 
     private var flightMetadata: String {
         let path = flightPresentation?.panePath ?? "~"
-        let location = URL(fileURLWithPath: path).lastPathComponent.uppercased()
-        let kind = (agent ?? flightPresentation?.agent ?? .shell).displayName.uppercased()
+        let location = URL(fileURLWithPath: path).lastPathComponent
+        let kind = (agent ?? flightPresentation?.agent ?? .shell).displayName
         return "\(location.isEmpty ? "HOME" : location) / LIVE SESSION / \(kind)"
     }
 
     private var flightStripLead: String {
         let kind = agent ?? flightPresentation?.agent ?? .shell
-        return kind == .shell ? "SHELL" : flightStateLabel
+        return kind == .shell ? "Shell" : flightStateLabel
     }
 
     private var flightStripDetail: String {
@@ -489,8 +485,8 @@ struct TerminalScreen: View {
     }
 
     private var mobileSessionMetadata: String {
-        let device = servers.active?.name.uppercased() ?? "DEVICE"
-        let kind = (agent ?? sessionSnapshot?.agent ?? .shell).displayName.uppercased()
+        let device = servers.active?.name ?? "Device"
+        let kind = (agent ?? sessionSnapshot?.agent ?? .shell).displayName
         return "\(device) · \(kind) · \(mobileStateLabel)"
     }
 
@@ -509,7 +505,7 @@ struct TerminalScreen: View {
             mobileModeButton("Terminal", .terminal)
         }
         .padding(3)
-        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(MobileFlightDeckPalette.background)
@@ -522,7 +518,7 @@ struct TerminalScreen: View {
                 .font(.mobileDeckSans(11, weight: mode == target ? .bold : .regular))
                 .foregroundStyle(mode == target ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.secondary)
                 .frame(maxWidth: .infinity, minHeight: 30)
-                .background(mode == target ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                .background(mode == target ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -810,7 +806,7 @@ struct TerminalScreen: View {
                         .font(.callout.weight(.semibold))
                         .buttonStyle(.borderedProminent)
                         .tint(.white)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(MCColor.errorForeground)
                 }
             }
         }
@@ -841,13 +837,8 @@ struct TerminalScreen: View {
             .padding(.horizontal, 12)
             .frame(height: 54)
         }
-        #if targetEnvironment(macCatalyst)
         .background(FlightDeckPalette.surface)
         .overlay(alignment: .top) { Rectangle().fill(FlightDeckPalette.border).frame(height: 1) }
-        #else
-        .background(MobileFlightDeckPalette.surface)
-        .overlay(alignment: .top) { Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1) }
-        #endif
     }
 
     private func quickKey(_ label: String, sends key: String, accent: Bool = false) -> some View {
@@ -870,8 +861,8 @@ struct TerminalScreen: View {
                 .foregroundStyle(accent ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.secondary)
                 .padding(.horizontal, 10)
                 .frame(height: 32)
-                .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent ? MobileFlightDeckPalette.amber.opacity(0.6) : MobileFlightDeckPalette.border))
+                .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous).stroke(accent ? MobileFlightDeckPalette.amber.opacity(0.6) : MobileFlightDeckPalette.border))
             #endif
         }
         .buttonStyle(.plain)

@@ -29,47 +29,25 @@ struct ConversationViewportHeightKey: PreferenceKey {
 /// message brings it back.
 let conversationBottomSlack: CGFloat = 60
 
+/// The feed's own slice of the token set.
+///
+/// Every one of these used to be a `#if targetEnvironment(macCatalyst)` picking
+/// between two palettes that held the same literals — and two of them had
+/// drifted apart in the process, so the identical feed rendered differently on
+/// Mac and iPhone. One token each now, shared by both.
 enum ConversationStyle {
-    static var accent: Color {
-        #if targetEnvironment(macCatalyst)
-        FlightDeckPalette.amber
-        #else
-        MobileFlightDeckPalette.amber
-        #endif
-    }
+    static var accent: Color { MCColor.primary }
 
     /// Tool verbs and other "the agent did something" labels.
-    static var verb: Color {
-        #if targetEnvironment(macCatalyst)
-        FlightDeckPalette.amber
-        #else
-        MobileFlightDeckPalette.green
-        #endif
-    }
+    ///
+    /// Mac drew these in amber and iPhone in green. Resolved to the accent:
+    /// whether the tool succeeded is already carried by the row's status icon,
+    /// so the verb does not need to encode it in colour too.
+    static var verb: Color { MCColor.primary }
 
-    static var background: Color {
-        #if targetEnvironment(macCatalyst)
-        FlightDeckPalette.background
-        #else
-        MobileFlightDeckPalette.background
-        #endif
-    }
-
-    static var surface: Color {
-        #if targetEnvironment(macCatalyst)
-        FlightDeckPalette.surface
-        #else
-        MobileFlightDeckPalette.surface
-        #endif
-    }
-
-    static var border: Color {
-        #if targetEnvironment(macCatalyst)
-        FlightDeckPalette.border
-        #else
-        MobileFlightDeckPalette.border
-        #endif
-    }
+    static var background: Color { MCColor.background }
+    static var surface: Color { MCColor.card }
+    static var border: Color { MCColor.border }
 }
 
 /// Three dots that pulse in sequence — a lightweight "thinking" animation that
@@ -81,11 +59,8 @@ struct ConversationTypingIndicator: View {
         HStack(spacing: 4) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    #if targetEnvironment(macCatalyst)
-                    .fill(FlightDeckPalette.green)
-                    #else
-                    .fill(Color(red: 0.42, green: 0.71, blue: 1.0))
-                    #endif
+                    // Was green on Mac and a hardcoded blue on iPhone.
+                    .fill(MCColor.primary)
                     .frame(width: 6, height: 6)
                     .scaleEffect(animating ? 1.0 : 0.5)
                     .opacity(animating ? 1.0 : 0.35)
@@ -108,8 +83,8 @@ struct ConversationWorkingRow: View {
         HStack(spacing: 10) {
             ConversationTypingIndicator()
             Text(action?.isEmpty == false ? action! : "Thinking…")
-                .font(.callout)
-                .foregroundStyle(Color(white: 0.6))
+                .font(MCFont.body)
+                .foregroundStyle(MCColor.mutedForeground)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
@@ -149,30 +124,21 @@ struct ConversationUserBubble: View {
     let text: String
 
     var body: some View {
-        #if targetEnvironment(macCatalyst)
         HStack {
-            Spacer(minLength: 52)
+            // Indents the prompt so it reads as the person's turn without
+            // needing a second colour.
+            Spacer(minLength: 48)
             Text(text)
-                .font(.flightSans(11))
-                .foregroundStyle(FlightDeckPalette.text)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(FlightDeckPalette.raised)
-                .overlay(Rectangle().stroke(FlightDeckPalette.amber.opacity(0.55)))
+                .font(MCFont.body)
+                .foregroundStyle(MCColor.primaryForeground)
+                .padding(.horizontal, MCSpace.lg)
+                .padding(.vertical, MCSpace.md)
+                .background(
+                    ConversationStyle.accent,
+                    in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
+                )
                 .textSelection(.enabled)
         }
-        #else
-        HStack {
-            Spacer(minLength: 44)
-            Text(text)
-                .font(.callout)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 9)
-                .background(ConversationStyle.accent, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                .textSelection(.enabled)
-        }
-        #endif
     }
 }
 
@@ -180,16 +146,10 @@ struct ConversationAssistantText: View {
     let text: String
 
     var body: some View {
-        #if targetEnvironment(macCatalyst)
-        MarkdownText(text: text, color: FlightDeckPalette.text)
-            .font(.flightSans(11))
+        MarkdownText(text: text, color: MCColor.foreground)
+            .font(MCFont.body)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
-        #else
-        MarkdownText(text: text)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-        #endif
     }
 }
 
@@ -207,13 +167,13 @@ struct ConversationThinkingRow: View {
                     Text("Reasoning")
                     Image(systemName: isOpen ? "chevron.down" : "chevron.right").font(.system(size: 9))
                 }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(white: 0.5))
+                .font(MCFont.captionStrong)
+                .foregroundStyle(MCColor.mutedForeground)
             }
             .buttonStyle(.plain)
             Text(entry.text ?? "")
-                .font(.caption)
-                .foregroundStyle(Color(white: 0.55))
+                .font(MCFont.caption)
+                .foregroundStyle(MCColor.mutedForeground)
                 .lineLimit(isOpen ? nil : 2)
                 .textSelection(.enabled)
         }
@@ -239,7 +199,7 @@ struct ConversationToolRow: View {
                     if let arg = entry.arg, !arg.isEmpty {
                         Text(arg)
                             .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Color(white: 0.6))
+                            .foregroundStyle(MCColor.mutedForeground)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -247,13 +207,13 @@ struct ConversationToolRow: View {
                     if hasDetail {
                         Image(systemName: isOpen ? "chevron.down" : "chevron.right")
                             .font(.system(size: 10))
-                            .foregroundStyle(Color(white: 0.45))
+                            .foregroundStyle(MCColor.mutedForeground)
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .background(MCColor.popover, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
             }
             .buttonStyle(.plain)
 
@@ -264,10 +224,10 @@ struct ConversationToolRow: View {
                 if let output = entry.output, !output.isEmpty {
                     Text(output)
                         .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.6))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 9))
+                        .background(MCColor.card, in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
                         .textSelection(.enabled)
                 }
             }
@@ -298,11 +258,11 @@ struct ConversationQuestionCard: View {
                 if answered {
                     Label("answered", systemImage: "checkmark")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(MCColor.successForeground)
                 } else {
                     Label("waiting", systemImage: "clock")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(MCColor.warningForeground)
                 }
             }
             ForEach(Array(questions.enumerated()), id: \.offset) { index, question in
@@ -315,7 +275,7 @@ struct ConversationQuestionCard: View {
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(MCColor.popover, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
     }
 }
 
@@ -328,23 +288,23 @@ struct ConversationQuestionBlock: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 if let header = question.header, !header.isEmpty {
-                    Text(header.uppercased())
+                    Text(header)
                         .font(.caption2.weight(.bold))
                         .kerning(0.6)
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(MCColor.mutedForeground)
                 }
                 if question.multiSelect == true {
                     Text("pick any")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color(white: 0.45))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Color(white: 0.18), in: Capsule())
+                        .background(MCColor.border, in: Capsule())
                 }
             }
             Text(question.question)
                 .font(.callout)
-                .foregroundStyle(Color(white: 0.9))
+                .foregroundStyle(MCColor.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
             VStack(alignment: .leading, spacing: 6) {
@@ -414,21 +374,21 @@ struct ConversationOptionRow: View {
             if isOpen, let preview = option.preview {
                 Text(preview)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.72))
+                    .foregroundStyle(MCColor.foreground.opacity(0.72))
                     .textSelection(.enabled)
                     .padding(9)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+                    .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: MCRadius.sm, style: .continuous))
             }
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            selected ? ConversationStyle.accent.opacity(0.14) : Color(white: 0.07),
-            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            selected ? ConversationStyle.accent.opacity(0.14) : MCColor.card,
+            in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous)
                 .stroke(selected ? ConversationStyle.accent.opacity(0.55) : Color.clear, lineWidth: 1)
         )
     }
@@ -439,20 +399,20 @@ struct ConversationOptionRow: View {
                   ? (selected ? "chevron.right.circle.fill" : "circle")
                   : (selected ? "checkmark.circle.fill" : "circle"))
                 .font(.system(size: 14))
-                .foregroundStyle(selected ? ConversationStyle.accent : Color(white: 0.3))
+                .foregroundStyle(selected ? ConversationStyle.accent : MCColor.mutedForeground)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 // Numbered to match the terminal's own list, so "option 2"
                 // means the same thing in both places.
                 Text("\(number). \(option.label)")
                     .font(.caption.weight(selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? .white : Color(white: 0.75))
+                    .foregroundStyle(selected ? .white : MCColor.foreground.opacity(0.72))
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 if let description = option.description, !description.isEmpty {
                     Text(description)
                         .font(.caption2)
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -474,7 +434,7 @@ struct ConversationFreeAnswerRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(Color(white: 0.5))
+                    .foregroundStyle(MCColor.mutedForeground)
                 Text(answer)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white)
@@ -484,9 +444,9 @@ struct ConversationFreeAnswerRow: View {
         }
         .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ConversationStyle.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(ConversationStyle.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous)
                 .stroke(ConversationStyle.accent.opacity(0.55), lineWidth: 1)
         )
     }
@@ -498,11 +458,11 @@ struct ConversationStatusIcon: View {
     var body: some View {
         switch status {
         case "ok":
-            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.green)
+            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(MCColor.successForeground)
         case "error":
-            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.red)
+            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(MCColor.errorForeground)
         default:
-            Image(systemName: "circle").font(.system(size: 7)).foregroundStyle(Color(white: 0.4))
+            Image(systemName: "circle").font(.system(size: 7)).foregroundStyle(MCColor.mutedForeground)
         }
     }
 }
@@ -516,11 +476,11 @@ struct ConversationDiffView: View {
             if let file, !file.isEmpty {
                 Text(conversationBasename(file))
                     .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.5))
+                    .foregroundStyle(MCColor.mutedForeground)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(white: 0.12))
+                    .background(MCColor.popover)
             }
             ForEach(Array(diff.enumerated()), id: \.offset) { _, line in
                 Text(diffPrefix(line.kind) + line.text)
@@ -534,8 +494,8 @@ struct ConversationDiffView: View {
                     .background(diffBackground(line.kind))
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color(white: 0.18)))
+        .clipShape(RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous).stroke(MCColor.border))
     }
 
     private func diffPrefix(_ kind: String) -> String {
@@ -548,9 +508,9 @@ struct ConversationDiffView: View {
 
     private func diffColor(_ kind: String) -> Color {
         switch kind {
-        case "add": return Color(red: 0.6, green: 0.91, blue: 0.69)
-        case "del": return Color(red: 1.0, green: 0.6, blue: 0.58)
-        default: return Color(white: 0.45)
+        case "add": return MCColor.successForeground
+        case "del": return MCColor.errorForeground
+        default: return MCColor.mutedForeground
         }
     }
 
@@ -578,14 +538,14 @@ struct ConversationQuestionPrompt: View {
             HStack(spacing: 7) {
                 Image(systemName: "questionmark.bubble.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Text("Waiting on you")
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Spacer(minLength: 4)
                 Text(questions.count == 1 ? "QUESTION" : "\(questions.count) QUESTIONS")
                     .font(.caption2.monospaced().weight(.semibold))
-                    .foregroundStyle(Color(white: 0.45))
+                    .foregroundStyle(MCColor.mutedForeground)
             }
 
             ForEach(Array(questions.enumerated()), id: \.offset) { index, question in
@@ -604,14 +564,14 @@ struct ConversationQuestionPrompt: View {
                 .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.orange)
+            .tint(MCColor.warningForeground)
             .disabled(submitting || answers == nil)
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(MCColor.popover, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                 .stroke(Color.orange.opacity(0.4), lineWidth: 1)
         )
     }
@@ -638,14 +598,14 @@ struct ConversationQuestionPrompt: View {
     private func block(_ question: ConversationQuestion, number: Int?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let header = question.header, !header.isEmpty {
-                Text(number.map { "\($0). \(header.uppercased())" } ?? header.uppercased())
+                Text(number.map { "\($0). \(header)" } ?? header)
                     .font(.caption2.weight(.bold))
                     .kerning(0.6)
-                    .foregroundStyle(Color(white: 0.5))
+                    .foregroundStyle(MCColor.mutedForeground)
             }
             Text(question.question)
                 .font(.callout)
-                .foregroundStyle(Color(white: 0.9))
+                .foregroundStyle(MCColor.foreground)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
 
@@ -663,7 +623,7 @@ struct ConversationQuestionPrompt: View {
             if question.multiSelect == true {
                 Text("Select one or more options.")
                     .font(.caption2)
-                    .foregroundStyle(Color(white: 0.45))
+                    .foregroundStyle(MCColor.mutedForeground)
             }
         }
     }
@@ -684,15 +644,15 @@ struct ConversationQuestionPrompt: View {
                 Image(systemName: selected
                     ? (question.multiSelect == true ? "checkmark.square.fill" : "largecircle.fill.circle")
                     : (question.multiSelect == true ? "square" : "circle"))
-                    .foregroundStyle(selected ? Color.orange : Color(white: 0.5))
+                    .foregroundStyle(selected ? Color.orange : MCColor.mutedForeground)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.label)
                         .font(.callout.weight(.medium))
-                        .foregroundStyle(Color(white: 0.9))
+                        .foregroundStyle(MCColor.foreground)
                     if let description = option.description, !description.isEmpty {
                         Text(description)
                             .font(.caption)
-                            .foregroundStyle(Color(white: 0.55))
+                            .foregroundStyle(MCColor.mutedForeground)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -702,10 +662,10 @@ struct ConversationQuestionPrompt: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 selected ? Color.orange.opacity(0.12) : Color.black.opacity(0.18),
-                in: RoundedRectangle(cornerRadius: 8)
+                in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous)
                     .stroke(selected ? Color.orange.opacity(0.55) : Color.white.opacity(0.08))
             )
         }

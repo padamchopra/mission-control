@@ -14,15 +14,15 @@ struct ContextMeter: View {
                 .foregroundStyle(usage.pressureColor)
             Text("Context")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(white: 0.85))
+                .foregroundStyle(MCColor.foreground)
             Text(usage.summary)
                 .font(.caption.monospaced())
-                .foregroundStyle(Color(white: 0.55))
+                .foregroundStyle(MCColor.mutedForeground)
             Spacer(minLength: 6)
             if let note = usage.historyNote {
                 Text(note)
                     .font(.caption2)
-                    .foregroundStyle(Color(white: 0.45))
+                    .foregroundStyle(MCColor.mutedForeground)
                     .lineLimit(1)
             }
             ContextBar(usage: usage, width: 64)
@@ -41,7 +41,7 @@ struct ContextBar: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(Color(white: 0.24)).frame(width: width, height: 4)
+            Capsule().fill(MCColor.input).frame(width: width, height: 4)
             Capsule().fill(usage.pressureColor).frame(width: width * usage.fraction, height: 4)
         }
     }

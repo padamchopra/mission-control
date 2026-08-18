@@ -29,7 +29,7 @@ struct MobileWorkspaceDetailView: View {
         VStack(spacing: 0) {
             mobileDetailHeader(
                 title: workspace.name,
-                subtitle: "\(deviceName.uppercased()) · \(workspace.worktrees.count) CHECKOUTS",
+                subtitle: "\(deviceName) · \(workspace.worktrees.count) CHECKOUTS",
                 trailing: "•••",
                 onBack: { dismiss() },
                 onTrailing: { confirmWorkspaceRemoval = true }
@@ -74,9 +74,9 @@ struct MobileWorkspaceDetailView: View {
                                 }
                             }
                         }
-                        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(MobileFlightDeckPalette.border))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.border))
+                        .clipShape(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
                     }
 
                     if workspace.worktrees.isEmpty {
@@ -101,7 +101,7 @@ struct MobileWorkspaceDetailView: View {
                     .font(.mobileDeckSans(12, weight: .bold))
                     .foregroundStyle(MobileFlightDeckPalette.onAccent)
                     .frame(maxWidth: .infinity, minHeight: 42)
-                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 12))
+                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(launching)
@@ -181,13 +181,13 @@ struct MobileWorkspaceDetailView: View {
                     .font(.mobileDeckSans(11, weight: .semibold))
                     .foregroundStyle(MobileFlightDeckPalette.amber)
                     .frame(maxWidth: .infinity, minHeight: 36)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.amber.opacity(0.45)))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.amber.opacity(0.45)))
             }
             .buttonStyle(.plain)
         }
         .padding(14)
-        .background(emphasized ? MobileFlightDeckPalette.raised : MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(emphasized ? MobileFlightDeckPalette.amber.opacity(0.35) : MobileFlightDeckPalette.border))
+        .background(emphasized ? MobileFlightDeckPalette.raised : MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(emphasized ? MobileFlightDeckPalette.amber.opacity(0.35) : MobileFlightDeckPalette.border))
     }
 
     private func checkoutRow(_ worktree: GitWorktree) -> some View {
@@ -211,7 +211,7 @@ struct MobileWorkspaceDetailView: View {
                         .foregroundStyle(MobileFlightDeckPalette.amber)
                         .padding(.horizontal, 12)
                         .frame(height: 34)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.amber.opacity(0.45)))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.amber.opacity(0.45)))
                 }
                 .buttonStyle(.plain)
                 Button { actionWorktree = item } label: {
@@ -219,11 +219,11 @@ struct MobileWorkspaceDetailView: View {
                         .font(.mobileDeckSans(13, weight: .bold))
                         .foregroundStyle(item.dirty ? MobileFlightDeckPalette.red : MobileFlightDeckPalette.secondary)
                         .frame(width: 38, height: 34)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(item.dirty ? MobileFlightDeckPalette.red : MobileFlightDeckPalette.border))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(item.dirty ? MobileFlightDeckPalette.red : MobileFlightDeckPalette.border))
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                Text("\(activeAgents(in: item)) ACTIVE")
+                Text("\(activeAgents(in: item)) active")
                     .font(.mobileDeckMono(8))
                     .foregroundStyle(MobileFlightDeckPalette.muted)
             }
@@ -355,8 +355,8 @@ private struct MobileWorktreeActionsSheet: View {
                 .font(.mobileDeckSans(14, weight: primary ? .bold : .semibold))
                 .foregroundStyle(primary ? MobileFlightDeckPalette.onAccent : color)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .background(primary ? color : Color.clear, in: RoundedRectangle(cornerRadius: 13))
-                .overlay(RoundedRectangle(cornerRadius: 13).stroke(primary ? Color.clear : color == MobileFlightDeckPalette.text ? MobileFlightDeckPalette.background : color))
+                .background(primary ? color : Color.clear, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(primary ? Color.clear : color == MobileFlightDeckPalette.text ? MobileFlightDeckPalette.background : color))
         }
         .buttonStyle(.plain)
         .disabled(removing)
@@ -426,8 +426,8 @@ struct MobileAddWorkspaceView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(16)
-                    .background(MobileFlightDeckPalette.raised, in: RoundedRectangle(cornerRadius: 17))
-                    .overlay(RoundedRectangle(cornerRadius: 17).stroke(MobileFlightDeckPalette.amber.opacity(0.35)))
+                    .background(MobileFlightDeckPalette.raised, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.amber.opacity(0.35)))
 
                     if source == .shell {
                         HStack {
@@ -454,9 +454,9 @@ struct MobileAddWorkspaceView: View {
                                     }
                                 }
                             }
-                            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(MobileFlightDeckPalette.border))
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.border))
+                            .clipShape(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
                         }
                     } else {
                         VStack(spacing: 12) {
@@ -467,7 +467,7 @@ struct MobileAddWorkspaceView: View {
                                     .font(.mobileDeckSans(12, weight: .bold))
                                     .foregroundStyle(MobileFlightDeckPalette.onAccent)
                                     .frame(maxWidth: .infinity, minHeight: 40)
-                                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 10))
+                                    .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
                             }
                             .buttonStyle(.plain)
                             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || path.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -488,7 +488,7 @@ struct MobileAddWorkspaceView: View {
                     .font(.mobileDeckSans(12, weight: .bold))
                     .foregroundStyle(MobileFlightDeckPalette.amber)
                     .frame(maxWidth: .infinity, minHeight: 42)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.amber.opacity(0.45)))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.amber.opacity(0.45)))
             }
             .buttonStyle(.plain)
             .disabled(launching)
@@ -511,7 +511,7 @@ struct MobileAddWorkspaceView: View {
                 Text(session.name)
                     .font(.mobileDeckSans(14, weight: .semibold))
                 Spacer()
-                Text("CONNECTED")
+                Text("Connected")
                     .font(.mobileDeckMono(9))
                     .foregroundStyle(MobileFlightDeckPalette.green)
             }
@@ -524,8 +524,8 @@ struct MobileAddWorkspaceView: View {
                     .font(.mobileDeckSans(11, weight: .bold))
                     .foregroundStyle(alreadySaved ? MobileFlightDeckPalette.muted : MobileFlightDeckPalette.onAccent)
                     .frame(maxWidth: .infinity, minHeight: 36)
-                    .background(alreadySaved ? Color.clear : MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(alreadySaved ? MobileFlightDeckPalette.border : Color.clear))
+                    .background(alreadySaved ? Color.clear : MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(alreadySaved ? MobileFlightDeckPalette.border : Color.clear))
             }
             .buttonStyle(.plain)
             .disabled(alreadySaved || savingSession != nil)
@@ -617,7 +617,7 @@ struct MobileLoopDetailView: View {
         VStack(spacing: 0) {
             mobileDetailHeader(
                 title: current.name,
-                subtitle: "\(current.workspaceName.uppercased()) · \(deviceName.uppercased())",
+                subtitle: "\(current.workspaceName) · \(deviceName)",
                 trailing: "Save",
                 onBack: { dismiss() },
                 onTrailing: { dismiss() }
@@ -642,8 +642,8 @@ struct MobileLoopDetailView: View {
                         .disabled(updating)
                     }
                     .padding(14)
-                    .background(MobileFlightDeckPalette.raised, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(MobileFlightDeckPalette.amber.opacity(0.35)))
+                    .background(MobileFlightDeckPalette.raised, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.amber.opacity(0.35)))
 
                     VStack(spacing: 0) {
                         loopMenuRow("Agent", value: current.agent.displayName) {
@@ -681,12 +681,12 @@ struct MobileLoopDetailView: View {
                         .padding(.horizontal, 14)
                         .frame(height: 52)
                     }
-                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(MobileFlightDeckPalette.border))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.border))
+                    .clipShape(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("PROMPT")
+                        Text("Prompt")
                             .font(.mobileDeckMono(9))
                             .foregroundStyle(MobileFlightDeckPalette.muted)
                         Text(current.prompt)
@@ -696,8 +696,8 @@ struct MobileLoopDetailView: View {
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(MobileFlightDeckPalette.terminal, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(MobileFlightDeckPalette.border))
+                    .background(MobileFlightDeckPalette.terminal, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.border))
 
                     HStack(spacing: 9) {
                         loopMetric("Runs", "\(current.runs)", "\(current.successPercent)% success", MobileFlightDeckPalette.green)
@@ -711,8 +711,8 @@ struct MobileLoopDetailView: View {
                             .foregroundStyle(MobileFlightDeckPalette.red)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.red))
+                            .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.red))
                     }
 
                     Button(role: .destructive) { confirmDelete = true } label: {
@@ -720,7 +720,7 @@ struct MobileLoopDetailView: View {
                             .font(.mobileDeckSans(12, weight: .semibold))
                             .foregroundStyle(MobileFlightDeckPalette.red)
                             .frame(maxWidth: .infinity, minHeight: 40)
-                            .overlay(RoundedRectangle(cornerRadius: 11).stroke(MobileFlightDeckPalette.red))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.red))
                     }
                     .buttonStyle(.plain)
                 }
@@ -733,7 +733,7 @@ struct MobileLoopDetailView: View {
                         .font(.mobileDeckSans(12))
                         .foregroundStyle(MobileFlightDeckPalette.secondary)
                         .frame(maxWidth: .infinity, minHeight: 42)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.border))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
                 }
                 .buttonStyle(.plain)
                 Button { Task { await runNow() } } label: {
@@ -741,7 +741,7 @@ struct MobileLoopDetailView: View {
                         .font(.mobileDeckSans(12, weight: .bold))
                         .foregroundStyle(MobileFlightDeckPalette.onAccent)
                         .frame(maxWidth: .infinity, minHeight: 42)
-                        .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 12))
+                        .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(running)
@@ -822,8 +822,8 @@ struct MobileLoopDetailView: View {
         }
         .padding(11)
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
-        .background(color == MobileFlightDeckPalette.amber ? MobileFlightDeckPalette.raised : MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(color == MobileFlightDeckPalette.amber ? MobileFlightDeckPalette.amber.opacity(0.35) : MobileFlightDeckPalette.border))
+        .background(color == MobileFlightDeckPalette.amber ? MobileFlightDeckPalette.raised : MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(color == MobileFlightDeckPalette.amber ? MobileFlightDeckPalette.amber.opacity(0.35) : MobileFlightDeckPalette.border))
     }
 
     private func update(enabled: Bool? = nil, agent: AgentKind? = nil, schedule: LoopSchedule? = nil, workspace: Workspace? = nil) async {
@@ -901,7 +901,7 @@ private struct MobileLoopRunsSheet: View {
                 runStat("SUCCESS", "\(loop.successPercent)%")
             }
             VStack(alignment: .leading, spacing: 5) {
-                Text("LAST RUN")
+                Text("Last run")
                     .font(.mobileDeckMono(9))
                     .foregroundStyle(MobileFlightDeckPalette.muted)
                 Text(loop.lastRunDate?.formatted(date: .abbreviated, time: .shortened) ?? "Not run yet")
@@ -932,7 +932,7 @@ private struct MobileLoopRunsSheet: View {
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 11))
+        .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
     }
 }
 
@@ -988,15 +988,15 @@ struct MobileSessionStatusView: View {
                     }
 
                     VStack(spacing: 0) {
-                        statusRow("AGENT", "\(resolvedAgent.displayName) · \(conversation?.model ?? session?.context?.model ?? "Live")")
+                        statusRow("Agent", "\(resolvedAgent.displayName) · \(conversation?.model ?? session?.context?.model ?? "Live")")
                         Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1)
                         statusRow("WORKTREE", session?.panePath.isEmpty == false ? URL(fileURLWithPath: session?.panePath ?? "").lastPathComponent : "Home")
                         Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1)
                         statusRow("TURN", "\(relativeMobileTime(session?.lastOutputAt ?? Date().timeIntervalSince1970)) · \(stateLabel)")
                     }
-                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(MobileFlightDeckPalette.border))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.border))
+                    .clipShape(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
 
                     HStack {
                         Text("Checks")
@@ -1023,9 +1023,9 @@ struct MobileSessionStatusView: View {
                             }
                         }
                     }
-                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(MobileFlightDeckPalette.border))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.border))
+                    .clipShape(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
@@ -1039,7 +1039,7 @@ struct MobileSessionStatusView: View {
                         .font(.mobileDeckSans(12))
                         .foregroundStyle(MobileFlightDeckPalette.secondary)
                         .frame(maxWidth: .infinity, minHeight: 42)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(MobileFlightDeckPalette.border))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous).stroke(MobileFlightDeckPalette.border))
                 }
                 .buttonStyle(.plain)
                 .disabled(resolvedAgent == .shell)
@@ -1051,7 +1051,7 @@ struct MobileSessionStatusView: View {
                         .font(.mobileDeckSans(12, weight: .bold))
                         .foregroundStyle(MobileFlightDeckPalette.onAccent)
                         .frame(maxWidth: .infinity, minHeight: 42)
-                        .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: 12))
+                        .background(MobileFlightDeckPalette.amber, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -1123,7 +1123,7 @@ struct MobileSessionStatusView: View {
                 .font(.mobileDeckSans(12))
                 .lineLimit(1)
             Spacer()
-            Text(check.durationSeconds.map { "\($0)S" } ?? check.state.uppercased())
+            Text(check.durationSeconds.map { "\($0)s" } ?? check.state)
                 .font(.mobileDeckMono(9))
                 .foregroundStyle(pending ? color : MobileFlightDeckPalette.muted)
         }
@@ -1163,8 +1163,8 @@ private func mobileTextField(_ placeholder: String, text: Binding<String>, monos
         .autocorrectionDisabled()
         .padding(.horizontal, 12)
         .frame(height: 42)
-        .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobileFlightDeckPalette.border))
+        .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.border))
 }
 
 private func mobileSegmentedControl<Value: Hashable & RawRepresentable & Identifiable>(
@@ -1178,14 +1178,14 @@ private func mobileSegmentedControl<Value: Hashable & RawRepresentable & Identif
                     .font(.mobileDeckSans(11, weight: selection.wrappedValue == value ? .bold : .regular))
                     .foregroundStyle(selection.wrappedValue == value ? MobileFlightDeckPalette.amber : MobileFlightDeckPalette.secondary)
                     .frame(maxWidth: .infinity, minHeight: 32)
-                    .background(selection.wrappedValue == value ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                    .background(selection.wrappedValue == value ? MobileFlightDeckPalette.raised : Color.clear, in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
             }
             .buttonStyle(.plain)
         }
     }
     .padding(4)
-    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: 11))
-    .overlay(RoundedRectangle(cornerRadius: 11).stroke(MobileFlightDeckPalette.border))
+    .background(MobileFlightDeckPalette.surface, in: RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous).stroke(MobileFlightDeckPalette.border))
 }
 
 private func relativeFutureMobileTime(_ date: Date) -> String {

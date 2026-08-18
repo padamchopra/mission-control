@@ -26,13 +26,11 @@ struct ConversationView: View {
 
     private var api: APIClient? { APIClient(urlString: serverURL, token: token) }
 
-    #if targetEnvironment(macCatalyst)
-    private static let accent = FlightDeckPalette.amber
-    private static let verbColor = FlightDeckPalette.amber
-    #else
-    private static let accent = MobileFlightDeckPalette.amber
-    private static let verbColor = MobileFlightDeckPalette.green
-    #endif
+    // Both of these were per-platform constants, and `verbColor` disagreed
+    // across them — amber on Mac, green on iPhone. They now come from the same
+    // place the shared feed rows do.
+    private static let accent = ConversationStyle.accent
+    private static let verbColor = ConversationStyle.verb
     private static let scrollSpace = "convScroll"
     private var agent: AgentKind { conversation?.agent ?? .claude }
 
@@ -53,11 +51,7 @@ struct ConversationView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if targetEnvironment(macCatalyst)
         .background(FlightDeckPalette.background)
-        #else
-        .background(MobileFlightDeckPalette.background)
-        #endif
         .task { await pollLoop() }
         // Every hook event — a tool starting, a turn ending — means the
         // transcript grew, so the feed follows the agent live instead of
@@ -81,9 +75,9 @@ struct ConversationView: View {
                     ) {
                         EmptyView()
                     } actions: {
-                        Button("CANCEL") { confirmClear = false }
+                        Button("Cancel") { confirmClear = false }
                             .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                        Button("CLEAR \(sessionName.uppercased())") {
+                        Button("CLEAR \(sessionName)") {
                             confirmClear = false
                             send("/clear", note: "Cleared \(sessionName)")
                         }
@@ -193,7 +187,7 @@ struct ConversationView: View {
         let current = conversation.todos.first { $0.status == "in_progress" }
             ?? conversation.todos.first { $0.status != "completed" }
         return HStack(spacing: 10) {
-            Text(conversation.todos.isEmpty ? "SESSION" : "PLAN \(String(format: "%02d", done))/\(String(format: "%02d", conversation.todos.count))")
+            Text(conversation.todos.isEmpty ? "Session" : "PLAN \(String(format: "%02d", done))/\(String(format: "%02d", conversation.todos.count))")
                 .foregroundStyle(FlightDeckPalette.green)
             Text(current?.content ?? conversation.action ?? conversation.info?.gitBranch ?? "Live session ready")
                 .foregroundStyle(FlightDeckPalette.secondary)
@@ -231,11 +225,7 @@ struct ConversationView: View {
         .background(MobileFlightDeckPalette.surface)
         #endif
         .overlay(alignment: .top) {
-            #if targetEnvironment(macCatalyst)
             Rectangle().fill(FlightDeckPalette.border).frame(height: 1)
-            #else
-            Rectangle().fill(MobileFlightDeckPalette.border).frame(height: 1)
-            #endif
         }
     }
 
@@ -352,11 +342,11 @@ struct ConversationView: View {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
             Text(title).font(.caption.weight(.semibold))
         }
-        .foregroundStyle(tint ?? Color(white: 0.78))
+        .foregroundStyle(tint ?? MCColor.foreground.opacity(0.72))
         .padding(.horizontal, 11)
         .padding(.vertical, 7)
-        .background(Color(white: 0.13), in: Capsule())
-        .overlay(Capsule().stroke((tint ?? Color(white: 0.3)).opacity(tint == nil ? 1 : 0.5)))
+        .background(MCColor.popover, in: Capsule())
+        .overlay(Capsule().stroke((tint ?? MCColor.mutedForeground).opacity(tint == nil ? 1 : 0.5)))
         .opacity(acting ? 0.5 : 1)
         #endif
     }
@@ -423,10 +413,10 @@ struct ConversationView: View {
             HStack(spacing: 7) {
                 Image(systemName: "questionmark.bubble.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Text("Waiting on you")
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Spacer(minLength: 4)
                 if raw?.isEmpty == false {
                     Button { toggle("PROMPT-RAW") } label: {
@@ -439,14 +429,14 @@ struct ConversationView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 if let header = question.header, !header.isEmpty {
-                    Text(header.uppercased())
+                    Text(header)
                         .font(.caption2.weight(.bold))
                         .kerning(0.6)
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(MCColor.mutedForeground)
                 }
                 Text(question.question)
                     .font(.callout)
-                    .foregroundStyle(Color(white: 0.9))
+                    .foregroundStyle(MCColor.foreground)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                 VStack(alignment: .leading, spacing: 6) {
@@ -464,26 +454,26 @@ struct ConversationView: View {
                 }
                 Text("Tap an option to answer it. The chevron marks the one Enter would take.")
                     .font(.caption2)
-                    .foregroundStyle(Color(white: 0.45))
+                    .foregroundStyle(MCColor.mutedForeground)
             }
             if rawOpen, let raw {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(raw)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.7))
+                        .foregroundStyle(MCColor.foreground.opacity(0.72))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: true, vertical: true)
                 }
                 .padding(9)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+                .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: MCRadius.sm, style: .continuous))
             }
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(MCColor.popover, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                 .stroke(Color.orange.opacity(0.4), lineWidth: 1)
         )
     }
@@ -520,10 +510,10 @@ struct ConversationView: View {
             HStack(spacing: 7) {
                 Image(systemName: "questionmark.bubble.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Text("Waiting on you")
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
                 Spacer(minLength: 4)
                 Button { onShowTerminal() } label: {
                     Text("Open terminal")
@@ -537,19 +527,19 @@ struct ConversationView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text)
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.82))
+                    .foregroundStyle(MCColor.foreground)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
             }
             Text("Answer with the chips below, or open the terminal to choose a specific option.")
                 .font(.caption2)
-                .foregroundStyle(Color(white: 0.45))
+                .foregroundStyle(MCColor.mutedForeground)
         }
         .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(MCColor.popover, in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                 .stroke(Color.orange.opacity(0.4), lineWidth: 1)
         )
     }
@@ -563,21 +553,21 @@ struct ConversationView: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(text)
                     .font(.callout)
-                    .foregroundStyle(Color(white: 0.72))
+                    .foregroundStyle(MCColor.foreground.opacity(0.72))
                     .padding(.horizontal, 13)
                     .padding(.vertical, 9)
                     .background(
-                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                             .fill(Self.accent.opacity(0.14))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                             .strokeBorder(Self.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     )
                     .textSelection(.enabled)
                 Label("queued", systemImage: "clock")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color(white: 0.5))
+                    .foregroundStyle(MCColor.mutedForeground)
             }
         }
     }
@@ -600,12 +590,12 @@ struct ConversationView: View {
                         .foregroundStyle(.white)
                     Text("\(done) of \(todos.count)")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(Color(white: 0.55))
+                        .foregroundStyle(MCColor.mutedForeground)
                     Spacer(minLength: 8)
                     progressBar(done: done, total: todos.count, width: 72)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .rotationEffect(.degrees(planExpanded ? 0 : -90))
                 }
                 .padding(.horizontal, 16)
@@ -622,8 +612,8 @@ struct ConversationView: View {
                             todoBox(todo.status).padding(.top, 1)
                             Text(todo.content)
                                 .font(.caption)
-                                .foregroundStyle(todo.status == "completed" ? Color(white: 0.5) : Color(white: 0.9))
-                                .strikethrough(todo.status == "completed", color: Color(white: 0.4))
+                                .foregroundStyle(todo.status == "completed" ? MCColor.mutedForeground : MCColor.foreground)
+                                .strikethrough(todo.status == "completed", color: MCColor.mutedForeground)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -633,9 +623,9 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .background(Color(white: 0.09))
+        .background(MCColor.popover)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(white: 0.18)).frame(height: 0.5)
+            Rectangle().fill(MCColor.border).frame(height: 0.5)
         }
     }
 
@@ -655,12 +645,12 @@ struct ConversationView: View {
                     } else {
                         Text("Session")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color(white: 0.85))
+                            .foregroundStyle(MCColor.foreground)
                         Spacer(minLength: 0)
                     }
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.5))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .rotationEffect(.degrees(infoExpanded ? 0 : -90))
                 }
                 .padding(.horizontal, 16)
@@ -675,9 +665,9 @@ struct ConversationView: View {
                 sessionDetails(conversation)
             }
         }
-        .background(Color(white: 0.09))
+        .background(MCColor.popover)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(white: 0.18)).frame(height: 0.5)
+            Rectangle().fill(MCColor.border).frame(height: 0.5)
         }
     }
 
@@ -689,7 +679,7 @@ struct ConversationView: View {
             if let mode = info?.notablePermissionMode {
                 Label(mode, systemImage: "exclamationmark.shield")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(MCColor.warningForeground)
             }
             detailRow("Model", info?.shortModel)
             detailRow("Effort", info?.effort)
@@ -699,7 +689,7 @@ struct ConversationView: View {
                 if usage.limitEstimated == true {
                     Text("Window size assumed — set contextLimit in the server's config.json if this session runs a larger one.")
                         .font(.caption2)
-                        .foregroundStyle(Color(white: 0.45))
+                        .foregroundStyle(MCColor.mutedForeground)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let compactions = usage.compactions, compactions > 0 {
@@ -720,11 +710,11 @@ struct ConversationView: View {
             HStack(alignment: .top, spacing: 8) {
                 Text(label)
                     .font(.caption2)
-                    .foregroundStyle(Color(white: 0.45))
+                    .foregroundStyle(MCColor.mutedForeground)
                     .frame(width: 82, alignment: .leading)
                 Text(value)
                     .font(.caption2.monospaced())
-                    .foregroundStyle(Color(white: 0.8))
+                    .foregroundStyle(MCColor.foreground)
                     .textSelection(.enabled)
                 Spacer(minLength: 0)
             }
@@ -734,7 +724,7 @@ struct ConversationView: View {
     private func progressBar(done: Int, total: Int, width: CGFloat) -> some View {
         let fraction = total > 0 ? CGFloat(done) / CGFloat(total) : 0
         return ZStack(alignment: .leading) {
-            Capsule().fill(Color(white: 0.22)).frame(width: width, height: 4)
+            Capsule().fill(MCColor.input).frame(width: width, height: 4)
             Capsule().fill(Self.verbColor).frame(width: width * fraction, height: 4)
         }
     }
@@ -747,15 +737,15 @@ struct ConversationView: View {
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.black)
                 .frame(width: 15, height: 15)
-                .background(Color.green, in: RoundedRectangle(cornerRadius: 4))
+                .background(Color.green, in: RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous))
         case "in_progress":
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous)
                 .stroke(Color.orange, lineWidth: 2)
                 .frame(width: 15, height: 15)
-                .overlay(RoundedRectangle(cornerRadius: 2).fill(Color.orange).frame(width: 7, height: 7))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous).fill(Color.orange).frame(width: 7, height: 7))
         default:
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(Color(white: 0.3), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous)
+                .stroke(MCColor.mutedForeground, lineWidth: 1.5)
                 .frame(width: 15, height: 15)
         }
     }
@@ -763,14 +753,14 @@ struct ConversationView: View {
     private var unavailableState: some View {
         #if targetEnvironment(macCatalyst)
         VStack(alignment: .leading, spacing: 16) {
-            Text("NO STRUCTURED TRANSCRIPT")
+            Text("No structured transcript")
                 .font(.flightMono(8, weight: .bold))
                 .foregroundStyle(FlightDeckPalette.warm)
             Text("This is a shell session. Its live terminal is the source of truth.")
                 .font(.flightSans(12))
                 .foregroundStyle(FlightDeckPalette.secondary)
             Button { onShowTerminal() } label: {
-                Text("OPEN TERMINAL")
+                Text("Open terminal")
                     .font(.flightMono(8, weight: .bold))
                     .foregroundStyle(FlightDeckPalette.onAccent)
                     .padding(.horizontal, 14)
@@ -784,13 +774,13 @@ struct ConversationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         #else
         VStack(spacing: 14) {
-            Image(systemName: "text.bubble").font(.system(size: 34)).foregroundStyle(Color(white: 0.4))
+            Image(systemName: "text.bubble").font(.system(size: 34)).foregroundStyle(MCColor.mutedForeground)
             Text("No conversation for this session")
                 .font(.headline)
-                .foregroundStyle(Color(white: 0.85))
+                .foregroundStyle(MCColor.foreground)
             Text("This looks like a shell session, or the agent is running without trusted Mission Control hooks. The live terminal has everything.")
                 .font(.callout)
-                .foregroundStyle(Color(white: 0.5))
+                .foregroundStyle(MCColor.mutedForeground)
                 .multilineTextAlignment(.center)
             Button { onShowTerminal() } label: {
                 Label("Open terminal", systemImage: "chevron.left.forwardslash.chevron.right")
@@ -809,10 +799,10 @@ struct ConversationView: View {
 
     private var errorState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 30)).foregroundStyle(.orange)
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 30)).foregroundStyle(MCColor.warningForeground)
             Text("Couldn't load the conversation")
                 .font(.headline)
-                .foregroundStyle(Color(white: 0.85))
+                .foregroundStyle(MCColor.foreground)
             Button("Retry") {
                 failed = false
                 Task { await loadOnce() }

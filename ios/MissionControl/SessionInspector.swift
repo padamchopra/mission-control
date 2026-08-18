@@ -31,7 +31,7 @@ struct SessionInspector: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 11)
             }
-            Divider().overlay(Color(white: 0.16))
+            Divider().overlay(MCColor.border)
             ScrollView {
                 VStack(alignment: .leading, spacing: 11) {
                     switch tab {
@@ -45,7 +45,7 @@ struct SessionInspector: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(white: 0.07))
+        .background(MCColor.card)
         .task { await pollLoop() }
         .onReceive(PushChannel.shared.sessionUpdates) { push in
             guard push.serverURL == serverURL, push.session == sessionName else { return }
@@ -84,24 +84,24 @@ struct SessionInspector: View {
             let adds = changes.reduce(0) { $0 + $1.adds }
             let dels = changes.reduce(0) { $0 + $1.dels }
             HStack(spacing: 6) {
-                Text("\(changes.count) file\(changes.count == 1 ? "" : "s")").foregroundStyle(Color(white: 0.5))
-                Text("+\(adds)").foregroundStyle(.green)
-                Text("−\(dels)").foregroundStyle(.red)
+                Text("\(changes.count) file\(changes.count == 1 ? "" : "s")").foregroundStyle(MCColor.mutedForeground)
+                Text("+\(adds)").foregroundStyle(MCColor.successForeground)
+                Text("−\(dels)").foregroundStyle(MCColor.errorForeground)
             }
             .font(.caption)
             ForEach(changes) { change in
                 HStack(spacing: 8) {
                     Text(basename(change.path))
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.85))
+                        .foregroundStyle(MCColor.foreground)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 6)
                     if change.adds > 0 {
-                        Text("+\(change.adds)").font(.system(.caption2, design: .monospaced)).foregroundStyle(.green)
+                        Text("+\(change.adds)").font(.system(.caption2, design: .monospaced)).foregroundStyle(MCColor.successForeground)
                     }
                     if change.dels > 0 {
-                        Text("−\(change.dels)").font(.system(.caption2, design: .monospaced)).foregroundStyle(.red)
+                        Text("−\(change.dels)").font(.system(.caption2, design: .monospaced)).foregroundStyle(MCColor.errorForeground)
                     }
                 }
             }
@@ -118,14 +118,14 @@ struct SessionInspector: View {
         } else {
             let done = todos.filter { $0.status == "completed" }.count
             Text("\(done) of \(todos.count) done")
-                .font(.caption).foregroundStyle(Color(white: 0.5))
+                .font(.caption).foregroundStyle(MCColor.mutedForeground)
             ForEach(Array(todos.enumerated()), id: \.offset) { _, todo in
                 HStack(alignment: .top, spacing: 9) {
                     todoBox(todo.status).padding(.top, 1)
                     Text(todo.content)
                         .font(.caption)
-                        .foregroundStyle(todo.status == "completed" ? Color(white: 0.5) : Color(white: 0.9))
-                        .strikethrough(todo.status == "completed", color: Color(white: 0.4))
+                        .foregroundStyle(todo.status == "completed" ? MCColor.mutedForeground : MCColor.foreground)
+                        .strikethrough(todo.status == "completed", color: MCColor.mutedForeground)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -137,12 +137,12 @@ struct SessionInspector: View {
         switch status {
         case "completed":
             Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.black)
-                .frame(width: 15, height: 15).background(Color.green, in: RoundedRectangle(cornerRadius: 4))
+                .frame(width: 15, height: 15).background(Color.green, in: RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous))
         case "in_progress":
-            RoundedRectangle(cornerRadius: 4).stroke(Color.orange, lineWidth: 2).frame(width: 15, height: 15)
-                .overlay(RoundedRectangle(cornerRadius: 2).fill(Color.orange).frame(width: 7, height: 7))
+            RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous).stroke(Color.orange, lineWidth: 2).frame(width: 15, height: 15)
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous).fill(Color.orange).frame(width: 7, height: 7))
         default:
-            RoundedRectangle(cornerRadius: 4).stroke(Color(white: 0.3), lineWidth: 1.5).frame(width: 15, height: 15)
+            RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous).stroke(MCColor.mutedForeground, lineWidth: 1.5).frame(width: 15, height: 15)
         }
     }
 
@@ -161,7 +161,7 @@ struct SessionInspector: View {
                         checkIcon(run.state)
                         Text(run.name)
                             .font(.caption)
-                            .foregroundStyle(Color(white: 0.88))
+                            .foregroundStyle(MCColor.foreground)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer(minLength: 6)
@@ -180,13 +180,13 @@ struct SessionInspector: View {
     private func checkIcon(_ state: String) -> some View {
         switch state {
         case "pass", "success":
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(MCColor.successForeground)
         case "fail", "failure", "error":
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+            Image(systemName: "xmark.circle.fill").foregroundStyle(MCColor.errorForeground)
         case "pending", "in_progress", "queued":
-            Image(systemName: "clock.fill").foregroundStyle(.orange)
+            Image(systemName: "clock.fill").foregroundStyle(MCColor.warningForeground)
         default:
-            Image(systemName: "minus.circle.fill").foregroundStyle(Color(white: 0.4))
+            Image(systemName: "minus.circle.fill").foregroundStyle(MCColor.mutedForeground)
         }
     }
 
@@ -195,7 +195,7 @@ struct SessionInspector: View {
         case "pass", "success": return .green
         case "fail", "failure", "error": return .red
         case "pending", "in_progress", "queued": return .orange
-        default: return Color(white: 0.5)
+        default: return MCColor.mutedForeground
         }
     }
 
@@ -203,10 +203,10 @@ struct SessionInspector: View {
 
     private func placeholder(_ symbol: String, _ text: String) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 26)).foregroundStyle(Color(white: 0.35))
+            Image(systemName: symbol).font(.system(size: 26)).foregroundStyle(MCColor.mutedForeground)
             Text(text)
                 .font(.caption)
-                .foregroundStyle(Color(white: 0.5))
+                .foregroundStyle(MCColor.mutedForeground)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

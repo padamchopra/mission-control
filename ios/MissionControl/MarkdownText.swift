@@ -8,7 +8,7 @@ import SwiftUI
 /// `AttributedString`.
 struct MarkdownText: View {
     let text: String
-    var color: Color = Color(white: 0.93)
+    var color: Color = MCColor.foreground
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -60,9 +60,9 @@ struct MarkdownText: View {
         case let .task(checked, content):
             HStack(alignment: .top, spacing: 8) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous)
                         .fill(checked ? color.opacity(0.14) : Color.clear)
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous)
                         .stroke(checked ? color.opacity(0.8) : color.opacity(0.42), lineWidth: 1)
                     if checked {
                         Image(systemName: "checkmark")
@@ -88,11 +88,11 @@ struct MarkdownText: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(content)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.85))
+                    .foregroundStyle(MCColor.foreground)
                     .padding(10)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(white: 0.07), in: RoundedRectangle(cornerRadius: 8))
+            .background(MCColor.card, in: RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
         case let .table(headers, rows, alignments):
             table(headers: headers, rows: rows, alignments: alignments)
         case let .paragraph(content):
@@ -128,9 +128,9 @@ struct MarkdownText: View {
                     }
                 }
             }
-            .background(Color(white: 0.07))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.16)))
+            .background(MCColor.card)
+            .clipShape(RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.md, style: .continuous).stroke(Color.white.opacity(0.16)))
             .fixedSize(horizontal: true, vertical: true)
         }
         .fixedSize(horizontal: false, vertical: true)

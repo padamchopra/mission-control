@@ -66,7 +66,7 @@ struct MessageComposer: View {
             if let errorText {
                 Text(errorText)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MCColor.errorForeground)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             // Only once there's something to send. The placeholder already says
@@ -120,7 +120,7 @@ struct MessageComposer: View {
     private var queueHint: some View {
         Label("Claude is working — this will be queued until the turn ends.", systemImage: "clock")
             .font(.caption2)
-            .foregroundStyle(.orange)
+            .foregroundStyle(MCColor.warningForeground)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -156,7 +156,7 @@ struct MessageComposer: View {
                 }
             }
             .frame(width: 58, height: 58)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: MCRadius.lg, style: .continuous))
 
             Button {
                 attachments.removeAll { $0.id == attachment.id }
@@ -220,7 +220,7 @@ struct MessageComposer: View {
                 .frame(height: textHeight)
             if text.isEmpty {
                 Text(willQueue ? "Queue a message for Claude…" : "Message \(agentName)…")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MCColor.mutedForeground)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
                     .allowsHitTesting(false)
@@ -232,8 +232,8 @@ struct MessageComposer: View {
         .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
         #else
         .frame(minHeight: 40)
-        .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: 19))
-        .overlay(RoundedRectangle(cornerRadius: 19).stroke(MobileFlightDeckPalette.border))
+        .background(MobileFlightDeckPalette.background, in: RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.xxl, style: .continuous).stroke(MobileFlightDeckPalette.border))
         #endif
     }
 
@@ -248,7 +248,7 @@ struct MessageComposer: View {
                     Spacer()
                     Text(suggestionMode.hint)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MCColor.mutedForeground)
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 9)
@@ -258,7 +258,7 @@ struct MessageComposer: View {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text("Searching…")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MCColor.mutedForeground)
                     }
                     .font(.caption)
                     .padding(.horizontal, 12)
@@ -293,7 +293,7 @@ struct MessageComposer: View {
                                     if let description = skill.description, !description.isEmpty {
                                         Text(description)
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(MCColor.mutedForeground)
                                             .lineLimit(1)
                                     }
                                 }
@@ -311,9 +311,9 @@ struct MessageComposer: View {
                 }
             }
             .foregroundStyle(.primary)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: MCRadius.xl, style: .continuous)
                     .stroke(.white.opacity(0.1), lineWidth: 1)
             }
         }
@@ -322,7 +322,7 @@ struct MessageComposer: View {
     private func emptySuggestionState(_ text: String) -> some View {
         Text(text)
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(MCColor.mutedForeground)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
     }
@@ -342,7 +342,7 @@ struct MessageComposer: View {
                     #endif
             } else {
                 #if targetEnvironment(macCatalyst)
-                Text("SEND")
+                Text("Send")
                     .font(.flightMono(8, weight: .bold))
                     .foregroundStyle(FlightDeckPalette.onAccent)
                     .frame(width: 52, height: 40)
@@ -389,7 +389,7 @@ struct MessageComposer: View {
                 #if targetEnvironment(macCatalyst)
                 .foregroundStyle(FlightDeckPalette.secondary)
                 #else
-                .foregroundStyle(.secondary)
+                .foregroundStyle(MCColor.mutedForeground)
                 #endif
         }
         .frame(height: 34)

@@ -66,10 +66,21 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   involved, unlike a chat, which the server runs itself. Either way the work runs
   on the user's normal Claude Code subscription.
 - **`ios/`** — the SwiftUI app (built with [XcodeGen](https://github.com/yonaskolb/XcodeGen)).
+  `Theme.swift` holds the design tokens — colour, radius, spacing, type scale,
+  control metrics, motion — and every surface resolves through them;
+  `Controls.swift` holds the primitives built on those tokens (buttons, badges,
+  chips, fields, rows, keycaps); `CommandPalette.swift` is the ⌘K palette.
+  `ThemeCompat.swift` maps the app's two older palettes onto the token set and is
+  meant to shrink to nothing.
 - **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
 
 ## Features
 
+- **⌘K everywhere** — one palette over every session, chat, and section, with
+  scored fuzzy matching (`fdv` finds `FlightDeckView`), grouped results that put
+  whatever needs you first, and full keyboard control: ↑↓ or ⌃N/⌃P to move, ↵ to
+  open, esc to close. Hovering moves the selection too, so the mouse and the
+  keyboard never disagree about what ↵ will do.
 - **Multiple servers** — connect to more than one Mac (e.g. a desktop and a
   laptop) and switch between them from the top bar.
 - **Chats** — conversations Mission Control runs itself, in any directory on the
