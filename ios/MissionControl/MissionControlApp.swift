@@ -12,6 +12,9 @@ struct MissionControlApp: App {
     // Started at launch so the decision badge is accurate before the queue is
     // ever opened — including for servers the fleet list isn't showing.
     @StateObject private var inbox = InboxStore.shared
+    // Held from launch so the chat tab's badge is right before the tab is ever
+    // opened, and so a chat's live pushes are applied while it isn't on screen.
+    @StateObject private var chats = ChatStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -25,6 +28,7 @@ struct MissionControlApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     guard phase == .active else { return }
                     Task { await quickReplies.refresh() }
+                    Task { await chats.refresh() }
                     inbox.requestRefresh()
                     // iOS suspends the app and the push socket dies with it.
                     // Re-open it now rather than waiting out the reconnect

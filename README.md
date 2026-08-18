@@ -28,9 +28,10 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 │  (SwiftUI +  │   REST + WebSocket        │  server/ (Node, launchd)    │
 │   SwiftTerm) │                           │    ├─ tmux ls / send-keys   │
 └──────────────┘                           │    ├─ PTY ↔ WS streaming    │
-      ▲                                    │    ├─ event registry        │
-      │ ntfy push                          │    └─ ntfy notifier          │
-      └────────────────────────────────────│  hooks/ (agent lifecycle)   │
+      ▲                                    │    ├─ Agent SDK chats       │
+      │ ntfy push                          │    ├─ event registry        │
+      └────────────────────────────────────│    └─ ntfy notifier          │
+                                           │  hooks/ (agent lifecycle)   │
                                            └─────────────────────────────┘
 ```
 
@@ -41,14 +42,21 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   workspaces, stores uploaded media, parses transcripts into the conversation
   feed, the decision queue, and per-session context usage, and sends
   notifications via ntfy.
+- **`server/src/chat.ts`** — Mission Control's own Claude conversations, run
+  through the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview).
+  These have no tmux session behind them: the server holds the Claude process,
+  keeps the feed, streams each turn to every connected client, and parks tool
+  approvals and `AskUserQuestion` prompts until someone answers them.
 - **`server/hooks/mc-hook.sh`** — shared Claude Code and Codex lifecycle hooks
   that report each session's state to the server. Every configured agent session
   running inside tmux reports automatically. Each event is pushed straight on to
   the connected apps, so the UI tracks an agent as it works rather than polling
   for changes. Claude's `AskUserQuestion` is intercepted before its terminal
   dialog: Mission Control renders the exact structured questions and returns the
-  selected answers to the same interactive Claude process. This continues to use
-  the user's normal Claude Code subscription; no Agent SDK session is involved.
+  selected answers to the same interactive Claude process. A mirrored session is
+  always the user's own interactive Claude Code process — no Agent SDK session is
+  involved, unlike a chat, which the server runs itself. Either way the work runs
+  on the user's normal Claude Code subscription.
 - **`ios/`** — the SwiftUI app (built with [XcodeGen](https://github.com/yonaskolb/XcodeGen)).
 - **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
 
@@ -56,6 +64,18 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 
 - **Multiple servers** — connect to more than one Mac (e.g. a desktop and a
   laptop) and switch between them from the top bar.
+- **Chats** — conversations Mission Control runs itself, in any directory on the
+  Mac, with no terminal involved. Start one from the Chat tab, pick the model and
+  how much Claude may do unasked (ask / accept edits / plan / full access), and
+  the turn streams in live: assistant text token by token, collapsible reasoning,
+  tool calls with inline diffs and output, and the plan as it changes. Tool
+  approvals and structured questions are answered in the feed, by request id, so
+  a card left open on another device refuses rather than answering the next
+  prompt. Chats read your own Claude Code settings, `CLAUDE.md`, and skills, so
+  they behave like your terminal sessions — and they run on your normal
+  subscription. A chat's Claude process is retired after 15 idle minutes and the
+  next message resumes the same conversation, so long-lived chats cost nothing
+  while you're not using them.
 - **Fleet view** — every session with a status chip (working / needs input /
   idle), a live output preview, and sessions waiting on you sorted to the top.
 - **Decision queue** — the tray in the top bar collects every session waiting on

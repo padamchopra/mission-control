@@ -21,6 +21,9 @@ final class AppRouter: ObservableObject {
 
     static let shared = AppRouter()
     @Published var openSession: String?
+    /// A chat to open, set by a push tap or deep link. Chats have no tmux
+    /// session behind them, so they can't ride on `openSession`.
+    @Published var openChat: String?
     @Published private(set) var historyRequest: HistoryRequest?
     @Published var isCommandPalettePresented = false
     @Published var isInboxPresented = false

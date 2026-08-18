@@ -1,8 +1,22 @@
 import PhotosUI
 import SwiftUI
 
+/// Where a composed message goes. A tmux session takes it through `send-keys`;
+/// a chat hands it to the Claude process the server is holding. Everything else
+/// about composing — attachments, `@file`, `/skill`, quick replies, history — is
+/// the same, so both surfaces use this one composer.
+enum ComposerTarget: Equatable {
+    case session(String)
+    case chat(String)
+
+    var isChat: Bool {
+        if case .chat = self { return true }
+        return false
+    }
+}
+
 struct MessageComposer: View {
-    let sessionName: String
+    let target: ComposerTarget
     /// Claude Code queues anything typed while it's mid-turn. Codex treats input
     /// as live steering, so the queue treatment is provider-specific.
     var sessionState: SessionState?
@@ -44,8 +58,8 @@ struct MessageComposer: View {
 
     /// Claude Code holds anything sent mid-turn and picks it up when the turn
     /// ends, so sending now is queueing — worth saying out loud.
-    private var willQueue: Bool { agent == .claude && sessionState == .working }
-    private var agentName: String { (agent ?? .shell).displayName }
+    private var willQueue: Bool { (agent == .claude || target.isChat) && sessionState == .working }
+    private var agentName: String { target.isChat ? "Claude" : (agent ?? .shell).displayName }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -433,15 +447,10 @@ struct MessageComposer: View {
             do {
                 var paths: [String] = []
                 for attachment in outgoing {
-                    paths.append(try await api.upload(
-                        sessionName,
-                        data: attachment.data,
-                        filename: attachment.filename,
-                        contentType: attachment.contentType
-                    ))
+                    paths.append(try await upload(attachment, using: api))
                 }
                 let body = ([trimmed] + paths).filter { !$0.isEmpty }.joined(separator: " ")
-                try await api.sendText(sessionName, text: body)
+                try await deliver(body, using: api)
                 await MainActor.run {
                     recordHistory(trimmed)
                     text = ""
@@ -455,6 +464,48 @@ struct MessageComposer: View {
                     errorText = "Send failed: \(error.localizedDescription)"
                 }
             }
+        }
+    }
+
+    private func upload(_ attachment: Attachment, using api: APIClient) async throws -> String {
+        switch target {
+        case .session(let name):
+            return try await api.upload(
+                name,
+                data: attachment.data,
+                filename: attachment.filename,
+                contentType: attachment.contentType
+            )
+        case .chat(let id):
+            return try await api.uploadToChat(
+                id,
+                data: attachment.data,
+                filename: attachment.filename,
+                contentType: attachment.contentType
+            )
+        }
+    }
+
+    private func deliver(_ body: String, using api: APIClient) async throws {
+        switch target {
+        case .session(let name):
+            try await api.sendText(name, text: body)
+        case .chat(let id):
+            try await ChatStore.shared.send(id, text: body)
+        }
+    }
+
+    private func findFiles(matching query: String, using api: APIClient) async throws -> [FileSuggestion] {
+        switch target {
+        case .session(let name): return try await api.files(name, matching: query)
+        case .chat(let id): return try await api.chatFiles(id, matching: query)
+        }
+    }
+
+    private func findSkills(matching query: String, using api: APIClient) async throws -> [SkillSuggestion] {
+        switch target {
+        case .session(let name): return try await api.skills(name, matching: query)
+        case .chat(let id): return try await api.chatSkills(id, matching: query)
         }
     }
 
@@ -478,11 +529,11 @@ struct MessageComposer: View {
             guard suggestionRequest == request else { return }
             do {
                 if mode.isFile {
-                    let files = try await api.files(sessionName, matching: mode.query)
+                    let files = try await findFiles(matching: mode.query, using: api)
                     guard suggestionRequest == request else { return }
                     fileSuggestions = files
                 } else {
-                    let skills = try await api.skills(sessionName, matching: mode.query)
+                    let skills = try await findSkills(matching: mode.query, using: api)
                     guard suggestionRequest == request else { return }
                     skillSuggestions = skills
                 }

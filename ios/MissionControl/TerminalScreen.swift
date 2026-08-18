@@ -341,7 +341,7 @@ struct TerminalScreen: View {
                 )
             }
             if mode == .conversation {
-                MessageComposer(sessionName: sessionName, sessionState: sessionState, agent: agent)
+                MessageComposer(target: .session(sessionName), sessionState: sessionState, agent: agent)
             }
         }
     }

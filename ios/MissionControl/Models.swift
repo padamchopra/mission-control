@@ -589,3 +589,185 @@ struct ArchivesResponse: Decodable {
 struct ArchiveResponse: Decodable {
     let archive: ArchivedChat
 }
+
+// MARK: - Chats
+
+/// A Claude conversation Mission Control runs itself, through the Claude Agent
+/// SDK, rather than mirroring a terminal. There is no tmux session behind one:
+/// the server owns the process, keeps the feed, and streams it to every client,
+/// so approvals and questions are answered here rather than by driving a cursor.
+enum ChatState: String, Decodable {
+    case idle
+    case working
+    case needsInput = "needs_input"
+    case error
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = ChatState(rawValue: raw) ?? .idle
+    }
+
+    var label: String {
+        switch self {
+        case .idle: return "Idle"
+        case .working: return "Working"
+        case .needsInput: return "Needs you"
+        case .error: return "Failed"
+        }
+    }
+}
+
+/// How much Claude may do without asking. These are Claude Code's own modes, so
+/// a chat behaves the way the same mode behaves in a terminal session.
+enum ChatPermissionMode: String, Codable, CaseIterable, Identifiable {
+    case `default`
+    case acceptEdits
+    case plan
+    case bypassPermissions
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .default: return "Ask"
+        case .acceptEdits: return "Accept edits"
+        case .plan: return "Plan"
+        case .bypassPermissions: return "Full access"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .default: return "Approve tools that aren't already allowed by your settings."
+        case .acceptEdits: return "Edits land without asking; other tools still prompt."
+        case .plan: return "Claude researches and proposes a plan before touching anything."
+        case .bypassPermissions: return "Nothing prompts. Only for directories you trust."
+        }
+    }
+
+    /// The one mode worth flagging on a card, matching how the session inspector
+    /// only calls out non-default permission modes.
+    var isNotable: Bool { self != .default }
+}
+
+struct ChatSummary: Decodable, Identifiable, Hashable {
+    let id: String
+    var title: String
+    var cwd: String
+    var model: String?
+    var permissionMode: ChatPermissionMode
+    var createdAt: TimeInterval
+    var updatedAt: TimeInterval
+    var state: ChatState
+    var action: String?
+    var preview: String?
+    var context: ContextUsage?
+    var turns: Int
+    var costUsd: Double?
+    var error: String?
+    /// Whether a Claude process is warm. A cold chat still answers — the next
+    /// message resumes the same conversation — so this is informational.
+    var live: Bool
+
+    var updatedDate: Date { Date(timeIntervalSince1970: updatedAt / 1000) }
+    var folder: String { cwd.split(separator: "/").last.map(String.init) ?? cwd }
+
+    static func == (lhs: ChatSummary, rhs: ChatSummary) -> Bool { lhs.id == rhs.id && lhs.updatedAt == rhs.updatedAt }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+struct ChatsResponse: Decodable {
+    let chats: [ChatSummary]
+}
+
+struct ChatResponse: Decodable {
+    let chat: ChatSummary
+}
+
+/// A tool call Claude is blocked on. Carries the same verb/arg vocabulary as a
+/// tool entry, so a pending card reads like the row it will become.
+struct ChatApproval: Decodable, Identifiable, Equatable {
+    let requestId: String
+    let tool: String
+    var verb: String
+    var arg: String
+    /// The prompt sentence the CLI itself would have shown, when it supplies one.
+    var title: String?
+    var reason: String?
+    var file: String?
+    var diff: [ConversationDiffLine]?
+    /// ExitPlanMode's proposed plan, so the card shows what is being approved.
+    var plan: String?
+    var allowAlways: Bool
+    var at: TimeInterval
+
+    var id: String { requestId }
+
+    static func == (lhs: ChatApproval, rhs: ChatApproval) -> Bool { lhs.requestId == rhs.requestId }
+}
+
+struct ChatQuestionRequest: Decodable, Equatable {
+    let requestId: String
+    let questions: [ConversationQuestion]
+
+    static func == (lhs: ChatQuestionRequest, rhs: ChatQuestionRequest) -> Bool { lhs.requestId == rhs.requestId }
+}
+
+struct ChatDetail: Decodable, Identifiable {
+    let id: String
+    var title: String
+    var cwd: String
+    var model: String?
+    var permissionMode: ChatPermissionMode
+    var createdAt: TimeInterval
+    var updatedAt: TimeInterval
+    var state: ChatState
+    var action: String?
+    var context: ContextUsage?
+    var turns: Int
+    var costUsd: Double?
+    var error: String?
+    var live: Bool
+    var entries: [ConversationEntry]
+    var todos: [ConversationTodo]
+    var approval: ChatApproval?
+    var question: ChatQuestionRequest?
+
+    var summary: ChatSummary {
+        ChatSummary(
+            id: id,
+            title: title,
+            cwd: cwd,
+            model: model,
+            permissionMode: permissionMode,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            state: state,
+            action: action,
+            preview: entries.last(where: { ($0.kind == "assistant" || $0.kind == "user") && $0.text?.isEmpty == false })?.text,
+            context: context,
+            turns: turns,
+            costUsd: costUsd,
+            error: error,
+            live: live
+        )
+    }
+}
+
+/// Claude's own model aliases. Sent verbatim, so each choice is one
+/// deterministic value rather than a picker the app would have to navigate.
+enum ChatModel: String, CaseIterable, Identifiable {
+    case `default`
+    case opus
+    case sonnet
+    case haiku
+
+    var id: String { rawValue }
+    var title: String { self == .default ? "Account default" : rawValue.capitalized }
+    /// Nil means "don't pass a model", which leaves Claude Code's own default.
+    var value: String? { self == .default ? nil : rawValue }
+
+    init(value: String?) {
+        self = ChatModel(rawValue: value ?? "") ?? .default
+    }
+}
