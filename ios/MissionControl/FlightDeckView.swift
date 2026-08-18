@@ -692,7 +692,7 @@ struct FlightDeckView: View {
     private func navigation(sidebarWidth: CGFloat) -> some View {
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                flightLabel("DEVICE VIEW")
+                flightLabel("Device view")
                 deviceMenu
             }
             .padding(.horizontal, 14)
@@ -709,10 +709,10 @@ struct FlightDeckView: View {
             Divider().overlay(FlightDeckPalette.border).padding(.horizontal, 14).padding(.vertical, 16)
 
             HStack {
-                flightLabel("AGENTS")
+                flightLabel("Agents")
                 Spacer()
-                Text(String(format: "%02d", visibleAgents.count))
-                    .font(.flightMono(8))
+                Text(visibleAgents.count)
+                    .font(.flightSans(8))
                     .foregroundStyle(FlightDeckPalette.muted)
             }
             .padding(.horizontal, 16)
@@ -761,10 +761,10 @@ struct FlightDeckView: View {
                         .overlay(RoundedRectangle(cornerRadius: MCRadius.xs, style: .continuous).stroke(FlightDeckPalette.amber))
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Add connection")
-                            .font(.flightMono(9, weight: .bold))
+                            .font(.flightSans(9, weight: .bold))
                             .foregroundStyle(FlightDeckPalette.amber)
                         Text("Pair this Mac or another device")
-                            .font(.flightMono(7))
+                            .font(.flightSans(7))
                             .foregroundStyle(FlightDeckPalette.secondary)
                             .lineLimit(1)
                     }
@@ -783,7 +783,6 @@ struct FlightDeckView: View {
             }
             .buttonStyle(.plain)
         } else {
-            VStack(spacing: 8) {
             Button { deviceMenuOpen.toggle() } label: {
                 HStack(spacing: 14) {
                     Circle().fill(scopeStatusColor).frame(width: 8, height: 8)
@@ -793,8 +792,8 @@ struct FlightDeckView: View {
                             .foregroundStyle(FlightDeckPalette.text)
                             .lineLimit(1)
                         Text(scopeSubtitle)
-                            .font(.flightMono(7))
-                            .foregroundStyle(FlightDeckPalette.muted)
+                            .font(MCFont.caption)
+                            .foregroundStyle(MCColor.mutedForeground)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
@@ -815,29 +814,37 @@ struct FlightDeckView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            if deviceMenuOpen {
+            // A popover, not a view in the sidebar's stack. As a sibling it was
+            // laid out in flow, so opening it pushed the navigation, the agent
+            // list and the footer down the window instead of floating over them.
+            .popover(isPresented: $deviceMenuOpen, arrowEdge: .bottom) {
                 VStack(spacing: 0) {
                     deviceScopeRow(server: nil)
                     ForEach(servers.servers) { server in
-                        Divider().overlay(FlightDeckPalette.border)
+                        Divider().overlay(MCColor.border)
                         deviceScopeRow(server: server)
                     }
-                    Divider().overlay(FlightDeckPalette.border)
+                    Divider().overlay(MCColor.border)
                     Button(action: openConnectionSetup) {
-                        Text("+ add connection")
-                            .font(.flightMono(8, weight: .medium))
-                            .foregroundStyle(FlightDeckPalette.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16)
-                            .frame(height: 38)
-                            .contentShape(Rectangle())
+                        HStack(spacing: MCSpace.md) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Add connection")
+                                .font(MCFont.footnote)
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(MCColor.mutedForeground)
+                        .padding(.horizontal, MCSpace.lg)
+                        .frame(height: 32)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
-                .background(FlightDeckPalette.surface)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
-            }
+                .frame(width: 280)
+                .background(MCColor.popover)
+                // Catalyst honours a popover natively; this keeps a compact
+                // window from adapting it into a sheet.
+                .presentationCompactAdaptation(.popover)
             }
         }
     }
@@ -853,8 +860,8 @@ struct FlightDeckView: View {
         let selected = server?.id == scopeServerID || (server == nil && scopeServerID == nil)
         let agents = server.map { target in deck.agents.filter { $0.server.id == target.id }.count } ?? deck.agents.count
         let subtitle = server.map {
-            "\($0.flightDeckCode) · \(agents) AGENT\(agents == 1 ? "" : "S")"
-        } ?? "\(servers.servers.count) DEVICE\(servers.servers.count == 1 ? "" : "S") · \(agents) AGENT\(agents == 1 ? "" : "S")"
+            "\($0.flightDeckCode) · \(agents) agent\(agents == 1 ? "" : "s")"
+        } ?? "\(servers.servers.count) device\(servers.servers.count == 1 ? "" : "s") · \(agents) agent\(agents == 1 ? "" : "s")"
         return Button {
             scopeServerID = server?.id
             if let server { servers.activeID = server.id }
@@ -871,15 +878,15 @@ struct FlightDeckView: View {
                         .lineLimit(1)
                     if server != nil {
                         Text(subtitle)
-                            .font(.flightMono(7))
-                            .foregroundStyle(FlightDeckPalette.muted)
+                            .font(MCFont.caption)
+                            .foregroundStyle(MCColor.mutedForeground)
                             .lineLimit(1)
                     }
                 }
                 Spacer(minLength: 0)
                 if selected {
                     Text("✓")
-                        .font(.flightMono(9, weight: .bold))
+                        .font(.flightSans(9, weight: .bold))
                         .foregroundStyle(FlightDeckPalette.amber)
                 }
             }
@@ -1061,7 +1068,7 @@ struct FlightDeckView: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("No chat selected")
-                        .font(.flightMono(8, weight: .bold))
+                        .font(.flightSans(8, weight: .bold))
                         .foregroundStyle(FlightDeckPalette.warm)
                     Text("Pick a chat, or start one against any repository on a connected Mac.")
                         .font(.flightSans(12))
@@ -1473,9 +1480,9 @@ private struct FlightDeckQueue: View {
                     let ungrouped = agents.filter { workspace(for: $0) == nil }
                     if !ungrouped.isEmpty {
                         HStack {
-                            Text("Shells").font(.flightMono(9, weight: .semibold))
+                            Text("Shells").font(.flightSans(9, weight: .semibold))
                             Spacer()
-                            Text("\(ungrouped.count)").font(.flightMono(8))
+                            Text("\(ungrouped.count)").font(.flightSans(8))
                         }
                         .foregroundStyle(FlightDeckPalette.secondary)
                         .padding(.horizontal, 12)
@@ -1502,7 +1509,7 @@ private struct FlightDeckQueue: View {
     private var launchDeviceMenu: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Launch root shell")
-                .font(.flightMono(7, weight: .bold))
+                .font(.flightSans(7, weight: .bold))
                 .foregroundStyle(FlightDeckPalette.muted)
                 .padding(.horizontal, 14)
                 .frame(height: 32)
@@ -1511,7 +1518,7 @@ private struct FlightDeckQueue: View {
 
             if launchDevices.isEmpty {
                 Text("No connected devices")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.muted)
                     .padding(.horizontal, 14)
                     .frame(height: 38)
@@ -1532,12 +1539,12 @@ private struct FlightDeckQueue: View {
                                     .foregroundStyle(FlightDeckPalette.text)
                                     .lineLimit(1)
                                 Text(device.flightDeckCode)
-                                    .font(.flightMono(7))
+                                    .font(.flightSans(7))
                                     .foregroundStyle(FlightDeckPalette.muted)
                             }
                             Spacer(minLength: 12)
                             Text("Launch →")
-                                .font(.flightMono(7, weight: .medium))
+                                .font(.flightSans(7, weight: .medium))
                                 .foregroundStyle(FlightDeckPalette.amber)
                         }
                         .padding(.horizontal, 14)
@@ -1550,7 +1557,7 @@ private struct FlightDeckQueue: View {
         }
         .frame(width: 250)
         .background(FlightDeckPalette.raised)
-        .overlay(Rectangle().stroke(FlightDeckPalette.amber.opacity(0.85)))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.amber.opacity(0.85)))
         .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
     }
 
@@ -1586,17 +1593,17 @@ private struct FlightDeckQueue: View {
             Text(workspace.workspace.name)
                 .font(.flightSans(12, weight: .semibold))
             Text(workspace.deviceCode)
-                .font(.flightMono(7))
+                .font(.flightSans(7))
                 .foregroundStyle(FlightDeckPalette.muted)
             Spacer()
             Text("\(count) agent\(count == 1 ? "" : "S")")
-                .font(.flightMono(7))
+                .font(.flightSans(7))
                 .foregroundStyle(FlightDeckPalette.muted)
             Button("+") { onNewShell(workspace, nil) }
                 .font(.flightMono(13))
                 .foregroundStyle(FlightDeckPalette.amber)
                 .frame(width: 24, height: 24)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                 .buttonStyle(.plain)
                 .help("Launch a shell in \(workspace.workspace.name)")
         }
@@ -1618,7 +1625,7 @@ private struct FlightDeckQueue: View {
                         .lineLimit(1)
                     Spacer()
                     Text(stateLabel(agent.session.resolvedState))
-                        .font(.flightMono(8))
+                        .font(.flightSans(8))
                         .foregroundStyle(stateColor(agent.session.resolvedState))
                 }
                 Text(agent.session.detail ?? agent.session.currentAction ?? agent.session.preview ?? "Shell ready")
@@ -1630,7 +1637,7 @@ private struct FlightDeckQueue: View {
                     Spacer()
                     Text(agent.deviceCode)
                 }
-                .font(.flightMono(7))
+                .font(.flightSans(7))
                 .foregroundStyle(FlightDeckPalette.muted)
             }
             .padding(.horizontal, 12)
@@ -1664,7 +1671,7 @@ private struct FlightDeckQueue: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(FlightDeckPalette.secondary)
                 .frame(width: 38, height: 38)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
         }
         .menuStyle(.borderlessButton)
         .help("Snooze \(agent.session.name)")
@@ -1685,10 +1692,10 @@ private struct FlightDeckQueue: View {
 
     private func queueStat(_ count: Int, _ label: String, _ color: Color) -> some View {
         HStack(spacing: 4) {
-            Text(String(format: "%02d", count)).foregroundStyle(color)
+            Text(count).foregroundStyle(color)
             Text(label).foregroundStyle(FlightDeckPalette.muted)
         }
-        .font(.flightMono(7))
+        .font(.flightSans(7))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1758,7 +1765,7 @@ private struct FlightDeckPullRequestsView: View {
     private var pageHeader: some View {
         HStack(alignment: .bottom, spacing: 20) {
             VStack(alignment: .leading, spacing: 7) {
-                flightLabel("GITHUB / AUTHORED BY ME")
+                flightLabel("GitHub / Authored by me")
                 Text("Pull requests")
                     .font(.flightSans(22, weight: .bold))
                     .tracking(-0.65)
@@ -1788,14 +1795,14 @@ private struct FlightDeckPullRequestsView: View {
             HStack(spacing: 6) {
                 ForEach(FlightDeckPullRequestFilter.allCases) { option in
                     Button(filterLabel(option)) { filter = option }
-                        .font(.flightMono(6, weight: filter == option ? .bold : .regular))
+                        .font(.flightSans(6, weight: filter == option ? .bold : .regular))
                         .foregroundStyle(filter == option ? FlightDeckPalette.amber : FlightDeckPalette.secondary)
                         .padding(.horizontal, 10)
                         .frame(height: 26)
                         .background(filter == option ? FlightDeckPalette.raised : Color.clear)
                         .overlay {
                             if filter == option {
-                                Rectangle().stroke(FlightDeckPalette.amber.opacity(0.45))
+                                RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.amber.opacity(0.45))
                             }
                         }
                         .buttonStyle(.plain)
@@ -1845,7 +1852,7 @@ private struct FlightDeckPullRequestsView: View {
                         .lineLimit(1)
                     Spacer()
                     Text(verbatim: "#\(pullRequest.number)")
-                        .font(.flightMono(6))
+                        .font(.flightSans(6))
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
 
@@ -1875,7 +1882,7 @@ private struct FlightDeckPullRequestsView: View {
                             .lineLimit(1)
                     }
                 }
-                .font(.flightMono(6))
+                .font(.flightSans(6))
                 .foregroundStyle(FlightDeckPalette.muted)
             }
             .padding(.horizontal, 12)
@@ -1893,7 +1900,7 @@ private struct FlightDeckPullRequestsView: View {
         case .draft: count = pullRequests.filter { $0.pullRequest.isDraft }.count
         }
         let title = option == .draft ? "DRAFTS" : option.rawValue
-        return "\(title) \(String(format: "%02d", count))"
+        return "\(title) \(count)"
     }
 
     private func rowSignalColor(_ pullRequest: AuthoredPullRequest) -> Color {
@@ -1913,18 +1920,18 @@ private struct FlightDeckPullRequestsView: View {
 
     private func rowMeta(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(.flightMono(6))
+            .font(.flightSans(6))
             .foregroundStyle(color)
             .lineLimit(1)
     }
 
     private func compactStatusPill(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(.flightMono(6))
+            .font(.flightSans(6))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .frame(height: 18)
-            .overlay(Rectangle().stroke(color.opacity(0.8)))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(color.opacity(0.8)))
     }
 
     private func compactButton(
@@ -1934,13 +1941,13 @@ private struct FlightDeckPullRequestsView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(title, action: action)
-            .font(.flightMono(7, weight: filled ? .bold : .regular))
+            .font(.flightSans(7, weight: filled ? .bold : .regular))
             .foregroundStyle(color)
             .padding(.horizontal, 14)
             .frame(height: 32)
             .background(filled ? FlightDeckPalette.amber : Color.clear)
             .overlay {
-                if !filled { Rectangle().stroke(FlightDeckPalette.strongBorder) }
+                if !filled { RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.strongBorder) }
             }
             .buttonStyle(.plain)
     }
@@ -1959,7 +1966,7 @@ private struct FlightDeckInboxQueue: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 9) {
-                flightLabel("ALL DEVICES / INBOX")
+                flightLabel("All devices / Inbox")
                 Text("\(agents.count + pullRequests.count) need you")
                     .font(.flightSans(24, weight: .bold))
                     .tracking(-0.5)
@@ -1997,7 +2004,7 @@ private struct FlightDeckInboxQueue: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(attentionColor)
                     .frame(width: 28, height: 28)
-                    .overlay(Rectangle().stroke(attentionColor.opacity(0.75)))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(attentionColor.opacity(0.75)))
 
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -2006,11 +2013,11 @@ private struct FlightDeckInboxQueue: View {
                             .lineLimit(1)
                         Spacer(minLength: 8)
                         Text(verbatim: "#\(item.pullRequest.number)")
-                            .font(.flightMono(7, weight: .semibold))
+                            .font(.flightSans(7, weight: .semibold))
                             .foregroundStyle(FlightDeckPalette.muted)
                     }
                     Text(attentionLabel(item.pullRequest, unreadCount: unreadCount))
-                        .font(.flightMono(7, weight: .bold))
+                        .font(.flightSans(7, weight: .bold))
                         .foregroundStyle(attentionColor)
                         .lineLimit(1)
                     HStack(spacing: 8) {
@@ -2025,7 +2032,7 @@ private struct FlightDeckInboxQueue: View {
                         Text(linkedAgent == nil ? "No session" : linkedAgent?.session.name ?? "Live session")
                             .lineLimit(1)
                     }
-                    .font(.flightMono(6, weight: .medium))
+                    .font(.flightSans(6, weight: .medium))
                     .foregroundStyle(FlightDeckPalette.muted)
                 }
             }
@@ -2046,9 +2053,9 @@ private struct FlightDeckInboxQueue: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Agent · \((agent.session.agent ?? .shell).displayName)")
-                        .font(.flightMono(7, weight: .bold)).foregroundStyle(FlightDeckPalette.amber)
+                        .font(.flightSans(7, weight: .bold)).foregroundStyle(FlightDeckPalette.amber)
                     Spacer()
-                    Text(agent.deviceCode).font(.flightMono(7)).foregroundStyle(FlightDeckPalette.muted)
+                    Text(agent.deviceCode).font(.flightSans(7)).foregroundStyle(FlightDeckPalette.muted)
                 }
                 Text(agent.session.name).font(.flightSans(13, weight: .semibold)).lineLimit(1)
                 Text(agent.session.detail ?? agent.session.currentAction ?? "Waiting for your command")
@@ -2065,9 +2072,9 @@ private struct FlightDeckInboxQueue: View {
     }
 
     private func queueCount(_ count: Int, _ label: String, _ color: Color) -> some View {
-        Text(String(format: "%02d %@", count, label))
+        Text("\(count) \(label)")
             .foregroundStyle(count > 0 ? color : FlightDeckPalette.muted)
-        .font(.flightMono(6, weight: .semibold))
+        .font(.flightSans(6, weight: .semibold))
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -2137,7 +2144,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    flightLabel("PULL REQUEST / #\(pullRequest.number)")
+                    flightLabel("Pull request / #\(pullRequest.number)")
                     compactStatusPill(
                         pullRequest.isDraft ? "DRAFT" : "READY",
                         pullRequest.isDraft ? FlightDeckPalette.secondary : FlightDeckPalette.green
@@ -2148,7 +2155,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     .tracking(-0.25)
                     .lineLimit(1)
                 Text("\(pullRequest.headRefName)  →  \(pullRequest.baseRefName)  ·  updated \(relativeTimestamp(pullRequest.updatedAt))")
-                    .font(.flightMono(6, weight: .medium))
+                    .font(.flightSans(6, weight: .medium))
                     .foregroundStyle(FlightDeckPalette.muted)
                     .lineLimit(1)
             }
@@ -2160,7 +2167,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 32, height: 32)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             }
             .buttonStyle(.plain)
             .foregroundStyle(FlightDeckPalette.secondary)
@@ -2173,11 +2180,11 @@ private struct FlightDeckInboxPullRequestDetail: View {
 
     private func compactStatusPill(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(.flightMono(6, weight: .bold))
+            .font(.flightSans(6, weight: .bold))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .frame(height: 18)
-            .overlay(Rectangle().stroke(color))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(color))
     }
 
     @ViewBuilder
@@ -2200,18 +2207,18 @@ private struct FlightDeckInboxPullRequestDetail: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(attentionColor)
                 .frame(width: 30, height: 30)
-                .overlay(Rectangle().stroke(attentionColor.opacity(0.8)))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(attentionColor.opacity(0.8)))
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(attentionHeadline)
-                    .font(.flightMono(8, weight: .bold))
+                    .font(.flightSans(8, weight: .bold))
                     .foregroundStyle(attentionColor)
                 Text(attentionDetail)
                     .font(.flightSans(10))
                     .foregroundStyle(FlightDeckPalette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("\(pullRequest.workspaceName)  /  \(item.deviceCode)  /  \(pullRequest.headRefName)")
-                    .font(.flightMono(6, weight: .medium))
+                    .font(.flightSans(6, weight: .medium))
                     .foregroundStyle(FlightDeckPalette.muted)
                     .lineLimit(1)
             }
@@ -2219,7 +2226,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
         .background(attentionColor.opacity(0.07))
-        .overlay(Rectangle().stroke(attentionColor.opacity(0.4)))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(attentionColor.opacity(0.4)))
     }
 
     private var attentionHeadline: String {
@@ -2251,7 +2258,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                         .foregroundStyle(FlightDeckPalette.amber)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("New comments and review activity")
-                            .font(.flightMono(7, weight: .bold))
+                            .font(.flightSans(7, weight: .bold))
                         Text("Open the pull request to review the latest GitHub activity.")
                             .font(.flightSans(10))
                             .foregroundStyle(FlightDeckPalette.secondary)
@@ -2260,7 +2267,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
                 .background(FlightDeckPalette.surface)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             } else {
                 ForEach(Array(unreadComments.prefix(2))) { comment in
                     unreadCommentCard(comment)
@@ -2276,11 +2283,11 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     Spacer()
                     Image(systemName: "arrow.up.right")
                 }
-                .font(.flightMono(7, weight: .semibold))
+                .font(.flightSans(7, weight: .semibold))
                 .foregroundStyle(FlightDeckPalette.secondary)
                 .padding(.horizontal, 14)
                 .frame(height: 32)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             }
             .buttonStyle(.plain)
         }
@@ -2289,15 +2296,15 @@ private struct FlightDeckInboxPullRequestDetail: View {
     private func unreadCommentCard(_ comment: PullRequestComment) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text(String(comment.author.prefix(2)).uppercased())
-                .font(.flightMono(6, weight: .bold))
+                .font(.flightSans(6, weight: .bold))
                 .foregroundStyle(FlightDeckPalette.amber)
                 .frame(width: 30, height: 30)
                 .background(FlightDeckPalette.background)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("@\(comment.author)")
-                        .font(.flightMono(7, weight: .bold))
+                        .font(.flightSans(7, weight: .bold))
                         .foregroundStyle(FlightDeckPalette.text)
                     if let path = comment.path {
                         Text("commented on \(path.split(separator: "/").last.map(String.init) ?? path)")
@@ -2307,7 +2314,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     }
                     Spacer(minLength: 4)
                     Text(relativeTimestamp(comment.createdAt ?? ""))
-                        .font(.flightMono(6))
+                        .font(.flightSans(6))
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
                 Text(comment.body)
@@ -2317,7 +2324,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let path = comment.path {
                     Text("\(path)\(comment.line.map { ":\($0)" } ?? "")")
-                        .font(.flightMono(6))
+                        .font(.flightSans(6))
                         .foregroundStyle(FlightDeckPalette.muted)
                         .lineLimit(1)
                 }
@@ -2326,7 +2333,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
         .background(FlightDeckPalette.surface)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private var failedChecks: some View {
@@ -2338,19 +2345,19 @@ private struct FlightDeckInboxPullRequestDetail: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(FlightDeckPalette.red)
                         .frame(width: 28, height: 28)
-                        .overlay(Rectangle().stroke(FlightDeckPalette.red.opacity(0.65)))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.red.opacity(0.65)))
                     Text(check.name)
                         .font(.flightSans(11, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
                     Text("Fail")
-                        .font(.flightMono(7, weight: .bold))
+                        .font(.flightSans(7, weight: .bold))
                         .foregroundStyle(FlightDeckPalette.red)
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 44)
                 .background(FlightDeckPalette.surface)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             }
 
             HStack(alignment: .top, spacing: 12) {
@@ -2358,7 +2365,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     .foregroundStyle(FlightDeckPalette.secondary)
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Latest failure")
-                        .font(.flightMono(7, weight: .bold))
+                        .font(.flightSans(7, weight: .bold))
                     Text("Open the check run on GitHub to inspect logs and annotations from the latest commit.")
                         .font(.flightSans(10))
                         .foregroundStyle(FlightDeckPalette.secondary)
@@ -2367,7 +2374,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
             .padding(15)
             .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
             .background(FlightDeckPalette.surface)
-            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
 
             Button {
                 openPullRequest()
@@ -2377,11 +2384,11 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     Spacer()
                     Image(systemName: "arrow.up.right")
                 }
-                .font(.flightMono(7, weight: .semibold))
+                .font(.flightSans(7, weight: .semibold))
                 .foregroundStyle(FlightDeckPalette.secondary)
                 .padding(.horizontal, 14)
                 .frame(height: 32)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             }
             .buttonStyle(.plain)
         }
@@ -2392,7 +2399,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
             flightLabel(title)
             Spacer()
             Text(trailing)
-                .font(.flightMono(6, weight: .semibold))
+                .font(.flightSans(6, weight: .semibold))
                 .foregroundStyle(FlightDeckPalette.muted)
         }
     }
@@ -2408,7 +2415,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
                 Spacer()
                 Text(agent?.session.name ?? "Live session")
-                    .font(.flightMono(6))
+                    .font(.flightSans(6))
                     .foregroundStyle(FlightDeckPalette.muted)
             } else {
                 Button("Launch shell in workspace", action: onLaunchShell)
@@ -2417,7 +2424,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                     .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
                 Spacer()
                 Text("Opens \(pullRequest.headRefName)")
-                    .font(.flightMono(6))
+                    .font(.flightSans(6))
                     .foregroundStyle(FlightDeckPalette.muted)
                     .lineLimit(1)
             }
@@ -2432,14 +2439,14 @@ private struct FlightDeckInboxPullRequestDetail: View {
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 7) {
-                flightLabel("PR TELEMETRY")
+                flightLabel("PR telemetry")
                 Text(isBuildAttention ? "Build attention" : "Review attention")
                     .font(.flightSans(18, weight: .bold))
                     .tracking(-0.35)
                 Text(isBuildAttention
                      ? "\(pullRequest.failedCheckCount) FAILED CHECK\(pullRequest.failedCheckCount == 1 ? "" : "S")"
                      : unreadInspectorLabel)
-                    .font(.flightMono(8, weight: .bold))
+                    .font(.flightSans(8, weight: .bold))
                     .foregroundStyle(attentionColor)
             }
             .padding(16)
@@ -2466,7 +2473,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
             .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
 
             VStack(alignment: .leading, spacing: 15) {
-                flightLabel("WHY THIS IS IN INBOX")
+                flightLabel("Why this is in inbox")
                 reasonRow("FAILING CHECKS", active: pullRequest.failedCheckCount > 0, color: FlightDeckPalette.red)
                 reasonRow("NEW REVIEW ACTIVITY", active: pullRequest.hasUnreadActivity, color: FlightDeckPalette.amber)
                 reasonRow(agent == nil ? "NO ACTIVE SESSION" : "ACTIVE SESSION LINKED", active: agent != nil, color: FlightDeckPalette.green)
@@ -2509,13 +2516,13 @@ private struct FlightDeckInboxPullRequestDetail: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
             Text(detail)
-                .font(.flightMono(6, weight: .bold))
+                .font(.flightSans(6, weight: .bold))
                 .foregroundStyle(color)
                 .lineLimit(1)
         }
         .padding(13)
         .frame(maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private func inspectorRow(_ label: String, _ value: String) -> some View {
@@ -2524,7 +2531,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
             Spacer(minLength: 6)
             Text(value).foregroundStyle(FlightDeckPalette.text).multilineTextAlignment(.trailing).lineLimit(1)
         }
-        .font(.flightMono(7, weight: .semibold))
+        .font(.flightSans(7, weight: .semibold))
     }
 
     private func reasonRow(_ text: String, active: Bool, color: Color) -> some View {
@@ -2534,7 +2541,7 @@ private struct FlightDeckInboxPullRequestDetail: View {
                 .frame(width: 8, height: 8)
                 .overlay(Circle().stroke(active ? color : FlightDeckPalette.muted))
             Text(text)
-                .font(.flightMono(7, weight: .semibold))
+                .font(.flightSans(7, weight: .semibold))
                 .foregroundStyle(active ? FlightDeckPalette.text : FlightDeckPalette.muted)
         }
     }
@@ -2583,7 +2590,7 @@ private struct FlightDeckPullRequestDetail: View {
         HStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 9) {
-                    flightLabel("SELECTED PR / #\(pullRequest.number)")
+                    flightLabel("Selected PR / #\(pullRequest.number)")
                     smallStatusPill(
                         pullRequestStatusLabel(pullRequest),
                         pullRequestStatusColor(pullRequest)
@@ -2593,7 +2600,7 @@ private struct FlightDeckPullRequestDetail: View {
                     .font(.flightSans(16, weight: .bold))
                     .lineLimit(1)
                 Text("\(pullRequest.repository) · \(pullRequest.headRefName) → \(pullRequest.baseRefName)")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.secondary)
                     .lineLimit(1)
             }
@@ -2617,14 +2624,14 @@ private struct FlightDeckPullRequestDetail: View {
                     .frame(width: 12)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(attentionTitle)
-                        .font(.flightMono(7, weight: .bold))
+                        .font(.flightSans(7, weight: .bold))
                         .foregroundStyle(attentionColor)
                     Text(attentionDescription)
                         .font(.flightSans(10))
                         .foregroundStyle(FlightDeckPalette.text)
                         .lineLimit(1)
                     Text(attentionMetadata)
-                        .font(.flightMono(6))
+                        .font(.flightSans(6))
                         .foregroundStyle(FlightDeckPalette.muted)
                         .lineLimit(1)
                 }
@@ -2671,17 +2678,17 @@ private struct FlightDeckPullRequestDetail: View {
 
     private var pullRequestDescription: some View {
         VStack(alignment: .leading, spacing: 12) {
-            flightLabel("DESCRIPTION")
+            flightLabel("Description")
             if let body = pullRequest.body?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty {
                 PullRequestMarkdownBody(text: body)
             } else {
                 Text("No description provided")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.muted)
                     .padding(16)
                     .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
                     .background(FlightDeckPalette.surface)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             }
         }
     }
@@ -2689,11 +2696,11 @@ private struct FlightDeckPullRequestDetail: View {
     private var pullRequestTimeline: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                flightLabel("COMMITS & GITHUB ACTIVITY")
+                flightLabel("Commits & GitHub activity")
                 Spacer()
                 if !timelineLoading {
                     Text("\(timeline.count) events")
-                        .font(.flightMono(6))
+                        .font(.flightSans(6))
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
             }
@@ -2702,24 +2709,24 @@ private struct FlightDeckPullRequestDetail: View {
                 HStack(spacing: 10) {
                     ProgressView().tint(FlightDeckPalette.secondary)
                     Text("Loading pull request history")
-                        .font(.flightMono(7))
+                        .font(.flightSans(7))
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
                 .padding(16)
             } else if let timelineError {
                 Text(timelineError)
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.red)
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             } else if timeline.isEmpty {
                 Text("No commits or GitHub activity found")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.muted)
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(timeline.enumerated()), id: \.element.id) { index, event in
@@ -2737,11 +2744,11 @@ private struct FlightDeckPullRequestDetail: View {
             HStack(alignment: .top, spacing: 14) {
                 VStack(spacing: 0) {
                     Text(timelineSymbol(event))
-                        .font(.flightMono(7, weight: .bold))
+                        .font(.flightSans(7, weight: .bold))
                         .foregroundStyle(timelineColor(event))
                         .frame(width: 30, height: 30)
                         .background(FlightDeckPalette.background)
-                        .overlay(Rectangle().stroke(timelineColor(event).opacity(0.75)))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(timelineColor(event).opacity(0.75)))
                     if !isLast {
                         Rectangle()
                             .fill(FlightDeckPalette.border)
@@ -2757,15 +2764,15 @@ private struct FlightDeckPullRequestDetail: View {
                             .foregroundStyle(FlightDeckPalette.text)
                         if isNewTimelineEvent(event) {
                             Text("New")
-                                .font(.flightMono(6, weight: .bold))
+                                .font(.flightSans(6, weight: .bold))
                                 .foregroundStyle(FlightDeckPalette.amber)
                                 .padding(.horizontal, 6)
                                 .frame(height: 18)
-                                .overlay(Rectangle().stroke(FlightDeckPalette.amber))
+                                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.amber))
                         }
                         Spacer(minLength: 8)
                         Text(relativeTimestamp(event.createdAt))
-                            .font(.flightMono(6))
+                            .font(.flightSans(6))
                             .foregroundStyle(FlightDeckPalette.muted)
                     }
                     if !event.body.isEmpty {
@@ -2777,7 +2784,7 @@ private struct FlightDeckPullRequestDetail: View {
                     }
                     if let path = event.path {
                         Text("\(path)\(event.line.map { ":\($0)" } ?? "")")
-                            .font(.flightMono(6))
+                            .font(.flightSans(6))
                             .foregroundStyle(FlightDeckPalette.muted)
                             .lineLimit(1)
                     }
@@ -2850,7 +2857,7 @@ private struct FlightDeckPullRequestDetail: View {
     private func summaryMetric(_ label: String, _ value: String, _ detail: String, _ accent: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(label)
-                .font(.flightMono(6))
+                .font(.flightSans(6))
                 .foregroundStyle(FlightDeckPalette.muted)
             Text(value)
                 .font(.flightSans(14, weight: .bold))
@@ -2858,19 +2865,19 @@ private struct FlightDeckPullRequestDetail: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             Text(detail)
-                .font(.flightMono(6))
+                .font(.flightSans(6))
                 .foregroundStyle(accent)
                 .lineLimit(1)
         }
         .padding(13)
         .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private var changesMetric: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text("Changes")
-                .font(.flightMono(6))
+                .font(.flightSans(6))
                 .foregroundStyle(FlightDeckPalette.muted)
             Text("\(pullRequest.changedFiles) files")
                 .font(.flightSans(14, weight: .bold))
@@ -2883,12 +2890,12 @@ private struct FlightDeckPullRequestDetail: View {
                 Text("−\(pullRequest.deletions)")
                     .foregroundStyle(FlightDeckPalette.red)
             }
-            .font(.flightMono(6))
+            .font(.flightSans(6))
             .lineLimit(1)
         }
         .padding(13)
         .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private var attentionTitle: String {
@@ -2958,11 +2965,11 @@ private struct FlightDeckPullRequestDetail: View {
 
     private func smallStatusPill(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(.flightMono(6))
+            .font(.flightSans(6))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .frame(height: 18)
-            .overlay(Rectangle().stroke(color.opacity(0.8)))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(color.opacity(0.8)))
     }
 
     private func detailButton(
@@ -2972,13 +2979,13 @@ private struct FlightDeckPullRequestDetail: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(title, action: action)
-            .font(.flightMono(7, weight: filled ? .bold : .regular))
+            .font(.flightSans(7, weight: filled ? .bold : .regular))
             .foregroundStyle(color)
             .padding(.horizontal, 13)
             .frame(height: 32)
             .background(filled ? FlightDeckPalette.amber : Color.clear)
             .overlay {
-                if !filled { Rectangle().stroke(FlightDeckPalette.strongBorder) }
+                if !filled { RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.strongBorder) }
             }
             .buttonStyle(.plain)
     }
@@ -3022,7 +3029,7 @@ private struct PullRequestMarkdownBody: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(FlightDeckPalette.surface)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private func remoteKind(_ kind: MediaKind) -> PullRequestRemoteMedia.Kind {
@@ -3144,26 +3151,26 @@ private struct PullRequestRemoteMedia: View {
             }
         }
         .background(FlightDeckPalette.background)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private var mediaPlaceholder: some View {
         HStack(spacing: 10) {
             ProgressView().tint(FlightDeckPalette.secondary)
             Text("Loading attachment")
-                .font(.flightMono(7))
+                .font(.flightSans(7))
                 .foregroundStyle(FlightDeckPalette.muted)
         }
         .frame(maxWidth: .infinity, minHeight: 96)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private func mediaLink(_ title: String) -> some View {
         Link(title, destination: url)
-            .font(.flightMono(7, weight: .semibold))
+            .font(.flightSans(7, weight: .semibold))
             .foregroundStyle(FlightDeckPalette.secondary)
             .frame(maxWidth: .infinity, minHeight: 72)
-            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private func resolveKind() async {
@@ -3199,7 +3206,7 @@ private struct PullRequestVideoPlayer: View {
         VideoPlayer(player: player)
             .frame(maxWidth: .infinity, minHeight: 320, maxHeight: 520)
             .background(Color.black)
-            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             .onDisappear { player.pause() }
     }
 }
@@ -3235,12 +3242,12 @@ private struct LegacyFlightDeckPullRequestDetail: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
-                    flightLabel("\(item.pullRequest.repository) / PULL REQUEST #\(item.pullRequest.number)")
+                    flightLabel("\(item.pullRequest.repository) / Pull request #\(item.pullRequest.number)")
                     Text(item.pullRequest.title)
                         .font(.flightSans(25, weight: .bold))
                         .tracking(-0.5)
                     Text("\(item.pullRequest.headRefName)  →  \(item.pullRequest.baseRefName)")
-                        .font(.flightMono(8))
+                        .font(.flightSans(8))
                         .foregroundStyle(FlightDeckPalette.secondary)
                 }
                 Spacer()
@@ -3281,7 +3288,7 @@ private struct LegacyFlightDeckPullRequestDetail: View {
                     .foregroundStyle(item.pullRequest.failedCheckCount > 0 ? FlightDeckPalette.red : FlightDeckPalette.amber)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(inboxReason(item.pullRequest))
-                        .font(.flightMono(8, weight: .bold))
+                        .font(.flightSans(8, weight: .bold))
                     Text(item.pullRequest.failedCheckCount > 0
                          ? "Resolve the failing checks before this pull request can move forward."
                          : "New GitHub activity has not been reviewed from Mission Control yet.")
@@ -3299,29 +3306,29 @@ private struct LegacyFlightDeckPullRequestDetail: View {
     private var comments: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                flightLabel("LATEST COMMENTS")
+                flightLabel("Latest comments")
                 Spacer()
-                Text(String(format: "%02d", item.pullRequest.comments.count))
-                    .font(.flightMono(8)).foregroundStyle(FlightDeckPalette.amber)
+                Text(item.pullRequest.comments.count)
+                    .font(.flightSans(8)).foregroundStyle(FlightDeckPalette.amber)
             }
             if item.pullRequest.comments.isEmpty {
                 Text("No review comments yet")
-                    .font(.flightMono(8)).foregroundStyle(FlightDeckPalette.muted)
+                    .font(.flightSans(8)).foregroundStyle(FlightDeckPalette.muted)
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             } else {
                 ForEach(item.pullRequest.comments.prefix(3)) { comment in
                     VStack(alignment: .leading, spacing: 7) {
                         HStack {
-                            Text("@\(comment.author)").font(.flightMono(8, weight: .semibold)).foregroundStyle(FlightDeckPalette.amber)
+                            Text("@\(comment.author)").font(.flightSans(8, weight: .semibold)).foregroundStyle(FlightDeckPalette.amber)
                             Spacer()
-                            Text(relativeTimestamp(comment.createdAt ?? "")).font(.flightMono(7)).foregroundStyle(FlightDeckPalette.muted)
+                            Text(relativeTimestamp(comment.createdAt ?? "")).font(.flightSans(7)).foregroundStyle(FlightDeckPalette.muted)
                         }
                         Text(comment.body).font(.flightSans(11)).foregroundStyle(FlightDeckPalette.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(FlightDeckPalette.surface)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                 }
             }
         }
@@ -3332,13 +3339,13 @@ private struct LegacyFlightDeckPullRequestDetail: View {
     private var checks: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                flightLabel("CHECKS / \(String(format: "%02d", item.pullRequest.checks.count))")
+                flightLabel("Checks / \(item.pullRequest.checks.count)")
                 Spacer()
                 Text("\(item.pullRequest.passedCheckCount) pass")
-                    .font(.flightMono(7)).foregroundStyle(FlightDeckPalette.green)
+                    .font(.flightSans(7)).foregroundStyle(FlightDeckPalette.green)
                 if item.pullRequest.failedCheckCount > 0 {
                     Text("\(item.pullRequest.failedCheckCount) fail")
-                        .font(.flightMono(7)).foregroundStyle(FlightDeckPalette.red)
+                        .font(.flightSans(7)).foregroundStyle(FlightDeckPalette.red)
                 }
             }
             ForEach(item.pullRequest.checks.prefix(8)) { check in
@@ -3347,7 +3354,7 @@ private struct LegacyFlightDeckPullRequestDetail: View {
                         .foregroundStyle(checkColor(check.state))
                     Text(check.name).font(.flightSans(10)).lineLimit(1)
                     Spacer()
-                    Text(check.state).font(.flightMono(7)).foregroundStyle(checkColor(check.state))
+                    Text(check.state).font(.flightSans(7)).foregroundStyle(checkColor(check.state))
                 }
             }
         }
@@ -3357,11 +3364,11 @@ private struct LegacyFlightDeckPullRequestDetail: View {
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 7) {
-                flightLabel("PULL REQUEST STATUS")
+                flightLabel("Pull request status")
                 Text("Flight readiness")
                     .font(.flightSans(22, weight: .bold))
                 Text(item.pullRequest.failedCheckCount > 0 ? "ACTION REQUIRED" : "ON TRACK")
-                    .font(.flightMono(8))
+                    .font(.flightSans(8))
                     .foregroundStyle(item.pullRequest.failedCheckCount > 0 ? FlightDeckPalette.red : FlightDeckPalette.green)
             }
             .padding(16)
@@ -3402,7 +3409,7 @@ private struct LegacyFlightDeckPullRequestDetail: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 82, alignment: .topLeading)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
@@ -3411,7 +3418,7 @@ private struct LegacyFlightDeckPullRequestDetail: View {
             Spacer()
             Text(value).foregroundStyle(FlightDeckPalette.text).multilineTextAlignment(.trailing)
         }
-        .font(.flightMono(7, weight: .semibold))
+        .font(.flightSans(7, weight: .semibold))
     }
 }
 
@@ -3420,7 +3427,7 @@ private func pullRequestSignal(_ count: Int, _ label: String, _ color: Color) ->
         Text("\(count)").foregroundStyle(count > 0 ? color : FlightDeckPalette.muted)
         Text(label).foregroundStyle(FlightDeckPalette.muted)
     }
-    .font(.flightMono(6, weight: .semibold))
+    .font(.flightSans(6, weight: .semibold))
 }
 
 private func inboxReason(_ pullRequest: AuthoredPullRequest) -> String {
@@ -3474,12 +3481,12 @@ private func checkColor(_ state: String) -> Color {
 
 private func statusPill(_ text: String, _ color: Color) -> some View {
     Text(text)
-        .font(.flightMono(7, weight: .bold))
+        .font(.flightSans(7, weight: .bold))
         .foregroundStyle(color)
         .padding(.horizontal, 10)
         .frame(height: 28)
         .background(color.opacity(0.08))
-        .overlay(Rectangle().stroke(color))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(color))
 }
 
 private func relativeTimestamp(_ value: String) -> String {
@@ -3510,11 +3517,11 @@ private struct FlightDeckTelemetry: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                flightLabel("LIVE TELEMETRY")
+                flightLabel("Live telemetry")
                 Text("Session integrity")
                     .font(.flightSans(24, weight: .bold))
                 Text(agent.session.resolvedState == .needsInput ? "AWAITING COMMAND" : "ALL SYSTEMS NOMINAL")
-                    .font(.flightMono(9))
+                    .font(.flightSans(9))
                     .foregroundStyle(stateColor(agent.session.resolvedState))
             }
             .padding(.horizontal, 16)
@@ -3577,13 +3584,13 @@ private struct FlightDeckTelemetry: View {
                 .frame(height: 3)
             } else {
                 Text(turnHealth)
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(accent)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private var telemetryRows: some View {
@@ -3600,10 +3607,10 @@ private struct FlightDeckTelemetry: View {
             HStack(spacing: 8) {
                 Text("Open pull requests")
                 Spacer(minLength: 8)
-                Text(String(format: "%02d", links?.resolvedPullRequest == nil ? 0 : 1))
+                Text(links?.resolvedPullRequest == nil ? 0 : 1)
                     .foregroundStyle(FlightDeckPalette.amber)
             }
-            .font(.flightMono(7, weight: .semibold))
+            .font(.flightSans(7, weight: .semibold))
             .tracking(0.7)
             .foregroundStyle(FlightDeckPalette.muted)
 
@@ -3613,11 +3620,11 @@ private struct FlightDeckTelemetry: View {
                 } label: {
                     HStack(spacing: 12) {
                         Text(pullRequest.number > 0 ? "#" + String(pullRequest.number) : "PR")
-                            .font(.flightMono(8, weight: .semibold))
+                            .font(.flightSans(8, weight: .semibold))
                             .foregroundStyle(FlightDeckPalette.amber)
                             .frame(width: 46, height: 32)
                             .background(FlightDeckPalette.amber.opacity(0.10))
-                            .overlay(Rectangle().stroke(FlightDeckPalette.amber))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.amber))
 
                         VStack(alignment: .leading, spacing: 5) {
                             Text(pullRequest.title)
@@ -3625,7 +3632,7 @@ private struct FlightDeckTelemetry: View {
                                 .foregroundStyle(FlightDeckPalette.text)
                                 .lineLimit(1)
                             Text(pullRequestMetadata(pullRequest))
-                                .font(.flightMono(7, weight: .medium))
+                                .font(.flightSans(7, weight: .medium))
                                 .tracking(0.35)
                                 .foregroundStyle(FlightDeckPalette.muted)
                                 .lineLimit(1)
@@ -3640,7 +3647,7 @@ private struct FlightDeckTelemetry: View {
                     .padding(12)
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                     .background(FlightDeckPalette.surface)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.strongBorder))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -3649,13 +3656,13 @@ private struct FlightDeckTelemetry: View {
                 HStack {
                     ProgressView().tint(FlightDeckPalette.secondary)
                     Text("Checking this branch")
-                        .font(.flightMono(7))
+                        .font(.flightSans(7))
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             } else {
                 Text("No open pull request for this branch")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.muted)
                     .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
             }
@@ -3667,7 +3674,7 @@ private struct FlightDeckTelemetry: View {
         let diff = agent.session.diffStat
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Text("Changes / \(String(format: "%02d", diff?.files ?? 0))")
+                Text("Changes / \(diff?.files ?? 0)")
                     .foregroundStyle(FlightDeckPalette.secondary)
                 Spacer()
                 Text("+\(diff?.adds ?? 0)").foregroundStyle(FlightDeckPalette.green)
@@ -3698,21 +3705,21 @@ private struct FlightDeckTelemetry: View {
                         }
                     }
                 }
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             } else {
                 Text(diff == nil ? "NO FILE CHANGES REPORTED" : "LIVE WORKTREE SUMMARY")
                     .foregroundStyle(FlightDeckPalette.muted)
             }
         }
-        .font(.flightMono(7))
+        .font(.flightSans(7))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private var checksSummary: some View {
         VStack(alignment: .leading, spacing: 11) {
-            Text("Checks / \(String(format: "%02d", checks?.checks.count ?? 0))")
-                .font(.flightMono(7))
+            Text("Checks / \(checks?.checks.count ?? 0)")
+                .font(.flightSans(7))
                 .foregroundStyle(FlightDeckPalette.secondary)
             if let checks, checks.available, !checks.checks.isEmpty {
                 ForEach(checks.checks.prefix(3)) { check in
@@ -3727,11 +3734,11 @@ private struct FlightDeckTelemetry: View {
                         Text(checkTrailingLabel(check))
                             .foregroundStyle(checkColor(check.state))
                     }
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                 }
             } else {
                 Text("No checks reported")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.muted)
             }
         }
@@ -3854,7 +3861,7 @@ private struct FlightDeckTelemetry: View {
             Text(value).foregroundStyle(FlightDeckPalette.text).lineLimit(1)
             Spacer(minLength: 0)
         }
-        .font(.flightMono(9))
+        .font(.flightSans(9))
     }
 }
 
@@ -3879,7 +3886,7 @@ private struct FlightDeckLoopsView: View {
     var body: some View {
         VStack(spacing: 0) {
             FlightDeckPageHeader(
-                eyebrow: "AUTOMATION / RECURRING MISSIONS",
+                eyebrow: "Automation / Recurring missions",
                 title: "Loops",
                 subtitle: "Scheduled agent runs across every connected device"
             ) {
@@ -3925,7 +3932,7 @@ private struct FlightDeckLoopsView: View {
             } else if let loop = pendingDelete {
                 FlightDeckModalLayer(onDismiss: { pendingDelete = nil }) {
                     FlightDeckDialogModal(
-                        eyebrow: "LOOPS / DESTRUCTIVE ACTION",
+                        eyebrow: "Loops / Destructive action",
                         title: "Delete loop?",
                         message: "Future runs stop immediately. Sessions already launched by this loop are not deleted."
                     ) {
@@ -3947,9 +3954,9 @@ private struct FlightDeckLoopsView: View {
     private var loopIndex: some View {
         VStack(spacing: 0) {
             HStack {
-                flightLabel("ACTIVE / \(String(format: "%02d", loops.filter { $0.loop.enabled }.count))")
+                flightLabel("Active / \(loops.filter { $0.loop.enabled }.count)")
                 Spacer()
-                flightLabel("NEXT 24 HOURS")
+                flightLabel("Next 24 hours")
             }
             .padding(.horizontal, 16)
             .frame(height: 38)
@@ -3977,7 +3984,7 @@ private struct FlightDeckLoopsView: View {
                         .lineLimit(1)
                     Spacer()
                     Text(loopStatus(loop))
-                        .font(.flightMono(8))
+                        .font(.flightSans(8))
                         .foregroundStyle(loop.loop.lastError == nil ? FlightDeckPalette.green : FlightDeckPalette.red)
                 }
                 Text(loop.loop.schedule.summary)
@@ -3987,7 +3994,7 @@ private struct FlightDeckLoopsView: View {
                     Text(loop.deviceCode)
                         .padding(.horizontal, 10)
                         .frame(height: 18)
-                        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                     Menu {
                         agentButton(.codex, loop: loop)
                         agentButton(.claude, loop: loop)
@@ -3995,14 +4002,14 @@ private struct FlightDeckLoopsView: View {
                         Text("\(loop.loop.agent.displayName)  ⌄")
                             .padding(.horizontal, 10)
                             .frame(height: 22)
-                            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                     }
                     .menuStyle(.borderlessButton)
                     Spacer()
                     Text("Next \(relativeRunLabel(loop.loop.nextRunDate))")
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
-                .font(.flightMono(8))
+                .font(.flightSans(8))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -4016,13 +4023,13 @@ private struct FlightDeckLoopsView: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 7) {
-                    flightLabel("SELECTED LOOP")
+                    flightLabel("Selected loop")
                     Text(selected.loop.name)
                         .font(.flightSans(24, weight: .bold))
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 6) {
-                    flightLabel("RUN WITH")
+                    flightLabel("Run with")
                     Menu {
                         agentButton(.codex, loop: selected)
                         agentButton(.claude, loop: selected)
@@ -4036,7 +4043,7 @@ private struct FlightDeckLoopsView: View {
                         .foregroundStyle(FlightDeckPalette.text)
                         .padding(.horizontal, 12)
                         .frame(width: 124, height: 32)
-                        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                     }
                     .menuStyle(.borderlessButton)
                 }
@@ -4060,14 +4067,14 @@ private struct FlightDeckLoopsView: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                flightLabel("MISSION")
+                flightLabel("Mission")
                 Text(selected.loop.prompt)
                     .font(.flightMono(12))
                     .foregroundStyle(FlightDeckPalette.secondary)
                     .padding(12)
                     .frame(maxWidth: .infinity, minHeight: 82, alignment: .topLeading)
                     .background(FlightDeckPalette.surface)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             }
 
             HStack(spacing: 8) {
@@ -4088,7 +4095,7 @@ private struct FlightDeckLoopsView: View {
             }
             if let error = selected.loop.lastError, !error.isEmpty {
                 Text(error)
-                    .font(.flightMono(9))
+                    .font(.flightSans(9))
                     .foregroundStyle(FlightDeckPalette.red)
             }
             Spacer()
@@ -4102,12 +4109,12 @@ private struct FlightDeckLoopsView: View {
         VStack(alignment: .leading, spacing: 8) {
             flightLabel(label)
             Text(value).font(.flightSans(26, weight: .bold)).lineLimit(1)
-            Text(footer).font(.flightMono(8)).foregroundStyle(accent).lineLimit(1)
+            Text(footer).font(.flightSans(8)).foregroundStyle(accent).lineLimit(1)
         }
         .padding(12)
         .frame(maxWidth: 170, minHeight: 104, alignment: .topLeading)
         .background(FlightDeckPalette.surface)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     @ViewBuilder
@@ -4238,7 +4245,7 @@ private struct FlightDeckLoopEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             FlightDeckModalHeader(
-                eyebrow: "LOOPS / \(existing == nil ? "NEW MISSION" : "EDIT MISSION")",
+                eyebrow: "Loops / \(existing == nil ? "NEW MISSION" : "EDIT MISSION")",
                 title: existing == nil ? "Create a loop" : "Edit loop",
                 onCancel: onCancel
             )
@@ -4304,7 +4311,7 @@ private struct FlightDeckLoopEditor: View {
                             .padding(.horizontal, 12)
                             .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
                             .background(FlightDeckPalette.surface)
-                            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                         }
                     }
 
@@ -4316,7 +4323,7 @@ private struct FlightDeckLoopEditor: View {
                             .padding(10)
                             .frame(minHeight: 150)
                             .background(FlightDeckPalette.surface)
-                            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                     }
 
                     if let errorText {
@@ -4347,7 +4354,7 @@ private struct FlightDeckLoopEditor: View {
     private func loopField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title)
-                .font(.flightMono(8, weight: .bold))
+                .font(.flightSans(8, weight: .bold))
                 .foregroundStyle(FlightDeckPalette.secondary)
             content()
         }
@@ -4363,18 +4370,18 @@ private struct FlightDeckLoopEditor: View {
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
             .background(FlightDeckPalette.surface)
-            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 
     private func agentButton(_ kind: AgentKind) -> some View {
         Button { agent = kind } label: {
             Text(kind.displayName)
-                .font(.flightMono(9, weight: .semibold))
+                .font(.flightSans(9, weight: .semibold))
                 .foregroundStyle(agent == kind ? FlightDeckPalette.onAccent : FlightDeckPalette.secondary)
                 .frame(maxWidth: .infinity)
                 .frame(height: 38)
                 .background(agent == kind ? FlightDeckPalette.amber : FlightDeckPalette.surface)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
         }
         .buttonStyle(.plain)
     }
@@ -4473,7 +4480,7 @@ private struct FlightDeckConnectionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             FlightDeckPageHeader(
-                eyebrow: "FLEET / SECURE LINKS",
+                eyebrow: "Fleet / Secure links",
                 title: "Connection settings",
                 subtitle: "Pair, identify, and maintain every Mission Control device"
             ) {
@@ -4537,7 +4544,7 @@ private struct FlightDeckConnectionsView: View {
             } else if let server = pendingRemoval {
                 FlightDeckModalLayer(onDismiss: { pendingRemoval = nil }) {
                     FlightDeckDialogModal(
-                        eyebrow: "FLEET / DEVICE REMOVAL",
+                        eyebrow: "Fleet / Device removal",
                         title: "Remove device?",
                         message: "Mission Control will forget \(server.name). The server and its running sessions are not stopped."
                     ) {
@@ -4557,7 +4564,7 @@ private struct FlightDeckConnectionsView: View {
             } else if showUpdateConfirmation {
                 FlightDeckModalLayer(onDismiss: { showUpdateConfirmation = false }) {
                     FlightDeckDialogModal(
-                        eyebrow: "FLEET / SERVER UPDATE",
+                        eyebrow: "Fleet / Server update",
                         title: "Update selected server?",
                         message: "Running tmux sessions are preserved while the Mission Control service restarts."
                     ) {
@@ -4575,7 +4582,7 @@ private struct FlightDeckConnectionsView: View {
             } else if pasteFailed {
                 FlightDeckModalLayer(onDismiss: { pasteFailed = false }) {
                     FlightDeckDialogModal(
-                        eyebrow: "FLEET / PAIRING LINK",
+                        eyebrow: "Fleet / Pairing link",
                         title: "No pairing link found",
                         message: "Copy the missioncontrol://configure link printed by the setup script, then try again."
                     ) {
@@ -4592,9 +4599,9 @@ private struct FlightDeckConnectionsView: View {
     private var deviceIndex: some View {
         VStack(spacing: 0) {
             HStack {
-                flightLabel("DEVICES / \(String(format: "%02d", store.servers.count))")
+                flightLabel("Devices / \(store.servers.count)")
                 Spacer()
-                flightLabel("FLEET")
+                flightLabel("Fleet")
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
@@ -4617,14 +4624,14 @@ private struct FlightDeckConnectionsView: View {
                                         .font(.flightSans(14, weight: .semibold))
                                         .lineLimit(1)
                                     Text("\(server.flightDeckCode) · \(hostLabel(server.url))")
-                                        .font(.flightMono(7))
+                                        .font(.flightSans(7))
                                         .foregroundStyle(FlightDeckPalette.muted)
                                         .lineLimit(1)
                                 }
                                 Spacer()
                                 if server.id == store.activeID {
                                     Text("Active")
-                                        .font(.flightMono(7, weight: .bold))
+                                        .font(.flightSans(7, weight: .bold))
                                         .foregroundStyle(FlightDeckPalette.amber)
                                 }
                             }
@@ -4661,7 +4668,7 @@ private struct FlightDeckConnectionsView: View {
             connectionField("SERVER URL", placeholder: "https://device.tailnet.ts.net", text: $url)
 
             VStack(alignment: .leading, spacing: 8) {
-                flightLabel("ACCESS TOKEN")
+                flightLabel("Access token")
                 SecureField("Required", text: $token)
                     .textContentType(.password)
                     .font(.flightMono(11))
@@ -4669,7 +4676,7 @@ private struct FlightDeckConnectionsView: View {
                     .padding(.horizontal, 13)
                     .frame(height: 38)
                     .background(FlightDeckPalette.surface)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
             }
 
             HStack(spacing: 10) {
@@ -4693,14 +4700,14 @@ private struct FlightDeckConnectionsView: View {
     private var connectionInspector: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 7) {
-                flightLabel("CONNECTION STATUS")
+                flightLabel("Connection status")
                 Text(health.label)
                     .font(.flightSans(21, weight: .bold))
                     .foregroundStyle(health.color)
                 HStack(spacing: 7) {
                     Rectangle().fill(health.color).frame(width: 7, height: 7)
                     Text(health == .online ? "SECURE LINK VERIFIED" : "VERIFY BEFORE OPERATING")
-                        .font(.flightMono(7))
+                        .font(.flightSans(7))
                         .foregroundStyle(FlightDeckPalette.secondary)
                 }
             }
@@ -4754,7 +4761,7 @@ private struct FlightDeckConnectionsView: View {
                 .padding(.horizontal, 13)
                 .frame(height: 38)
                 .background(FlightDeckPalette.surface)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
         }
     }
 
@@ -4762,7 +4769,7 @@ private struct FlightDeckConnectionsView: View {
         HStack {
             flightLabel(label)
             Spacer(minLength: 8)
-            Text(value).font(.flightMono(8)).foregroundStyle(FlightDeckPalette.secondary).lineLimit(1)
+            Text(value).font(.flightSans(8)).foregroundStyle(FlightDeckPalette.secondary).lineLimit(1)
         }
         .frame(height: 38)
         .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
@@ -4909,7 +4916,7 @@ private struct FlightDeckPairingShareView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    flightLabel("FLEET / SHARE SECURE LINK")
+                    flightLabel("Fleet / Share secure link")
                     Text("Set up another device")
                         .font(.flightSans(24, weight: .bold))
                 }
@@ -4930,11 +4937,11 @@ private struct FlightDeckPairingShareView: View {
 
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 6) {
-                        flightLabel("DEVICE / \(server.flightDeckCode)")
+                        flightLabel("Device / \(server.flightDeckCode)")
                         Text(server.name)
                             .font(.flightSans(18, weight: .bold))
                         Text(server.url)
-                            .font(.flightMono(8))
+                            .font(.flightSans(8))
                             .foregroundStyle(FlightDeckPalette.secondary)
                             .textSelection(.enabled)
                     }
@@ -4943,13 +4950,13 @@ private struct FlightDeckPairingShareView: View {
                         Image(systemName: "lock.shield")
                             .foregroundStyle(FlightDeckPalette.amber)
                         Text("This QR code and link contain the server access token. Only share them with a device you trust.")
-                            .font(.flightMono(8, weight: .semibold))
+                            .font(.flightSans(8, weight: .semibold))
                             .foregroundStyle(FlightDeckPalette.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(14)
                     .background(FlightDeckPalette.raised)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.amber))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.amber))
 
                     Button(copied ? "PAIRING LINK COPIED" : "COPY PAIRING LINK", action: copyPairingLink)
                         .buttonStyle(FlightDeckAccentButtonStyle())
@@ -4961,7 +4968,7 @@ private struct FlightDeckPairingShareView: View {
         }
         .frame(width: 680)
         .background(FlightDeckPalette.background)
-        .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.strongBorder))
         .shadow(color: .black.opacity(0.5), radius: 30, y: 18)
         .preferredColorScheme(.dark)
     }
@@ -4986,7 +4993,7 @@ private struct FlightDeckAddDeviceOptions: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    flightLabel("FLEET / NEW CONNECTION")
+                    flightLabel("Fleet / New connection")
                     Text("Add a device")
                         .font(.flightSans(24, weight: .bold))
                 }
@@ -5019,7 +5026,7 @@ private struct FlightDeckAddDeviceOptions: View {
         }
         .frame(width: 600)
         .background(FlightDeckPalette.background)
-        .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.strongBorder))
         .shadow(color: .black.opacity(0.5), radius: 30, y: 18)
         .preferredColorScheme(.dark)
     }
@@ -5037,10 +5044,10 @@ private struct FlightDeckAddDeviceOptions: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(accent ? FlightDeckPalette.amber : FlightDeckPalette.secondary)
                     .frame(width: 42, height: 42)
-                    .overlay(Rectangle().stroke(accent ? FlightDeckPalette.amber : FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(accent ? FlightDeckPalette.amber : FlightDeckPalette.border))
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(.flightMono(9, weight: .bold))
+                        .font(.flightSans(9, weight: .bold))
                         .foregroundStyle(accent ? FlightDeckPalette.amber : FlightDeckPalette.text)
                     Text(detail)
                         .font(.flightSans(11))
@@ -5054,7 +5061,7 @@ private struct FlightDeckAddDeviceOptions: View {
             .padding(16)
             .frame(maxWidth: .infinity, minHeight: 86)
             .background(accent ? FlightDeckPalette.raised : FlightDeckPalette.surface)
-            .overlay(Rectangle().stroke(accent ? FlightDeckPalette.amber : FlightDeckPalette.border))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(accent ? FlightDeckPalette.amber : FlightDeckPalette.border))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -5082,7 +5089,7 @@ private struct FlightDeckLocalSetupView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    flightLabel("LOCAL DEVICE / INSTALL")
+                    flightLabel("Local device / Install")
                     Text(state.isRunning ? "Setting up this Mac" : "Setup needs attention")
                         .font(.flightSans(24, weight: .bold))
                 }
@@ -5104,7 +5111,7 @@ private struct FlightDeckLocalSetupView: View {
                             .tint(FlightDeckPalette.amber)
                         VStack(alignment: .leading, spacing: 7) {
                             Text("Installing · starting service · pairing")
-                                .font(.flightMono(9, weight: .bold))
+                                .font(.flightSans(9, weight: .bold))
                                 .foregroundStyle(FlightDeckPalette.amber)
                             Text("Mission Control is handling the checkout, installer, and secure connection automatically. This can take a few minutes the first time.")
                                 .font(.flightSans(12))
@@ -5115,7 +5122,7 @@ private struct FlightDeckLocalSetupView: View {
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(FlightDeckPalette.raised)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.amber))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.amber))
 
                     HStack(spacing: 10) {
                         setupStatus("01", "CHECKOUT", "AUTOMATIC")
@@ -5124,7 +5131,7 @@ private struct FlightDeckLocalSetupView: View {
                     }
 
                     Text("Keep Mission Control open while setup finishes.")
-                        .font(.flightMono(8))
+                        .font(.flightSans(8))
                         .foregroundStyle(FlightDeckPalette.muted)
 
                 case .failed(let message):
@@ -5132,7 +5139,7 @@ private struct FlightDeckLocalSetupView: View {
                         HStack(spacing: 10) {
                             Image(systemName: "exclamationmark.triangle")
                             Text("Local setup did not finish")
-                                .font(.flightMono(9, weight: .bold))
+                                .font(.flightSans(9, weight: .bold))
                         }
                         .foregroundStyle(FlightDeckPalette.red)
                         Text(message)
@@ -5144,7 +5151,7 @@ private struct FlightDeckLocalSetupView: View {
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(FlightDeckPalette.surface)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.red))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.red))
 
                     HStack(spacing: 10) {
                         Button("Close", action: onClose)
@@ -5158,7 +5165,7 @@ private struct FlightDeckLocalSetupView: View {
         }
         .frame(width: 640)
         .background(FlightDeckPalette.background)
-        .overlay(Rectangle().stroke(FlightDeckPalette.strongBorder))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.strongBorder))
         .shadow(color: .black.opacity(0.5), radius: 30, y: 18)
         .preferredColorScheme(.dark)
     }
@@ -5166,18 +5173,18 @@ private struct FlightDeckLocalSetupView: View {
     private func setupStatus(_ number: String, _ title: String, _ status: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(number)
-                .font(.flightMono(8, weight: .bold))
+                .font(.flightSans(8, weight: .bold))
                 .foregroundStyle(FlightDeckPalette.amber)
             Text(title)
                 .font(.flightSans(12, weight: .semibold))
             Text(status)
-                .font(.flightMono(7, weight: .bold))
+                .font(.flightSans(7, weight: .bold))
                 .foregroundStyle(FlightDeckPalette.secondary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(FlightDeckPalette.surface)
-        .overlay(Rectangle().stroke(FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
     }
 }
 
@@ -5341,7 +5348,7 @@ private struct FlightDeckArchivesView: View {
     var body: some View {
         VStack(spacing: 0) {
             FlightDeckPageHeader(
-                eyebrow: "ALL DEVICES / COLD STORAGE",
+                eyebrow: "All devices / Cold storage",
                 title: "Archived chats",
                 subtitle: "Completed conversations stay out of the live queue until you need them"
             ) { EmptyView() }
@@ -5363,7 +5370,7 @@ private struct FlightDeckArchivesView: View {
             if let item = pendingDeletion {
                 FlightDeckModalLayer(onDismiss: { pendingDeletion = nil }) {
                     FlightDeckDialogModal(
-                        eyebrow: "ARCHIVE / PERMANENT DELETE",
+                        eyebrow: "Archive / Permanent delete",
                         title: "Delete archived chat?",
                         message: "The saved conversation for \(item.archive.session) cannot be recovered."
                     ) {
@@ -5385,9 +5392,9 @@ private struct FlightDeckArchivesView: View {
     private var archiveIndex: some View {
         VStack(spacing: 0) {
             HStack {
-                flightLabel("ARCHIVED / \(String(format: "%02d", archives.count))")
+                flightLabel("Archived / \(archives.count)")
                 Spacer()
-                flightLabel("HIDDEN FROM LIVE")
+                flightLabel("Hidden from live")
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
@@ -5403,14 +5410,14 @@ private struct FlightDeckArchivesView: View {
                                         .lineLimit(1)
                                     Spacer(minLength: 8)
                                     Text(item.deviceCode)
-                                        .font(.flightMono(7))
+                                        .font(.flightSans(7))
                                         .foregroundStyle(FlightDeckPalette.secondary)
                                 }
                                 Text("\(item.archive.agent.displayName) · \(item.archive.archivedDate.formatted(.relative(presentation: .named)))")
-                                    .font(.flightMono(7))
+                                    .font(.flightSans(7))
                                     .foregroundStyle(FlightDeckPalette.muted)
                                 Text(item.archive.cwd.map(abbreviateArchivePath) ?? "NO WORKING DIRECTORY")
-                                    .font(.flightMono(8))
+                                    .font(.flightSans(8))
                                     .foregroundStyle(FlightDeckPalette.secondary)
                                     .lineLimit(1)
                             }
@@ -5431,13 +5438,13 @@ private struct FlightDeckArchivesView: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
-                    flightLabel("ARCHIVED TRANSCRIPT / READ ONLY")
+                    flightLabel("Archived transcript / Read only")
                     Text(item.archive.conversation.title ?? item.archive.session)
                         .font(.flightSans(18, weight: .bold))
                 }
                 Spacer()
                 Text(item.archive.agent.displayName)
-                    .font(.flightMono(8))
+                    .font(.flightSans(8))
                     .foregroundStyle(FlightDeckPalette.amber)
             }
             .padding(.horizontal, 16)
@@ -5466,7 +5473,7 @@ private struct FlightDeckArchivesView: View {
                     .padding(.horizontal, 13)
                     .padding(.vertical, 10)
                     .background(FlightDeckPalette.raised)
-                    .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                     .textSelection(.enabled)
             }
         } else if entry.kind == "assistant" {
@@ -5484,27 +5491,27 @@ private struct FlightDeckArchivesView: View {
                     .padding(.top, 5)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(entry.verb ?? entry.tool ?? "Tool")
-                        .font(.flightMono(8, weight: .bold))
+                        .font(.flightSans(8, weight: .bold))
                     if let arg = entry.arg, !arg.isEmpty {
-                        Text(arg).font(.flightMono(8)).foregroundStyle(FlightDeckPalette.secondary)
+                        Text(arg).font(.flightSans(8)).foregroundStyle(FlightDeckPalette.secondary)
                     }
                 }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(FlightDeckPalette.surface)
-            .overlay(Rectangle().stroke(FlightDeckPalette.border))
+            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
         }
     }
 
     private func archiveInspector(_ item: FlightDeckArchive) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 7) {
-                flightLabel("ARCHIVE RECORD")
+                flightLabel("Archive record")
                 Text("Conversation stored")
                     .font(.flightSans(20, weight: .bold))
                 Text("Removed from live operations")
-                    .font(.flightMono(8))
+                    .font(.flightSans(8))
                     .foregroundStyle(FlightDeckPalette.green)
             }
             .padding(16)
@@ -5522,14 +5529,14 @@ private struct FlightDeckArchivesView: View {
 
             if let cwd = item.archive.cwd {
                 VStack(alignment: .leading, spacing: 8) {
-                    flightLabel("WORKING DIRECTORY")
+                    flightLabel("Working directory")
                     Text(cwd)
-                        .font(.flightMono(8))
+                        .font(.flightSans(8))
                         .foregroundStyle(FlightDeckPalette.secondary)
                         .textSelection(.enabled)
                 }
                 .padding(16)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
+                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
                 .padding(16)
             }
 
@@ -5547,7 +5554,7 @@ private struct FlightDeckArchivesView: View {
         HStack {
             flightLabel(label)
             Spacer()
-            Text(value).font(.flightMono(8)).foregroundStyle(FlightDeckPalette.secondary).lineLimit(1)
+            Text(value).font(.flightSans(8)).foregroundStyle(FlightDeckPalette.secondary).lineLimit(1)
         }
         .frame(height: 38)
         .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
@@ -5600,7 +5607,7 @@ private struct FlightDeckWorkspacesView: View {
     var body: some View {
         VStack(spacing: 0) {
             FlightDeckPageHeader(
-                eyebrow: "ALL DEVICES / REPOSITORY MAP",
+                eyebrow: "All devices / Repository map",
                 title: "Workspaces",
                 subtitle: "Inspect primary checkouts and safely manage every linked worktree"
             ) {
@@ -5622,7 +5629,7 @@ private struct FlightDeckWorkspacesView: View {
             if let target = pendingClose {
                 FlightDeckModalLayer(onDismiss: { pendingClose = nil }) {
                     FlightDeckDialogModal(
-                        eyebrow: "WORKSPACES / WORKTREE CLEANUP",
+                        eyebrow: "Workspaces / Worktree cleanup",
                         title: "Remove worktree?",
                         message: target.worktree.dirty
                             ? "This worktree has uncommitted changes. Force clean discards them and keeps the branch."
@@ -5649,7 +5656,7 @@ private struct FlightDeckWorkspacesView: View {
             } else if let workspace = pendingWorkspaceRemoval {
                 FlightDeckModalLayer(onDismiss: { pendingWorkspaceRemoval = nil }) {
                     FlightDeckDialogModal(
-                        eyebrow: "WORKSPACES / REMOVE INDEX",
+                        eyebrow: "Workspaces / Remove index",
                         title: "Remove workspace?",
                         message: "This removes the workspace from Mission Control. It does not delete the repository or worktrees."
                     ) {
@@ -5672,9 +5679,9 @@ private struct FlightDeckWorkspacesView: View {
     private var workspaceIndex: some View {
         VStack(spacing: 0) {
             HStack {
-                flightLabel("WORKSPACES / \(String(format: "%02d", workspaces.count))")
+                flightLabel("Workspaces / \(workspaces.count)")
                 Spacer()
-                flightLabel("ALL DEVICES")
+                flightLabel("All devices")
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
@@ -5701,7 +5708,7 @@ private struct FlightDeckWorkspacesView: View {
                     Text(workspace.workspace.name)
                         .font(.flightSans(15, weight: selected ? .bold : .semibold))
                     Text("\(workspace.deviceCode) · \(workspace.workspace.worktrees.count) checkout\(workspace.workspace.worktrees.count == 1 ? "" : "S") · \(active) AGENTS")
-                        .font(.flightMono(7))
+                        .font(.flightSans(7))
                         .foregroundStyle(FlightDeckPalette.muted)
                 }
                 Spacer(minLength: 0)
@@ -5718,7 +5725,7 @@ private struct FlightDeckWorkspacesView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    flightLabel("SELECTED WORKSPACE / \(selected.deviceCode)")
+                    flightLabel("Selected workspace / \(selected.deviceCode)")
                     Text(selected.workspace.name).font(.flightSans(20, weight: .bold))
                 }
                 Spacer()
@@ -5729,10 +5736,10 @@ private struct FlightDeckWorkspacesView: View {
             .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
 
             HStack(spacing: 0) {
-                flightColumnLabel("CHECKOUT / BRANCH", width: 248)
-                flightColumnLabel("PATH", width: 235)
-                flightColumnLabel("STATE", width: 92)
-                flightColumnLabel("ACTIONS", width: nil)
+                flightColumnLabel("Checkout / Branch", width: 248)
+                flightColumnLabel("Path", width: 235)
+                flightColumnLabel("State", width: 92)
+                flightColumnLabel("Actions", width: nil)
             }
             .padding(.horizontal, 16)
             .frame(height: 24)
@@ -5766,19 +5773,19 @@ private struct FlightDeckWorkspacesView: View {
                     .font(.flightSans(14, weight: worktree.isMain ? .bold : .semibold))
                     .lineLimit(1)
                 Text("\(worktree.isMain ? "MAIN" : "LINKED WORKTREE") · \(active) ACTIVE AGENT\(active == 1 ? "" : "S")")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(FlightDeckPalette.muted)
             }
             .frame(width: 248, alignment: .leading)
             Text(abbreviate(worktree.path))
-                .font(.flightMono(9))
+                .font(.flightSans(9))
                 .foregroundStyle(FlightDeckPalette.secondary)
                 .lineLimit(1)
                 .frame(width: 235, alignment: .leading)
             HStack(spacing: 6) {
                 Rectangle().fill(isDirty ? FlightDeckPalette.red : FlightDeckPalette.green).frame(width: 7, height: 7)
                 Text(isDirty ? "CHANGES" : "CLEAN")
-                    .font(.flightMono(7))
+                    .font(.flightSans(7))
                     .foregroundStyle(isDirty ? FlightDeckPalette.red : FlightDeckPalette.green)
             }
             .frame(width: 92, alignment: .leading)
@@ -5796,7 +5803,7 @@ private struct FlightDeckWorkspacesView: View {
         .frame(minHeight: 64)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(worktree.isMain ? FlightDeckPalette.raised : FlightDeckPalette.surface)
-        .overlay(Rectangle().stroke(isDirty ? FlightDeckPalette.red : FlightDeckPalette.border))
+        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(isDirty ? FlightDeckPalette.red : FlightDeckPalette.border))
     }
 
     private func loadDirtyState(for workspace: FlightDeckWorkspace?) async {
@@ -5896,21 +5903,29 @@ private struct FlightDeckEmptyState: View {
     let detail: String
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("MC")
-                .font(.flightMono(16, weight: .bold))
-                .foregroundStyle(FlightDeckPalette.amber)
-                .frame(width: 48, height: 48)
-                .overlay(Rectangle().stroke(FlightDeckPalette.border))
-            Text(title).font(.flightSans(20, weight: .bold))
-            Text(detail)
-                .font(.flightSans(12))
-                .foregroundStyle(FlightDeckPalette.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+        // Was the literal text "MC" in a square outline, which read as a stray
+        // bordered box rather than an icon. A muted glyph on a quiet disc is what
+        // an empty pane wants: present enough to anchor the copy, quiet enough
+        // not to look like a control.
+        VStack(spacing: MCSpace.lg) {
+            Image(systemName: "terminal")
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(MCColor.mutedForeground)
+                .frame(width: 52, height: 52)
+                .background(MCColor.muted, in: Circle())
+            VStack(spacing: MCSpace.sm) {
+                Text(title)
+                    .font(MCFont.headline)
+                    .foregroundStyle(MCColor.foreground)
+                Text(detail)
+                    .font(MCFont.body)
+                    .foregroundStyle(MCColor.mutedForeground)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(FlightDeckPalette.background)
+        .frame(maxWidth: 300)
+        .padding(MCSpace.huge)
     }
 }
 
