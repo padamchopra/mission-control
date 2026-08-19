@@ -53,7 +53,7 @@ Skip `VITE_MC_FIXTURE=1`; that is fake data, not your real state.
 
 | Path | What it is |
 |---|---|
-| `web/` | The UI. React 19, Tailwind v4, [shadcn/ui](https://ui.shadcn.com) New York (Radix) in `web/src/components/ui`. Zustand store in `web/src/state`. Run `npx shadcn@latest add` from `web/`. |
+| `web/` | The UI. React 19, Tailwind v4, [shadcn/ui](https://ui.shadcn.com) New York (Radix) in `web/src/components/ui`. Zustand store in `web/src/state`. Run `npx shadcn@latest add` from `web/`. Assistant messages render through `Markdown.tsx` (react-markdown + GFM, raw HTML off). |
 | `server/` | The daemon. Node + TypeScript, binds `127.0.0.1` only, SQLite at `~/.remy/remy.db` (`node:sqlite`). Chats run through the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview). |
 | `desktop/` | Thin Electron shell (`me.padamchopra.Remy`). Owns the window and the tokens; ships the same `web/` build plus the daemon in the DMG. |
 | `ios/` | SwiftUI companion (XcodeGen). Still speaks the older session/tmux remote. |

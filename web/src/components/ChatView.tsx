@@ -21,6 +21,7 @@ import {
   InputGroupTextarea,
 } from "@/components/ui/input-group";
 import { Message, MessageContent } from "@/components/ui/message";
+import { Markdown } from "@/components/Markdown";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiError } from "@/lib/api-error";
@@ -277,7 +278,9 @@ function Entry({ entry }: { entry: ConvEntry }) {
       <Message>
         <MessageContent>
           <Bubble variant="ghost">
-            <BubbleContent className="leading-relaxed whitespace-pre-wrap">{entry.text}</BubbleContent>
+            <BubbleContent>
+              <Markdown text={entry.text ?? ""} />
+            </BubbleContent>
           </Bubble>
         </MessageContent>
       </Message>
@@ -379,9 +382,9 @@ function ApprovalCard({
         {approval.reason && <p className="text-xs text-muted-foreground">{approval.reason}</p>}
       </div>
       {approval.plan && (
-        <pre className="max-h-72 overflow-auto rounded-md bg-muted/50 p-3 text-xs whitespace-pre-wrap">
-          {approval.plan}
-        </pre>
+        <div className="max-h-72 overflow-auto rounded-md bg-muted/50 p-3">
+          <Markdown text={approval.plan} className="text-xs" />
+        </div>
       )}
       {approval.diff && approval.diff.length > 0 && <Diff lines={approval.diff} />}
       <div className="flex flex-wrap gap-2">
