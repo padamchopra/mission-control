@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
-import { ArrowUpCircle, ChevronDown, ChevronLeft, Clock, Plus, Settings2, Sparkles } from "lucide-react";
+import { ArrowUpCircle, ChevronDown, ChevronLeft, Clock, Plus, Settings2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SETTINGS_SECTIONS, type SettingsTab } from "@/components/Settings";
+import { ClaudeMark } from "@/components/ClaudeMark";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { deviceIcon, type DeviceIconId } from "@/lib/devices";
 import { displayPath, plainText } from "@/lib/path";
@@ -363,9 +364,9 @@ function ProviderMark({ model }: { model?: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="flex shrink-0 items-center gap-0.5">
-          <Sparkles className="size-3" />
-          {model && <span>{label}</span>}
+        <span className="flex shrink-0 items-center gap-0.5 text-claude">
+          <ClaudeMark className="size-3" />
+          {model && <span className="text-muted-foreground">{label}</span>}
         </span>
       </TooltipTrigger>
       <TooltipContent>Claude · {label}</TooltipContent>

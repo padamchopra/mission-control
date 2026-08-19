@@ -1,4 +1,4 @@
-import { Archive, Boxes, Check, GitBranch, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Archive, Boxes, Check, Folder, GitBranch, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +43,8 @@ import { isNewer, type RemyRelease } from "@/lib/release";
 import { transport } from "@/lib/transport";
 import type { TintId } from "@/lib/tints";
 import { cn } from "@/lib/utils";
+import { ClaudeMark } from "@/components/ClaudeMark";
+import { PathPickerDialog } from "@/components/PathPicker";
 import { apiError } from "@/lib/api-error";
 import {
   askToNotify,
@@ -53,7 +55,7 @@ import {
 } from "@/lib/notify";
 import { useStore } from "@/state/store";
 import type { Server, ToolStatus } from "@/state/types";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export type SettingsTab = "general" | "version-control" | "providers" | "devices" | "archive";
 
@@ -78,6 +80,7 @@ export function SettingsPane({
     current: string;
     latest?: RemyRelease;
     available: boolean;
+    local: boolean;
     checking: boolean;
     error?: string;
     check: () => Promise<RemyRelease | undefined>;
@@ -116,12 +119,13 @@ function GeneralPane({
     current: string;
     latest?: RemyRelease;
     available: boolean;
+    local: boolean;
     checking: boolean;
     error?: string;
     check: () => Promise<RemyRelease | undefined>;
   };
 }) {
-  const { current, latest, available, checking, check } = release;
+  const { current, latest, available, local, checking, check } = release;
 
   const onCheck = async () => {
     try {
@@ -148,7 +152,11 @@ function GeneralPane({
             </p>
           )}
         </div>
-        {available && latest ? (
+        {/* A copy built here is not behind any release, so it is told what it
+            is rather than offered a download it does not want. */}
+        {local ? (
+          <Badge variant="secondary">Built here</Badge>
+        ) : available && latest ? (
           <Button asChild size="sm">
             <a href={latest.downloadUrl ?? latest.pageUrl} target="_blank" rel="noreferrer">
               Download {latest.version}
@@ -162,7 +170,7 @@ function GeneralPane({
       </div>
       <NotificationsField />
       <RemyModelField />
-      <div className="flex items-start gap-3 rounded-lg border border-border px-3.5 py-3">
+      <div className="flex items-start gap-3 rounded-lg border border-border px-3 py-2.5">
         <Monitor className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <p className="text-sm font-medium">Appearance</p>
@@ -207,10 +215,10 @@ function NotificationsField() {
     <Field orientation="horizontal" className="items-center">
       <FieldContent>
         <FieldLabel htmlFor="notifications">Notify me</FieldLabel>
-        <FieldDescription>
+        <FieldDescription className="text-xs">
           {permission === "denied"
             ? "Your browser is blocking notifications for this site."
-            : "A banner when a thread needs you or finishes. Clicking it opens that thread."}
+            : "When a thread needs you or finishes. Clicking it opens the thread."}
         </FieldDescription>
       </FieldContent>
       <Switch
@@ -234,9 +242,8 @@ function RemyModelField() {
     <Field orientation="horizontal" className="items-center">
       <FieldContent>
         <FieldLabel htmlFor="remy-model">Remy's own model</FieldLabel>
-        <FieldDescription>
-          Names a thread from your first message, and whatever else Remy comes to do for itself. Your threads
-          think with their own model.
+        <FieldDescription className="text-xs">
+          Names a thread from your first message. Your threads think with their own model.
         </FieldDescription>
       </FieldContent>
       <Select
@@ -323,43 +330,21 @@ function VersionControlPane() {
   const { settings, online, save } = useServerSettings();
   const tooling = useStore((s) => s.tooling);
   const loadTooling = useStore((s) => s.loadTooling);
-  const [root, setRoot] = useState("");
-  const [rootDirty, setRootDirty] = useState(false);
+  const [pickingRoot, setPickingRoot] = useState(false);
 
   useEffect(() => {
     if (online) void loadTooling().catch(() => {});
   }, [online, loadTooling]);
 
-  // Server truth wins until you start typing, so a value changed on another
-  // device does not fight the cursor.
-  useEffect(() => {
-    if (!rootDirty) setRoot(settings?.worktreeRoot ?? "");
-  }, [settings?.worktreeRoot, rootDirty]);
-
   if (!online) return <Unreachable />;
   if (!settings) return <p className="text-sm shimmer text-muted-foreground">Reading this machine's settings…</p>;
 
-  const commitRoot = async () => {
-    setRootDirty(false);
-    const wanted = root.trim();
-    if (wanted === settings.worktreeRoot) return;
-    await save({ worktreeRoot: wanted }, "the worktree location");
-    // An empty answer to a non-empty request means the path was refused.
-    if (wanted && !useStore.getState().settings?.worktreeRoot) {
-      toast.error("That isn't a location Remy can use", {
-        description: "Give a full path, like /Volumes/code or ~/worktrees.",
-      });
-    }
-  };
-
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex flex-col gap-5">
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
           <FieldLabel htmlFor="default-checkout">New threads open in</FieldLabel>
-          <FieldDescription>
-            Where a thread starts when its workspace has worktrees. You can still change it per thread.
-          </FieldDescription>
+          <FieldDescription className="text-xs">Only applies to a workspace with worktrees.</FieldDescription>
         </FieldContent>
         <Select
           value={settings.defaultCheckout}
@@ -383,10 +368,10 @@ function VersionControlPane() {
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
           <FieldLabel htmlFor="worktree-base">New worktrees branch from</FieldLabel>
-          <FieldDescription>
+          <FieldDescription className="text-xs">
             {settings.worktreeBase === "remote"
-              ? "The remote's copy of the default branch, so a new worktree starts current."
-              : "Whatever the main checkout is on right now."}
+              ? "The remote's default branch, so a worktree starts current."
+              : "Whatever the main checkout is on."}
           </FieldDescription>
         </FieldContent>
         <Select
@@ -410,36 +395,51 @@ function VersionControlPane() {
 
       <Field>
         <FieldContent>
-          <FieldLabel htmlFor="worktree-root">Worktree location</FieldLabel>
-          <FieldDescription>
-            Remy keeps worktrees in a <code className="font-mono">.remy</code> folder here. Leave it empty to
-            keep each workspace's worktrees inside the workspace. Git ignores the folder without any change to
-            the repo's <code className="font-mono">.gitignore</code>.
+          <FieldLabel>Worktree location</FieldLabel>
+          <FieldDescription className="text-xs">
+            A <code className="font-mono">.remy</code> folder here, hidden from git without touching any{" "}
+            <code className="font-mono">.gitignore</code>.
           </FieldDescription>
         </FieldContent>
-        <Input
-          id="worktree-root"
-          value={root}
-          placeholder="Inside each workspace"
-          spellCheck={false}
-          className="font-mono text-xs"
-          onChange={(event) => {
-            setRootDirty(true);
-            setRoot(event.target.value);
-          }}
-          onBlur={() => void commitRoot()}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            event.currentTarget.blur();
-          }}
-        />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="min-w-0 flex-1 justify-start font-mono text-xs"
+            onClick={() => setPickingRoot(true)}
+          >
+            <Folder />
+            <span className="min-w-0 truncate">
+              {settings.worktreeRoot ? displayPath(settings.worktreeRoot) : "Inside each workspace"}
+            </span>
+          </Button>
+          {settings.worktreeRoot && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void save({ worktreeRoot: "" }, "the worktree location")}
+            >
+              Reset
+            </Button>
+          )}
+        </div>
         <FieldDescription className="font-mono text-xs">
-          {root.trim()
-            ? `${displayPath(root.trim())}/.remy/<repo>/<branch>`
+          {settings.worktreeRoot
+            ? `${displayPath(settings.worktreeRoot)}/.remy/<repo>/<branch>`
             : "<workspace>/.remy/<branch>"}
         </FieldDescription>
       </Field>
+
+      <PathPickerDialog
+        open={pickingRoot}
+        onOpenChange={setPickingRoot}
+        title="Worktree location"
+        description="Pick the folder Remy keeps its .remy worktrees in."
+        initialPath={settings.worktreeRoot ? displayPath(settings.worktreeRoot) : "~/"}
+        confirmLabel="Use folder"
+        onConfirm={(picked) => void save({ worktreeRoot: picked }, "the worktree location")}
+      />
 
       <RepoUpdateField />
 
@@ -500,9 +500,8 @@ function RepoUpdateField() {
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
           <FieldLabel htmlFor="repo-update">Keep repositories current</FieldLabel>
-          <FieldDescription>
-            Fetches every repository on this machine, and fast-forwards a main checkout when that is safe. A
-            checkout with uncommitted work is fetched and left alone.
+          <FieldDescription className="text-xs">
+            Fetches everything. Fast-forwards a main checkout only when it is clean.
           </FieldDescription>
         </FieldContent>
         <Select
@@ -597,11 +596,12 @@ function ProvidersPane() {
   if (!settings) return <p className="text-sm shimmer text-muted-foreground">Reading this machine's settings…</p>;
 
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <ToolRow
           name="claude"
           label="Claude Code"
+          mark={<ClaudeMark className="size-4 text-claude" />}
           status={tooling?.claude}
           detail={
             tooling?.claude.available
@@ -617,7 +617,7 @@ function ProvidersPane() {
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
           <FieldLabel htmlFor="default-model">Default model</FieldLabel>
-          <FieldDescription>What a new thread starts on. You can still change it per thread.</FieldDescription>
+          <FieldDescription className="text-xs">You can still change this per thread.</FieldDescription>
         </FieldContent>
         <Select
           value={settings.defaultModel || "default"}
@@ -646,15 +646,18 @@ function ToolRow({
   label,
   status,
   detail,
+  mark,
 }: {
   name: string;
   label: string;
   status?: ToolStatus;
   detail?: string;
+  /// A provider's own logo, where the row stands for one.
+  mark?: ReactNode;
 }) {
   const ok = status?.available && status.authenticated !== false;
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border px-3.5 py-3">
+    <div className="flex items-start gap-3 rounded-lg border border-border px-3 py-2.5">
       <span
         className={cn(
           "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full",
@@ -664,7 +667,10 @@ function ToolRow({
         {status === undefined ? null : ok ? <Check className="size-3" /> : <X className="size-3" />}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{label}</p>
+        <p className="flex items-center gap-1.5 text-sm font-medium">
+          {mark}
+          {label}
+        </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {status === undefined
             ? "Checking…"
@@ -1044,7 +1050,7 @@ function StayAwakeField({ serverId }: { serverId: string }) {
       <Field orientation="horizontal" data-disabled={disabled || undefined} className="items-center">
         <FieldContent>
           <FieldLabel htmlFor={selectId}>Stay awake</FieldLabel>
-          <FieldDescription>
+          <FieldDescription className="text-xs">
             {supported ? stayAwakeDetail(mode) : "Sleep prevention isn't available on this machine."}
           </FieldDescription>
         </FieldContent>

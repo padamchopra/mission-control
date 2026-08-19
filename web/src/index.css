@@ -44,6 +44,7 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-claude: var(--claude);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-error: var(--error);
@@ -111,6 +112,10 @@
 
   --success: oklch(69.6% 0.17 162.48);
   --success-foreground: oklch(76.5% 0.177 163.223);
+  /* Claude's own clay, #D97757 from claude.ai, converted exactly. It stands for
+     the provider, so it is the brand's colour rather than one of ours, and it
+     reads on both schemes without a second value. */
+  --claude: oklch(67.2% 0.131 38.8);
   --warning: oklch(76.9% 0.188 70.08);
   --warning-foreground: oklch(82.8% 0.189 84.429);
   --error: color-mix(in srgb, oklch(63.7% 0.237 25.331) 90%, #fff);

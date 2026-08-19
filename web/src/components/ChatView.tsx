@@ -7,7 +7,6 @@ import {
   CircleAlert,
   Copy,
   GitBranch,
-  Sparkles,
   Square,
   User,
   Wrench,
@@ -40,6 +39,7 @@ import {
   MessageHeader,
 } from "@/components/ui/message";
 import { ComposerMenu } from "@/components/ComposerMenu";
+import { ClaudeMark } from "@/components/ClaudeMark";
 import { Markdown } from "@/components/Markdown";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -438,8 +438,8 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
 
 function ClaudeAvatar({ lead }: { lead: boolean }) {
   return (
-    <MessageAvatar className={cn("bg-muted text-muted-foreground", !lead && "invisible")}>
-      <Sparkles className="size-3.5" />
+    <MessageAvatar className={cn("bg-claude/15 text-claude", !lead && "invisible")}>
+      <ClaudeMark className="size-3.5" />
     </MessageAvatar>
   );
 }

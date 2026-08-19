@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { REMY_VERSION, fetchLatestRelease, isNewer, type RemyRelease } from "@/lib/release";
+import { REMY_VERSION, fetchLatestRelease, isLocalBuild, isNewer, type RemyRelease } from "@/lib/release";
 
 export function useRelease() {
   const [current, setCurrent] = useState(window.remy?.version ?? REMY_VERSION);
@@ -29,11 +29,16 @@ export function useRelease() {
     }
   }, []);
 
+  const local = isLocalBuild(current);
+
   useEffect(() => {
+    // A build made here has no release to be behind, so nothing is asked of
+    // GitHub either.
+    if (local) return;
     void check().catch(() => {});
-  }, [check]);
+  }, [check, local]);
 
-  const available = latest ? isNewer(latest.version, current) : false;
+  const available = !local && latest ? isNewer(latest.version, current) : false;
 
-  return { current, latest, available, checking, error, check };
+  return { current, latest, available, local, checking, error, check };
 }

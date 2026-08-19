@@ -11,6 +11,17 @@ export interface RemyRelease {
   downloadUrl?: string;
 }
 
+/// Whether this copy was built here rather than shipped by CI.
+///
+/// The release workflow stamps `{major}.{minor}.{run}` from the CI run number,
+/// which is always 1 or more, so a patch of 0 is a version no release ever had.
+/// A dev server is local by definition. Either way there is nothing to update
+/// to: the newest GitHub release is not this build.
+export function isLocalBuild(version: string): boolean {
+  if (import.meta.env.DEV) return true;
+  return (parts(version)[2] ?? 0) === 0;
+}
+
 export function isNewer(latest: string, current: string): boolean {
   const left = parts(latest);
   const right = parts(current);
