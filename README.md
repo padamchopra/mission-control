@@ -105,8 +105,9 @@ Install the latest Remy DMG from [GitHub Releases](https://github.com/padamchopr
 That is the whole local install: window and daemon. Open Remy and it starts
 listening on `127.0.0.1`. Claude Code still needs to be on this machine.
 
-The DMG is not notarized. After you copy Remy into Applications, macOS will
-call it damaged. Clear the quarantine and it opens:
+GitHub Releases are Developer ID–signed and notarized, so double-click works.
+A local `npm run pack:mac` without those certificates is ad-hoc: after you copy
+it into Applications, clear quarantine once:
 
 ```sh
 xattr -cr /Applications/Remy.app
@@ -163,6 +164,33 @@ infrastructure.
 The server shells out to `git`/`gh` (and `tmux`, when a session remote is used)
 via `execFile` with argument arrays, never a shell. It is reachable only on
 loopback or your tailnet, behind a bearer token. See [SECURITY.md](SECURITY.md).
+
+## Publishing a Mac build
+
+macOS will not open a GitHub download unless Apple has notarized it. The
+`Mac` workflow on `main` signs with a Developer ID and notarizes before
+it attaches the DMG to the GitHub release. Without the secrets below, that
+job fails on purpose so an unsigned build never ships.
+
+1. Enrol in the [Apple Developer Program](https://developer.apple.com/programs/).
+2. In Keychain Access, create a **Developer ID Application** certificate,
+   export it as a `.p12`, then `base64 -i Remy.p12 | pbcopy`.
+3. In [App Store Connect](https://appstoreconnect.apple.com/access/api) →
+   Integrations → Team Keys, create a key with Developer access. Download the
+   `.p8` once. Note the Key ID and the Issuer ID.
+4. Add these GitHub Actions secrets on `padamchopra/remy`:
+
+   | Secret | Value |
+   |---|---|
+   | `CSC_LINK` | base64 of the `.p12` |
+   | `CSC_KEY_PASSWORD` | password for that `.p12` |
+   | `APPLE_API_KEY` | full contents of the `.p8` (including `BEGIN`/`END`) |
+   | `APPLE_API_KEY_ID` | the Key ID |
+   | `APPLE_API_ISSUER` | the Issuer UUID |
+   | `APPLE_TEAM_ID` | 10-character Team ID |
+
+5. Push to `main` (or run the **Mac** workflow). The release DMG is then
+   double-clickable.
 
 ## Notes
 
