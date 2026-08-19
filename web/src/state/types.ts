@@ -158,6 +158,9 @@ export interface ServerSettings {
   worktreeBase: "remote" | "local";
   worktreeRoot: string;
   defaultModel: string;
+  /// What Remy runs its own small jobs on, as opposed to what your chats think
+  /// with. Kept cheap on purpose.
+  remyModel: string;
 }
 
 /// What a command-line tool on the machine reports about itself.

@@ -49,13 +49,13 @@ export function Palette({
       open={open}
       onOpenChange={onOpenChange}
       title="Quick open"
-      description="Search chats and commands"
+      description="Search threads and commands"
       showCloseButton={false}
       className="top-[12%] translate-y-0 sm:max-w-[620px]"
     >
-      <CommandInput placeholder="Search chats and commands" />
+      <CommandInput placeholder="Search threads and commands" />
       <CommandList className="max-h-[380px]">
-        <CommandEmpty>No matches. Try a chat title or a folder.</CommandEmpty>
+        <CommandEmpty>No matches. Try a thread title or a folder.</CommandEmpty>
 
         {attention.length > 0 && (
           <CommandGroup heading="Needs you">
@@ -68,7 +68,7 @@ export function Palette({
         {attention.length > 0 && rest.length > 0 && <CommandSeparator />}
 
         {rest.length > 0 && (
-          <CommandGroup heading="Chats">
+          <CommandGroup heading="Threads">
             {rest.map((chat) => (
               <ChatRow key={chat.id} chat={chat} onSelect={run(() => onOpenChat(chat.id))} />
             ))}
@@ -89,7 +89,7 @@ export function Palette({
 
       <Separator />
       <div className="flex h-10 items-center gap-4 bg-muted px-4">
-        <span className="text-xs text-muted-foreground">Chats and every section of the app</span>
+        <span className="text-xs text-muted-foreground">Threads and every section of the app</span>
         <span className="ml-auto flex items-center gap-3 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
             <KbdGroup>

@@ -55,7 +55,7 @@ type Section = "inbox" | "chats" | "workspaces" | "prs" | "loops";
 
 const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
-  { id: "chats", label: "Chats", icon: MessagesSquare },
+  { id: "chats", label: "Threads", icon: MessagesSquare },
   { id: "workspaces", label: "Workspaces", icon: Folder },
   { id: "prs", label: "Pull requests", icon: GitPullRequest },
   { id: "loops", label: "Loops", icon: RefreshCw },
@@ -86,14 +86,14 @@ const EMPTY: Record<
     icon: Inbox,
   },
   chats: {
-    title: "No chats yet",
+    title: "No threads yet",
     detail: "Start one in a workspace on this machine.",
     action: "chat",
     icon: MessagesSquare,
   },
   workspaces: {
     title: "No workspaces yet",
-    detail: "Add a folder on this machine to run chats in.",
+    detail: "Add a folder on this machine to run threads in.",
     action: "workspace",
     icon: Folder,
   },
@@ -487,11 +487,11 @@ function NewChatButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label="New chat" onClick={onClick}>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="New thread" onClick={onClick}>
           <SquarePen />
         </Button>
       </TooltipTrigger>
-      <TooltipContent>New chat</TooltipContent>
+      <TooltipContent>New thread</TooltipContent>
     </Tooltip>
   );
 }
@@ -527,7 +527,7 @@ function EmptyState({
 }) {
   const fallback = EMPTY[section];
   const { title, detail, action, icon: Icon } = loading
-    ? { title: "Connecting…", detail: "Loading chats from this machine.", action: "none" as const, icon: fallback.icon }
+    ? { title: "Connecting…", detail: "Loading threads from this machine.", action: "none" as const, icon: fallback.icon }
     : error
       ? { title: "Can't reach this machine", detail: error, action: "none" as const, icon: fallback.icon }
       : !hasServers
@@ -559,7 +559,7 @@ function EmptyState({
           {action === "chat" && (
             <Button>
               <Plus />
-              New chat
+              New thread
             </Button>
           )}
           {action === "workspace" && (

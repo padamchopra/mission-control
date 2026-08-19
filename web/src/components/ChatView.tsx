@@ -22,10 +22,13 @@ import {
 } from "@/components/ui/input-group";
 import { Message, MessageContent } from "@/components/ui/message";
 import { Markdown } from "@/components/Markdown";
+import { WorkspaceMark } from "@/components/WorkspaceIcon";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiError } from "@/lib/api-error";
 import { displayPath } from "@/lib/path";
+import { workspaceForPath } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
 import type { Chat, ChatApproval, ChatQuestionRequest, ConvDiffLine, ConvEntry } from "@/state/types";
@@ -44,13 +47,15 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
   const answerQuestion = useStore((s) => s.answerQuestion);
   const interrupt = useStore((s) => s.interrupt);
 
+  const workspaces = useStore((s) => s.workspaces);
+  const servers = useStore((s) => s.servers);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     void openChat(chat.id).catch((caught) => {
-      toast.error("Couldn't open that chat", { description: apiError(caught) });
+      toast.error("Couldn't open that thread", { description: apiError(caught) });
     });
     return () => closeChat();
   }, [chat.id, openChat, closeChat]);
@@ -58,6 +63,12 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
   useEffect(() => {
     textareaRef.current?.focus();
   }, [chat.id]);
+
+  // Which project this chat is in, so the breadcrumb reads as a place rather
+  // than a path. A chat started in `~` belongs to no workspace and wears the
+  // machine instead.
+  const workspace = workspaces[workspaceForPath(chat.cwd, workspaces)];
+  const server = servers.find((entry) => entry.id === chat.serverId);
 
   // The store may still hold the chat that was open a moment ago, so paint from
   // the list row until the fetch for this one lands.
@@ -97,11 +108,20 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
         <Breadcrumb className="min-w-0">
           <BreadcrumbList className="flex-nowrap">
             <BreadcrumbItem className="min-w-0">
-              <span className="truncate font-mono text-xs">{displayPath(chat.cwd)}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <WorkspaceMark home={!workspace} workspace={workspace} server={server} size="sm" />
+                    <span className="truncate">{workspace?.name ?? server?.name ?? "This machine"}</span>
+                  </span>
+                </TooltipTrigger>
+                {/* The path is what the name stands for, so it stays one hover away. */}
+                <TooltipContent className="font-mono">{displayPath(chat.cwd)}</TooltipContent>
+              </Tooltip>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem className="min-w-0">
-              <BreadcrumbPage className="truncate font-medium">
+              <BreadcrumbPage className="max-w-[46ch] truncate font-medium">
                 {open?.title ?? chat.title}
               </BreadcrumbPage>
             </BreadcrumbItem>
@@ -124,7 +144,7 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
                   <Wrench />
                 </EmptyMedia>
                 <EmptyTitle>Nothing here yet</EmptyTitle>
-                <EmptyDescription>Send a message to get this chat going.</EmptyDescription>
+                <EmptyDescription>Send a message to get this thread going.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -161,7 +181,7 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
             <Card className="gap-2 border-destructive/40 p-4">
               <p className="flex items-center gap-2 text-sm font-medium text-destructive">
                 <CircleAlert className="size-4" />
-                This chat hit an error
+                This thread hit an error
               </p>
               <p className="text-sm text-muted-foreground">{open.error}</p>
             </Card>

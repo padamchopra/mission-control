@@ -32,6 +32,10 @@ export interface Config {
   worktreeRoot: string;
   /// The model a new chat starts with. Empty is Claude Code's own default.
   defaultModel: string;
+  /// The model Remy runs its own small jobs on — naming a chat, and whatever
+  /// else comes to need a model later. Separate from `defaultModel`, which is
+  /// what your chats think with: this one should stay cheap.
+  remyModel: string;
 }
 
 export type PreventSleepMode = "off" | "whileBusy" | "always";
@@ -80,6 +84,7 @@ function load(): Config {
     worktreeBase: oneOf(WORKTREE_BASES, parsed.worktreeBase, "remote"),
     worktreeRoot: worktreeRootPath(parsed.worktreeRoot),
     defaultModel: oneOf(MODELS, parsed.defaultModel, ""),
+    remyModel: oneOf(MODELS, parsed.remyModel, "haiku"),
   };
   setKv("config", config);
   return config;
@@ -93,6 +98,7 @@ export interface PublicSettings {
   worktreeBase: WorktreeBase;
   worktreeRoot: string;
   defaultModel: string;
+  remyModel: string;
 }
 
 export function publicSettings(): PublicSettings {
@@ -102,6 +108,7 @@ export function publicSettings(): PublicSettings {
     worktreeBase: config.worktreeBase,
     worktreeRoot: config.worktreeRoot,
     defaultModel: config.defaultModel,
+    remyModel: config.remyModel,
   };
 }
 
@@ -128,6 +135,9 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
   if (patch.defaultModel !== undefined) {
     set("defaultModel", oneOf(MODELS, patch.defaultModel, config.defaultModel));
+  }
+  if (patch.remyModel !== undefined) {
+    set("remyModel", oneOf(MODELS, patch.remyModel, config.remyModel));
   }
 
   if (touched) setKv("config", config);

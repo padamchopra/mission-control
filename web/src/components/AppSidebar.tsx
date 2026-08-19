@@ -118,7 +118,7 @@ export function AppSidebar({
                           {scopeServer?.name ?? "All devices"}
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {servers.length} device{servers.length === 1 ? "" : "s"} · {chats.length} chat
+                          {servers.length} device{servers.length === 1 ? "" : "s"} · {chats.length} thread
                           {chats.length === 1 ? "" : "s"}
                         </span>
                       </span>
@@ -138,7 +138,7 @@ export function AppSidebar({
                         <DeviceRow
                           key={server.id}
                           label={server.name}
-                          detail={`${server.code} · ${chats.filter((chat) => chat.serverId === server.id).length} chats`}
+                          detail={`${server.code} · ${chats.filter((chat) => chat.serverId === server.id).length} threads`}
                           selected={scope === server.id}
                           online={server.online}
                           icon={server.icon}
@@ -177,13 +177,13 @@ export function AppSidebar({
           <SidebarContent>
             <SidebarGroup className="min-h-0 flex-1">
               <SidebarGroupLabel>
-                Chats
+                Threads
                 {scoped.length > 0 && <span className="ml-auto tabular-nums">{scoped.length}</span>}
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {scoped.length === 0 ? (
-                    <p className="px-2 py-1.5 text-xs text-muted-foreground">No chats yet.</p>
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">No threads yet.</p>
                   ) : (
                     scoped.map((chat) => (
                       <SidebarMenuItem key={chat.id}>

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { Folder } from "lucide-react";
 import { isProjectIconFile, projectIcon } from "@/lib/projects";
+import { deviceIcon } from "@/lib/devices";
+import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
+import type { Server, Workspace } from "@/state/types";
 
 const cache = new Map<string, string>();
 
@@ -53,4 +56,43 @@ export function WorkspaceFileIcon({
 
   if (!src) return <Folder className={cn("size-4", className)} />;
   return <img src={src} alt="" className={cn("block size-4 object-contain object-center", className)} />;
+}
+
+/// A workspace as it appears inline: its icon in its tint, or the machine's
+/// own icon for a chat that is not in a workspace at all.
+export function WorkspaceMark({
+  home,
+  workspace,
+  server,
+  size,
+}: {
+  home: boolean;
+  workspace?: Workspace;
+  server?: Server;
+  size: "sm" | "lg";
+}) {
+  const box = size === "lg" ? "size-[1em]" : "size-4";
+  const glyph = size === "lg" ? "size-[0.65em]" : "size-3";
+  if (home || !workspace) {
+    const Icon = deviceIcon(server?.icon);
+    return <Icon className={cn("block shrink-0", size === "lg" ? "size-[1em]" : glyph)} />;
+  }
+  const colors = tintOf(workspace.tint);
+  const file = isProjectIconFile(workspace.icon);
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md leading-none",
+        box,
+        colors.well,
+        colors.fg,
+      )}
+    >
+      <WorkspaceIcon
+        workspaceId={workspace.id}
+        icon={workspace.icon}
+        className={file ? "size-full" : glyph}
+      />
+    </span>
+  );
 }

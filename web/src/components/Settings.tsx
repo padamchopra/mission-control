@@ -58,7 +58,7 @@ export const SETTINGS_SECTIONS: {
   { id: "version-control", label: "Version control", icon: GitBranch },
   { id: "providers", label: "Providers", icon: Boxes },
   { id: "devices", label: "Devices", icon: Laptop },
-  { id: "archive", label: "Archived chats", icon: Archive },
+  { id: "archive", label: "Archived threads", icon: Archive },
 ];
 
 export function SettingsPane({
@@ -152,6 +152,7 @@ function GeneralPane({
           </Button>
         )}
       </div>
+      <RemyModelField />
       <div className="flex items-start gap-3 rounded-lg border border-border px-3.5 py-3">
         <Monitor className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
@@ -160,6 +161,42 @@ function GeneralPane({
         </div>
       </div>
     </div>
+  );
+}
+
+/// The model Remy thinks with, as opposed to the one your chats think with.
+/// It runs the small jobs Remy does around a chat rather than inside one, so a
+/// fast, cheap model is the right default.
+function RemyModelField() {
+  const { settings, online, save } = useServerSettings();
+  if (!online || !settings) return null;
+
+  return (
+    <Field orientation="horizontal" className="items-center">
+      <FieldContent>
+        <FieldLabel htmlFor="remy-model">Remy's own model</FieldLabel>
+        <FieldDescription>
+          Runs the small jobs Remy does for itself, starting with naming a thread. Your threads are unaffected.
+        </FieldDescription>
+      </FieldContent>
+      <Select
+        value={settings.remyModel || "default"}
+        onValueChange={(value) => void save({ remyModel: value === "default" ? "" : value }, "Remy's own model")}
+      >
+        <SelectTrigger id="remy-model" size="sm" className="w-44 shrink-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          <SelectGroup>
+            {MODELS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </Field>
   );
 }
 
@@ -244,9 +281,9 @@ function VersionControlPane() {
     <div className="flex flex-col gap-7">
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
-          <FieldLabel htmlFor="default-checkout">New chats open in</FieldLabel>
+          <FieldLabel htmlFor="default-checkout">New threads open in</FieldLabel>
           <FieldDescription>
-            Where a chat starts when its workspace has worktrees. You can still change it per chat.
+            Where a thread starts when its workspace has worktrees. You can still change it per thread.
           </FieldDescription>
         </FieldContent>
         <Select
@@ -370,19 +407,19 @@ function ProvidersPane() {
           status={tooling?.claude}
           detail={
             tooling?.claude.available
-              ? "Chats run through the copy of Claude Code on this machine."
-              : "Install Claude Code on this machine to start chats."
+              ? "Threads run through the copy of Claude Code on this machine."
+              : "Install Claude Code on this machine to start threads."
           }
         />
         <p className="text-xs text-muted-foreground">
-          Claude is the only provider Remy runs chats through today.
+          Claude is the only provider Remy runs threads through today.
         </p>
       </div>
 
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
           <FieldLabel htmlFor="default-model">Default model</FieldLabel>
-          <FieldDescription>What a new chat starts on. You can still change it per chat.</FieldDescription>
+          <FieldDescription>What a new thread starts on. You can still change it per thread.</FieldDescription>
         </FieldContent>
         <Select
           value={settings.defaultModel || "default"}
@@ -491,7 +528,7 @@ function ArchivePane() {
     try {
       await transport.request(row.serverId, `/archives/${encodeURIComponent(row.id)}`, { method: "DELETE" });
       setItems((current) => current.filter((item) => item.id !== row.id || item.serverId !== row.serverId));
-      toast.success("Removed the archived chat.");
+      toast.success("Removed the archived thread.");
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
       toast.error("Couldn't remove that archive", { description: message });
@@ -509,8 +546,8 @@ function ArchivePane() {
           <EmptyMedia variant="icon">
             <Archive />
           </EmptyMedia>
-          <EmptyTitle>No archived chats</EmptyTitle>
-          <EmptyDescription>Archive a finished chat from its conversation when you're done.</EmptyDescription>
+          <EmptyTitle>No archived threads</EmptyTitle>
+          <EmptyDescription>Archive a finished thread from its conversation when you're done.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -846,7 +883,7 @@ function stayAwakeMode(value: unknown): StayAwakeMode | undefined {
 
 function stayAwakeDetail(mode: StayAwakeMode): string {
   if (mode === "whileBusy") {
-    return "Stays awake while a chat is running or waiting on you. Closing the lid can still sleep it.";
+    return "Stays awake while a thread is running or waiting on you. Closing the lid can still sleep it.";
   }
   if (mode === "always") {
     return "Stays awake until you pick another option or turn the machine off. Closing the lid can still sleep it.";

@@ -49,12 +49,9 @@ import {
 } from "@/components/ui/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { WorkspaceIcon } from "@/components/WorkspaceIcon";
+import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
-import { isProjectIconFile } from "@/lib/projects";
-import { tintOf } from "@/lib/tints";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
 import type { GitBranch as Branch, Server, Workspace } from "@/state/types";
 
@@ -212,7 +209,7 @@ export function ChatComposer({
       });
       onCreated(created.id);
     } catch (caught) {
-      toast.error("Couldn't start that chat", { description: apiError(caught) });
+      toast.error("Couldn't start that thread", { description: apiError(caught) });
     } finally {
       setBusy(false);
     }
@@ -246,7 +243,7 @@ export function ChatComposer({
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage className="font-medium">New chat</BreadcrumbPage>
+              <BreadcrumbPage className="font-medium">New thread</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
@@ -510,43 +507,6 @@ function WorkspaceMenu({
         </DropdownMenuItem>
       </DropdownMenuGroup>
     </DropdownMenuContent>
-  );
-}
-
-function WorkspaceMark({
-  home,
-  workspace,
-  server,
-  size,
-}: {
-  home: boolean;
-  workspace?: Workspace;
-  server?: Server;
-  size: "sm" | "lg";
-}) {
-  const box = size === "lg" ? "size-[1em]" : "size-4";
-  const glyph = size === "lg" ? "size-[0.65em]" : "size-3";
-  if (home || !workspace) {
-    const Icon = deviceIcon(server?.icon);
-    return <Icon className={cn("block shrink-0", size === "lg" ? "size-[1em]" : glyph)} />;
-  }
-  const colors = tintOf(workspace.tint);
-  const file = isProjectIconFile(workspace.icon);
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md leading-none",
-        box,
-        colors.well,
-        colors.fg,
-      )}
-    >
-      <WorkspaceIcon
-        workspaceId={workspace.id}
-        icon={workspace.icon}
-        className={file ? "size-full" : glyph}
-      />
-    </span>
   );
 }
 

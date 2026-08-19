@@ -395,7 +395,7 @@ export const useStore = create<State>((set, get) => ({
     const text = input.text.trim();
     if (!text) throw new Error("Write a message first.");
     const cwd = input.cwd.trim() || "~";
-    const title = text.split("\n")[0]?.slice(0, 80) || "New chat";
+    const title = text.split("\n")[0]?.slice(0, 80) || "New thread";
 
     if (useFixture) {
       const serverId = input.serverId ?? get().servers.find((server) => server.local)?.id ?? get().servers[0]?.id ?? "studio";
@@ -424,7 +424,7 @@ export const useStore = create<State>((set, get) => ({
       },
     });
     const id = created.chat?.id;
-    if (!id) throw new Error("Couldn't start that chat.");
+    if (!id) throw new Error("Couldn't start that thread.");
     await transport.request(server.id, `/chats/${encodeURIComponent(id)}/message`, {
       method: "POST",
       body: { text },

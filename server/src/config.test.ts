@@ -31,6 +31,17 @@ test("starts on the defaults a fresh install should have", () => {
   assert.equal(settings.worktreeBase, "remote");
   assert.equal(settings.worktreeRoot, "");
   assert.equal(settings.defaultModel, "");
+  // Remy's own jobs are small and frequent, so they start on the cheap model
+  // rather than on whatever the chats are using.
+  assert.equal(settings.remyModel, "haiku");
+});
+
+test("keeps Remy's own model separate from the chat default", () => {
+  patchSettings({ defaultModel: "opus" });
+  assert.equal(publicSettings().remyModel, "haiku");
+  patchSettings({ remyModel: "sonnet" });
+  assert.equal(publicSettings().defaultModel, "opus");
+  assert.equal(publicSettings().remyModel, "sonnet");
 });
 
 test("patches only the keys the caller sent", () => {
