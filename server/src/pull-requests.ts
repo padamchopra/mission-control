@@ -263,7 +263,7 @@ export function parseUnreadReviewComments(
   const notificationAt = Date.parse(notificationUpdatedAt ?? "");
   // A notification with no prior read marker is normally the first activity on
   // a PR. Bound that initial window around GitHub's notification timestamp so
-  // Mission Control never labels months of historical discussion as unread.
+  // Remy never labels months of historical discussion as unread.
   const cutoff = Number.isFinite(readAt)
     ? readAt
     : Number.isFinite(notificationAt) ? notificationAt - 15 * 60 * 1000 : Date.now() - 24 * 60 * 60 * 1000;

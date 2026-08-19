@@ -763,7 +763,7 @@ struct FlightDeckView: View {
                         Text("Add connection")
                             .font(.flightSans(9, weight: .bold))
                             .foregroundStyle(FlightDeckPalette.amber)
-                        Text("Pair this Mac or another device")
+                        Text("Pair this machine or another device")
                             .font(.flightSans(7))
                             .foregroundStyle(FlightDeckPalette.secondary)
                             .lineLimit(1)
@@ -1070,7 +1070,7 @@ struct FlightDeckView: View {
                     Text("No chat selected")
                         .font(.flightSans(8, weight: .bold))
                         .foregroundStyle(FlightDeckPalette.warm)
-                    Text("Pick a chat, or start one against any repository on a connected Mac.")
+                    Text("Pick a chat, or start one against any repository on a connected device.")
                         .font(.flightSans(12))
                         .foregroundStyle(FlightDeckPalette.secondary)
                 }
@@ -1769,7 +1769,7 @@ private struct FlightDeckPullRequestsView: View {
                 Text("Pull requests")
                     .font(.flightSans(22, weight: .bold))
                     .tracking(-0.65)
-                Text("Review readiness, checks, comments, and active Mission Control sessions")
+                Text("Review readiness, checks, comments, and active Remy sessions")
                     .font(.flightSans(10))
                     .foregroundStyle(FlightDeckPalette.secondary)
             }
@@ -2240,12 +2240,12 @@ private struct FlightDeckInboxPullRequestDetail: View {
     private var attentionDetail: String {
         if isBuildAttention {
             return agent == nil
-                ? "This pull request needs a fix and has no active Mission Control session."
-                : "Mission Control found the active session working on this pull request branch."
+                ? "This pull request needs a fix and has no active Remy session."
+                : "Remy found the active session working on this pull request branch."
         }
         return agent == nil
-            ? "This pull request has no active Mission Control session."
-            : "Mission Control found the active session for this pull request branch."
+            ? "This pull request has no active Remy session."
+            : "Remy found the active session for this pull request branch."
     }
 
     private var unreadReviewThreads: some View {
@@ -3291,7 +3291,7 @@ private struct LegacyFlightDeckPullRequestDetail: View {
                         .font(.flightSans(8, weight: .bold))
                     Text(item.pullRequest.failedCheckCount > 0
                          ? "Resolve the failing checks before this pull request can move forward."
-                         : "New GitHub activity has not been reviewed from Mission Control yet.")
+                         : "New GitHub activity has not been reviewed from Remy yet.")
                         .font(.flightSans(10))
                         .foregroundStyle(FlightDeckPalette.secondary)
                 }
@@ -4482,7 +4482,7 @@ private struct FlightDeckConnectionsView: View {
             FlightDeckPageHeader(
                 eyebrow: "Fleet / Secure links",
                 title: "Connection settings",
-                subtitle: "Pair, identify, and maintain every Mission Control device"
+                subtitle: "Pair, identify, and maintain every Remy device"
             ) {
                 HStack(spacing: 10) {
                     Button("Paste pairing link", action: pastePairingLink)
@@ -4546,7 +4546,7 @@ private struct FlightDeckConnectionsView: View {
                     FlightDeckDialogModal(
                         eyebrow: "Fleet / Device removal",
                         title: "Remove device?",
-                        message: "Mission Control will forget \(server.name). The server and its running sessions are not stopped."
+                        message: "Remy will forget \(server.name). The server and its running sessions are not stopped."
                     ) {
                         EmptyView()
                     } actions: {
@@ -4566,7 +4566,7 @@ private struct FlightDeckConnectionsView: View {
                     FlightDeckDialogModal(
                         eyebrow: "Fleet / Server update",
                         title: "Update selected server?",
-                        message: "Running tmux sessions are preserved while the Mission Control service restarts."
+                        message: "Running tmux sessions are preserved while the Remy service restarts."
                     ) {
                         EmptyView()
                     } actions: {
@@ -4584,7 +4584,7 @@ private struct FlightDeckConnectionsView: View {
                     FlightDeckDialogModal(
                         eyebrow: "Fleet / Pairing link",
                         title: "No pairing link found",
-                        message: "Copy the missioncontrol://configure link printed by the setup script, then try again."
+                        message: "Copy the remy://configure link printed by the setup script, then try again."
                     ) {
                         EmptyView()
                     } actions: {
@@ -4659,7 +4659,7 @@ private struct FlightDeckConnectionsView: View {
             .padding(.bottom, 12)
             .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
 
-            connectionField("DEVICE NAME", placeholder: "My MacBook Pro", text: $name)
+            connectionField("DEVICE NAME", placeholder: "Studio", text: $name)
             connectionField(
                 "DEVICE ID",
                 placeholder: selected?.flightDeckCode ?? "MP",
@@ -4837,7 +4837,7 @@ private struct FlightDeckConnectionsView: View {
                 let config = try await LocalDeviceSetup.install()
                 pairLocalDevice(config)
                 localSetupState = nil
-                toasts.show(.success, "This Mac is ready")
+                toasts.show(.success, "This machine is ready")
             } catch {
                 localSetupState = .failed(error.localizedDescription)
             }
@@ -5015,8 +5015,8 @@ private struct FlightDeckAddDeviceOptions: View {
                 if canSetUpThisMac {
                     option(
                         icon: "laptopcomputer",
-                        title: "SET UP THIS MAC",
-                        detail: "Install the Mission Control service and agent hooks on the Mac you are using now.",
+                    title: "SET UP THIS MACHINE",
+                    detail: "Install the Remy service and agent hooks on the machine you are using now.",
                         accent: true,
                         action: onSetUpThisMac
                     )
@@ -5090,7 +5090,7 @@ private struct FlightDeckLocalSetupView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
                     flightLabel("Local device / Install")
-                    Text(state.isRunning ? "Setting up this Mac" : "Setup needs attention")
+                    Text(state.isRunning ? "Setting up this machine" : "Setup needs attention")
                         .font(.flightSans(24, weight: .bold))
                 }
                 Spacer()
@@ -5113,7 +5113,7 @@ private struct FlightDeckLocalSetupView: View {
                             Text("Installing · starting service · pairing")
                                 .font(.flightSans(9, weight: .bold))
                                 .foregroundStyle(FlightDeckPalette.amber)
-                            Text("Mission Control is handling the checkout, installer, and secure connection automatically. This can take a few minutes the first time.")
+                            Text("Remy is handling the checkout, installer, and secure connection automatically. This can take a few minutes the first time.")
                                 .font(.flightSans(12))
                                 .foregroundStyle(FlightDeckPalette.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -5130,7 +5130,7 @@ private struct FlightDeckLocalSetupView: View {
                         setupStatus("03", "PAIRING", "AUTOMATIC")
                     }
 
-                    Text("Keep Mission Control open while setup finishes.")
+                    Text("Keep Remy open while setup finishes.")
                         .font(.flightSans(8))
                         .foregroundStyle(FlightDeckPalette.muted)
 
@@ -5206,14 +5206,18 @@ private enum LocalDeviceSetup {
         let fileManager = FileManager.default
         let environment = ProcessInfo.processInfo.environment
         guard let homePath = environment["HOME"], !homePath.isEmpty else {
-            throw SetupError(message: "Mission Control could not locate your home directory.")
+            throw SetupError(message: "Remy could not locate your home directory.")
         }
         let home = URL(fileURLWithPath: homePath, isDirectory: true)
-        let configured = environment["MISSION_CONTROL_REPOSITORY_PATH"].map {
+        let configured = (environment["REMY_REPOSITORY_PATH"] ?? environment["MISSION_CONTROL_REPOSITORY_PATH"]).map {
             URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true)
         }
         let candidates = [
             configured,
+            home.appendingPathComponent("Documents/Projects/remy", isDirectory: true),
+            home.appendingPathComponent("Developer/remy", isDirectory: true),
+            home.appendingPathComponent("Projects/remy", isDirectory: true),
+            home.appendingPathComponent("remy", isDirectory: true),
             home.appendingPathComponent("Documents/Projects/mission-control", isDirectory: true),
             home.appendingPathComponent("Developer/mission-control", isDirectory: true),
             home.appendingPathComponent("Projects/mission-control", isDirectory: true),
@@ -5224,13 +5228,15 @@ private enum LocalDeviceSetup {
             return existing
         }
 
+        let managedRemy = home.appendingPathComponent(".remy/checkout", isDirectory: true)
+        if isMissionControlRepository(managedRemy) { return managedRemy }
         let managed = home.appendingPathComponent(".mission-control/checkout", isDirectory: true)
         if isMissionControlRepository(managed) { return managed }
 
         guard let bundled = Bundle.main.resourceURL?
             .appendingPathComponent("MissionControlService", isDirectory: true),
               isMissionControlRepository(bundled) else {
-            throw SetupError(message: "This build does not include the local service installer. Rebuild Mission Control and try again.")
+            throw SetupError(message: "This build does not include the local service installer. Rebuild Remy and try again.")
         }
         try fileManager.createDirectory(at: managed.deletingLastPathComponent(), withIntermediateDirectories: true)
         if fileManager.fileExists(atPath: managed.path) {
@@ -5238,7 +5244,7 @@ private enum LocalDeviceSetup {
         }
         try fileManager.copyItem(at: bundled, to: managed)
         guard isMissionControlRepository(managed) else {
-            throw SetupError(message: "Mission Control could not prepare its managed local service files. Try setup again.")
+            throw SetupError(message: "Remy could not prepare its managed local service files. Try setup again.")
         }
         return managed
     }
@@ -5252,6 +5258,7 @@ private enum LocalDeviceSetup {
     private static func runSetup(in repository: URL) throws {
         let command = """
         export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+        export REMY_SKIP_QR=1
         export MISSION_CONTROL_SKIP_QR=1
         cd \(shellQuote(repository.path))
         ./deploy/setup.sh
@@ -5262,10 +5269,15 @@ private enum LocalDeviceSetup {
     private static func runShell(_ command: String) throws {
         let fileManager = FileManager.default
         guard let homePath = ProcessInfo.processInfo.environment["HOME"], !homePath.isEmpty else {
-            throw SetupError(message: "Mission Control could not locate your home directory.")
+            throw SetupError(message: "Remy could not locate your home directory.")
         }
-        let workingDirectory = URL(fileURLWithPath: homePath, isDirectory: true)
+        let remy = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".remy", isDirectory: true)
+        let legacy = URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent(".mission-control", isDirectory: true)
+        let workingDirectory = fileManager.fileExists(atPath: remy.path) || !fileManager.fileExists(atPath: legacy.path)
+            ? remy
+            : legacy
         try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         let identifier = UUID().uuidString
         let script = workingDirectory.appendingPathComponent("setup-\(identifier).sh")
@@ -5292,12 +5304,14 @@ private enum LocalDeviceSetup {
 
     private static func pairingConfig() throws -> PairingConfig {
         guard let homePath = ProcessInfo.processInfo.environment["HOME"], !homePath.isEmpty else {
-            throw SetupError(message: "Mission Control could not locate your home directory.")
+            throw SetupError(message: "Remy could not locate your home directory.")
         }
-        let file = URL(fileURLWithPath: homePath, isDirectory: true)
-            .appendingPathComponent(".mission-control/pairing.env")
+        let home = URL(fileURLWithPath: homePath, isDirectory: true)
+        let remy = home.appendingPathComponent(".remy/pairing.env")
+        let legacy = home.appendingPathComponent(".mission-control/pairing.env")
+        let file = FileManager.default.fileExists(atPath: remy.path) ? remy : legacy
         guard let contents = try? String(contentsOf: file, encoding: .utf8) else {
-            throw SetupError(message: "The service installed, but Mission Control could not read its local pairing credentials. Try setup again.")
+            throw SetupError(message: "The service installed, but Remy could not read its local pairing credentials. Try setup again.")
         }
         let values = Dictionary(uniqueKeysWithValues: contents.split(whereSeparator: \.isNewline).compactMap { line -> (String, String)? in
             let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
@@ -5317,7 +5331,7 @@ private enum LocalDeviceSetup {
             .map(String.init)
             .filter {
                 let lower = $0.lowercased()
-                return !lower.contains("token") && !lower.contains("missioncontrol://")
+                return !lower.contains("token") && !lower.contains("missioncontrol://") && !lower.contains("remy://")
             }
             .suffix(6)
         if safeLines.isEmpty {
@@ -5633,7 +5647,7 @@ private struct FlightDeckWorkspacesView: View {
                         title: "Remove worktree?",
                         message: target.worktree.dirty
                             ? "This worktree has uncommitted changes. Force clean discards them and keeps the branch."
-                            : "Mission Control will stop sessions in this worktree, remove it, and keep the branch."
+                            : "Remy will stop sessions in this worktree, remove it, and keep the branch."
                     ) {
                         EmptyView()
                     } actions: {
@@ -5658,7 +5672,7 @@ private struct FlightDeckWorkspacesView: View {
                     FlightDeckDialogModal(
                         eyebrow: "Workspaces / Remove index",
                         title: "Remove workspace?",
-                        message: "This removes the workspace from Mission Control. It does not delete the repository or worktrees."
+                        message: "This removes the workspace from Remy. It does not delete the repository or worktrees."
                     ) {
                         EmptyView()
                     } actions: {
@@ -5838,7 +5852,7 @@ private struct FlightDeckWorkspacesView: View {
         do {
             try await api.removeWorkspace(id: target.workspace.id)
             await onChanged()
-            toasts.show(.success, "Removed \(target.workspace.name) from Mission Control")
+            toasts.show(.success, "Removed \(target.workspace.name) from Remy")
         } catch {
             toasts.show(.error, "Couldn't remove workspace")
         }

@@ -1,33 +1,31 @@
 #!/bin/bash
-# Runs on the server Mac after an authenticated in-app update request. It keeps
-# a tiny status file so the client can reconnect after launchd restarts Node.
+# Runs on the server after an authenticated in-app update request. It keeps
+# status in remy.db so the client can reconnect after launchd restarts Node.
 set -u
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER_DIR="$REPO_DIR/server"
-MC_DIR="$HOME/.mission-control"
-STATUS_FILE="$MC_DIR/update-status.json"
+# shellcheck source=config-dir.sh
+. "$(dirname "$0")/config-dir.sh"
+STORE="$REPO_DIR/server/scripts/store.mjs"
+[ -f "$MC_DIR/store.mjs" ] && STORE="$MC_DIR/store.mjs"
 LOG_FILE="$MC_DIR/update.log"
-LABEL="com.example.missioncontrol"
+LABEL="com.example.remy"
 
 mkdir -p "$MC_DIR"
 
 write_status() {
-  node -e '
-    const fs = require("fs");
-    const [file, state, message] = process.argv.slice(1);
-    fs.writeFileSync(file, JSON.stringify({ state, message, updatedAt: Date.now() }) + "\n", { mode: 0o600 });
-  ' "$STATUS_FILE" "$1" "$2"
+  node "$STORE" set-update "$1" "$2"
 }
 
 write_status "running" "Pulling latest changes"
 {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Mission Control update"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Remy update"
   cd "$REPO_DIR" && git pull --ff-only
 } >>"$LOG_FILE" 2>&1
 
 if [ $? -ne 0 ]; then
-  write_status "failed" "Couldn't pull latest changes — the server clone may have local edits or a diverged branch. See ~/.mission-control/update.log on the server."
+  write_status "failed" "Couldn't pull latest changes — the server clone may have local edits or a diverged branch. See $MC_DIR/update.log on the server."
   exit 1
 fi
 
@@ -37,7 +35,7 @@ write_status "running" "Installing dependencies and building"
 } >>"$LOG_FILE" 2>&1
 
 if [ $? -ne 0 ]; then
-  write_status "failed" "Build failed. See ~/.mission-control/update.log on the server."
+  write_status "failed" "Build failed. See $MC_DIR/update.log on the server."
   exit 1
 fi
 

@@ -5,16 +5,31 @@ import { contextBridge, ipcRenderer } from "electron";
 /// Deliberately narrow: a path and a method, never a URL and never a token. The
 /// main process owns which servers exist and how to authenticate to them, so
 /// the UI cannot be talked into reaching somewhere else.
-contextBridge.exposeInMainWorld("missionControl", {
+contextBridge.exposeInMainWorld("remy", {
   platform: process.platform,
 
-  servers: (): Promise<{ id: string; name: string; url: string }[]> =>
+  servers: (): Promise<{ id: string; name: string; url: string; icon?: string; builtin?: boolean }[]> =>
     ipcRenderer.invoke("mc:servers"),
 
   setServers: (
     servers: { id: string; name: string; url: string; token: string }[],
   ): Promise<{ id: string; name: string; url: string }[]> =>
     ipcRenderer.invoke("mc:set-servers", servers),
+
+  addServer: (input: {
+    url: string;
+    token: string;
+    name?: string;
+  }): Promise<{ id: string; name: string; url: string }[]> => ipcRenderer.invoke("mc:add-server", input),
+
+  removeServer: (id: string): Promise<{ id: string; name: string; url: string; icon?: string; builtin?: boolean }[]> =>
+    ipcRenderer.invoke("mc:remove-server", id),
+
+  updateServer: (
+    id: string,
+    patch: { name?: string; icon?: string },
+  ): Promise<{ id: string; name: string; url: string; icon?: string; builtin?: boolean }[]> =>
+    ipcRenderer.invoke("mc:update-server", id, patch),
 
   request: (
     serverId: string,

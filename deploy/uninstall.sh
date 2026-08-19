@@ -1,17 +1,20 @@
 #!/bin/bash
 # Reverses deploy/setup.sh: stops the server, removes the LaunchAgent, the
-# ~/.mission-control directory, the Claude Code and Codex hook entries, and the
+# ~/.remy (or ~/.mission-control) directory, the Claude Code and Codex hook entries, and the
 # tailscale serve rule. Leaves dependency tools (node, tmux, qrencode,
 # Tailscale) and this repo checkout in place.
 set -euo pipefail
 
-MC_DIR="$HOME/.mission-control"
-PLIST_LABEL="com.example.missioncontrol"
+# shellcheck source=config-dir.sh
+. "$(dirname "$0")/config-dir.sh"
+PLIST_LABEL="com.example.remy"
+LEGACY_PLIST_LABEL="com.example.missioncontrol"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
 
 echo "==> Stopping and removing launchd service"
 launchctl bootout "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
-rm -f "$PLIST_PATH"
+launchctl bootout "gui/$(id -u)/$LEGACY_PLIST_LABEL" 2>/dev/null || true
+rm -f "$PLIST_PATH" "$HOME/Library/LaunchAgents/$LEGACY_PLIST_LABEL.plist"
 
 echo "==> Removing tailscale serve rule"
 TAILSCALE="$(command -v tailscale || true)"
@@ -63,12 +66,12 @@ for (const [event, groups] of Object.entries(config.hooks ?? {})) {
 fs.writeFileSync(hooksPath, JSON.stringify(config, null, 2) + "\n");
 EOF
 
-echo "==> Removing $MC_DIR (config, token, hook script, uploads, logs)"
-rm -rf "$MC_DIR"
+echo "==> Removing $HOME/.remy and $HOME/.mission-control (config, token, hook script, uploads, logs)"
+rm -rf "$HOME/.remy" "$HOME/.mission-control"
 
 cat <<SUMMARY
 
-Mission Control has been removed from this Mac. Left in place:
+Remy has been removed from this machine. Left in place:
   - this repo checkout (delete it yourself if you're done with it)
   - dependency tools (node, tmux, qrencode, Tailscale)
   - any tmux sessions that are still running

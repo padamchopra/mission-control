@@ -1,9 +1,10 @@
 import { EventEmitter } from "node:events";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import WebSocket from "ws";
 
-/// The connection to a Mission Control server, owned by the main process.
+/// The connection to a Remy server, owned by the main process.
 ///
 /// It lives here rather than in the renderer for two reasons, both of which are
 /// properties of the server rather than preferences:
@@ -17,11 +18,16 @@ import WebSocket from "ws";
 /// better security property anyway: the token never enters the renderer, so a
 /// stray dependency in the UI has nothing to steal.
 
+export type DeviceIcon = "laptop" | "monitor" | "smartphone" | "tablet" | "server" | "house";
+
 export interface ServerConfig {
   id: string;
   name: string;
   url: string;
   token: string;
+  icon?: DeviceIcon;
+  /// This machine's own daemon. The app starts it; it cannot be unpaired.
+  builtin?: boolean;
 }
 
 export interface ConnectionEvents {
@@ -47,6 +53,22 @@ export class Connection extends EventEmitter {
 
   list(): Omit<ServerConfig, "token">[] {
     return this.servers.map(({ token: _token, ...rest }) => rest);
+  }
+
+  /// Name and icon only — a rename must not bounce the live socket.
+  update(id: string, patch: { name?: string; icon?: DeviceIcon }): void {
+    const server = this.servers.find((item) => item.id === id);
+    if (!server) throw new Error(`no server ${id}`);
+    if (patch.name !== undefined) {
+      const name = patch.name.trim();
+      if (name) server.name = name;
+    }
+    if (patch.icon) server.icon = patch.icon;
+  }
+
+  /// Full configs including tokens — main-process only, for persisting.
+  configs(): ServerConfig[] {
+    return this.servers.map((server) => ({ ...server }));
   }
 
   replace(servers: ServerConfig[]): void {
@@ -148,10 +170,9 @@ export class Connection extends EventEmitter {
   }
 }
 
-/// Servers come from a JSON file next to the app's other state, or from
-/// `MC_SERVER_URL` / `MC_TOKEN` for a one-off run. There is no pairing UI yet,
-/// so this is the seam the setup flow will write to.
-export function loadServers(configPath: string): ServerConfig[] {
+/// Servers live in sqlite next to the app's other state, or come from
+/// `MC_SERVER_URL` / `MC_TOKEN` for a one-off run.
+export function loadServers(dbPath: string): ServerConfig[] {
   const fromEnv = process.env.MC_SERVER_URL;
   if (fromEnv) {
     return [
@@ -163,17 +184,70 @@ export function loadServers(configPath: string): ServerConfig[] {
       },
     ];
   }
+  const database = openServers(dbPath);
   try {
-    const parsed = JSON.parse(readFileSync(configPath, "utf8")) as { servers?: ServerConfig[] };
-    return parsed.servers ?? [];
-  } catch {
-    return [];
+    return (
+      database.prepare("select id, name, url, token, icon, builtin from paired_servers").all() as {
+        id: string;
+        name: string;
+        url: string;
+        token: string;
+        icon: string | null;
+        builtin: number;
+      }[]
+    ).map((row) => ({
+      id: row.id,
+      name: row.name,
+      url: row.url,
+      token: row.token,
+      ...(row.icon ? { icon: row.icon as DeviceIcon } : {}),
+      ...(row.builtin ? { builtin: true } : {}),
+    }));
+  } finally {
+    database.close();
   }
 }
 
-export function saveServers(configPath: string, servers: ServerConfig[]): void {
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, JSON.stringify({ servers }, null, 2));
+export function saveServers(dbPath: string, servers: ServerConfig[]): void {
+  const database = openServers(dbPath);
+  try {
+    database.exec("begin immediate");
+    try {
+      database.exec("delete from paired_servers");
+      const insert = database.prepare(
+        "insert into paired_servers (id, name, url, token, icon, builtin) values (?, ?, ?, ?, ?, ?)",
+      );
+      for (const server of servers) {
+        insert.run(server.id, server.name, server.url, server.token, server.icon ?? null, server.builtin ? 1 : 0);
+      }
+      database.exec("commit");
+    } catch (error) {
+      try {
+        database.exec("rollback");
+      } catch {
+        // The original error is the one to throw.
+      }
+      throw error;
+    }
+  } finally {
+    database.close();
+  }
 }
 
-export const serversFile = (userData: string) => join(userData, "servers.json");
+function openServers(dbPath: string): DatabaseSync {
+  mkdirSync(join(dbPath, ".."), { recursive: true });
+  const database = new DatabaseSync(dbPath);
+  database.exec(`
+    create table if not exists paired_servers (
+      id text primary key,
+      name text not null,
+      url text not null,
+      token text not null,
+      icon text,
+      builtin integer not null default 0
+    );
+  `);
+  return database;
+}
+
+export const serversFile = (userData: string) => join(userData, "remy.db");

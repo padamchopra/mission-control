@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-process.env.HOME = mkdtempSync(join(tmpdir(), "mission-control-workspaces-test-"));
+process.env.HOME = mkdtempSync(join(tmpdir(), "remy-workspaces-test-"));
 
 const { isLegacyManagedWorktreePath } = await import("./workspaces.js");
 
-test("recognizes only Mission Control's legacy sibling worktree directory", () => {
+test("recognizes only Remy's legacy sibling worktree directory", () => {
   const workspace = "/code/mobile";
 
   assert.equal(isLegacyManagedWorktreePath(workspace, "/code/mobile-worktrees/pr-7211"), true);

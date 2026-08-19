@@ -46,7 +46,7 @@ import {
 } from "./transcript.js";
 import { uploadRoot } from "./uploads.js";
 
-// Chats are conversations Mission Control owns end to end: the server runs
+// Chats are conversations Remy owns end to end: the server runs
 // Claude through the Agent SDK, keeps the transcript itself, and streams it to
 // every connected client. Unlike a tmux session there is no terminal behind
 // this — the feed *is* the session, so approvals and questions have to be
@@ -131,11 +131,11 @@ export interface ChatDetail extends ChatSummary {
 }
 
 // The feed a client renders. Older turns stay in Claude's own transcript; this
-// is the window Mission Control keeps.
+// is the window Remy keeps.
 const MAX_ENTRIES = 500;
 // A chat with no live turn drops its Claude process after this, and resumes by
 // session id on the next message. Long-lived chats would otherwise pin one
-// `claude` process each for as long as the Mac is up.
+// `claude` process each for as long as the host is up.
 const IDLE_SHUTDOWN_MS = 15 * 60_000;
 // Text arrives token by token; repainting every client on every token would
 // spend the whole tailnet budget on one paragraph.
@@ -441,7 +441,7 @@ class Chat {
       this.append({ id: `e-${randomUUID()}`, kind: "assistant", text: `⚠️ ${clip(message, 400)}` });
       await sendNotification({
         session: this.record.id,
-        click: `missioncontrol://chat/${this.record.id}`,
+        click: `remy://chat/${this.record.id}`,
         title: `${this.record.title} failed`,
         message: clip(message, 200),
         highPriority: true,
@@ -662,7 +662,7 @@ class Chat {
     const last = [...this.record.entries].reverse().find((e) => e.kind === "assistant" && e.text?.trim());
     await sendNotification({
       session: this.record.id,
-      click: `missioncontrol://chat/${this.record.id}`,
+      click: `remy://chat/${this.record.id}`,
       title: `${this.record.title} finished`,
       message: last?.text ? clip(last.text, 200) : "The turn is done.",
       highPriority: false,
@@ -717,7 +717,7 @@ class Chat {
     this.push();
     void sendNotification({
       session: this.record.id,
-      click: `missioncontrol://chat/${this.record.id}`,
+      click: `remy://chat/${this.record.id}`,
       title: `${this.record.title} needs approval`,
       message: options.title ?? `${described.verb} ${described.arg}`.trim(),
       highPriority: true,
@@ -736,7 +736,7 @@ class Chat {
     this.push();
     void sendNotification({
       session: this.record.id,
-      click: `missioncontrol://chat/${this.record.id}`,
+      click: `remy://chat/${this.record.id}`,
       title: `${this.record.title} needs input`,
       message: questions[0]?.question ? clip(questions[0].question, 200) : "Claude asked you a question.",
       highPriority: true,
@@ -910,8 +910,8 @@ export function createChat(input: {
   // Refuse loudly rather than running a conversation this server cannot keep.
   assertChatStorage();
   const cwd = input.cwd.trim();
-  if (!cwd || !existsSync(cwd)) throw new Error("that directory does not exist on this Mac");
-  // Fail here rather than on the first message, so a Mac without Claude Code
+  if (!cwd || !existsSync(cwd)) throw new Error("that directory does not exist on this machine");
+  // Fail here rather than on the first message, so a host without Claude Code
   // says so while the chat is still being created.
   agentCommand("claude");
   const record: ChatRecord = {

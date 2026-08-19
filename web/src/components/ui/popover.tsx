@@ -1,35 +1,87 @@
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { cn } from "~/lib/utils";
+import * as React from "react"
+import { Popover as PopoverPrimitive } from "radix-ui"
 
-/// Radix portals this out of the layout flow, which is the whole point: the
-/// SwiftUI version of the device menu was a sibling view inside the sidebar's
-/// stack, so opening it pushed the navigation, the agent list and the footer
-/// down the window instead of floating over them. That failure mode does not
-/// exist here.
-export const Popover = PopoverPrimitive.Root;
-export const PopoverTrigger = PopoverPrimitive.Trigger;
-export const PopoverAnchor = PopoverPrimitive.Anchor;
+import { cn } from "@/lib/utils"
 
-export function PopoverContent({
+function Popover({
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+}
+
+function PopoverTrigger({
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
+}
+
+function PopoverContent({
   className,
-  align = "start",
-  sideOffset = 6,
+  align = "center",
+  sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
+        data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 min-w-[8rem] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-2xl shadow-black/40 outline-none",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out",
-          "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-          "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-          className,
+          "z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-hidden data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          className
         )}
         {...props}
       />
     </PopoverPrimitive.Portal>
-  );
+  )
+}
+
+function PopoverAnchor({
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
+  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />
+}
+
+function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="popover-header"
+      className={cn("flex flex-col gap-1 text-sm", className)}
+      {...props}
+    />
+  )
+}
+
+function PopoverTitle({ className, ...props }: React.ComponentProps<"h2">) {
+  return (
+    <div
+      data-slot="popover-title"
+      className={cn("font-medium", className)}
+      {...props}
+    />
+  )
+}
+
+function PopoverDescription({
+  className,
+  ...props
+}: React.ComponentProps<"p">) {
+  return (
+    <p
+      data-slot="popover-description"
+      className={cn("text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverAnchor,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverDescription,
 }

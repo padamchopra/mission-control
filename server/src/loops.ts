@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { type AgentKind } from "./agent.js";
-import { configDir } from "./config.js";
+import { db, runTransaction } from "./db.js";
 import { nextLoopRun, type LoopFrequency, type LoopSchedule } from "./loop-schedule.js";
 import { registry } from "./registry.js";
 import { createTaskSession, listWorkspaces } from "./workspaces.js";
@@ -36,22 +34,26 @@ export interface LoopInput {
   enabled?: unknown;
 }
 
-const loopsFile = join(configDir, "loops.json");
 const running = new Set<string>();
 let timer: NodeJS.Timeout | null = null;
 
 function load(): MissionLoop[] {
-  if (!existsSync(loopsFile)) return [];
-  try {
-    const parsed = JSON.parse(readFileSync(loopsFile, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  const rows = db.prepare("select json from loops").all() as { json: string }[];
+  return rows.flatMap((row) => {
+    try {
+      return [JSON.parse(row.json) as MissionLoop];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function save(loops: MissionLoop[]): void {
-  writeFileSync(loopsFile, JSON.stringify(loops, null, 2) + "\n");
+  runTransaction(() => {
+    db.exec("delete from loops");
+    const insert = db.prepare("insert into loops (id, json) values (?, ?)");
+    for (const loop of loops) insert.run(loop.id, JSON.stringify(loop));
+  });
 }
 
 function validSchedule(raw: unknown): LoopSchedule {

@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { type AgentKind } from "./agent.js";
-import { configDir } from "./config.js";
+import { db } from "./db.js";
 import { type Conversation } from "./transcript.js";
 
 export interface ArchivedChat {
@@ -14,24 +12,25 @@ export interface ArchivedChat {
   conversation: Conversation;
 }
 
-const archivesFile = join(configDir, "archives.json");
-
-function load(): ArchivedChat[] {
-  if (!existsSync(archivesFile)) return [];
-  try {
-    const parsed = JSON.parse(readFileSync(archivesFile, "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function save(archives: ArchivedChat[]): void {
-  writeFileSync(archivesFile, JSON.stringify(archives, null, 2) + "\n");
-}
-
 export function listArchivedChats(): ArchivedChat[] {
-  return load().sort((a, b) => b.archivedAt - a.archivedAt);
+  const rows = db
+    .prepare("select id, session, archived_at, agent, cwd, conversation_json from archives order by archived_at desc")
+    .all() as {
+    id: string;
+    session: string;
+    archived_at: number;
+    agent: string;
+    cwd: string | null;
+    conversation_json: string;
+  }[];
+  return rows.map((row) => ({
+    id: row.id,
+    session: row.session,
+    archivedAt: row.archived_at,
+    agent: row.agent as AgentKind,
+    cwd: row.cwd,
+    conversation: parseConversation(row.conversation_json),
+  }));
 }
 
 export function archiveChat(input: Omit<ArchivedChat, "id" | "archivedAt">): ArchivedChat {
@@ -40,14 +39,28 @@ export function archiveChat(input: Omit<ArchivedChat, "id" | "archivedAt">): Arc
     id: randomUUID(),
     archivedAt: Date.now(),
   };
-  const archives = load();
-  archives.push(archive);
-  save(archives);
+  db.prepare(
+    "insert into archives (id, session, archived_at, agent, cwd, conversation_json) values (?, ?, ?, ?, ?, ?)",
+  ).run(
+    archive.id,
+    archive.session,
+    archive.archivedAt,
+    archive.agent,
+    archive.cwd,
+    JSON.stringify(archive.conversation),
+  );
   return archive;
 }
 
 export function deleteArchivedChat(id: string): void {
-  const archives = load();
-  if (!archives.some((archive) => archive.id === id)) throw new Error("archived chat not found");
-  save(archives.filter((archive) => archive.id !== id));
+  const result = db.prepare("delete from archives where id = ?").run(id);
+  if (result.changes === 0) throw new Error("archived chat not found");
+}
+
+function parseConversation(raw: string): Conversation {
+  try {
+    return JSON.parse(raw) as Conversation;
+  } catch {
+    return { available: false, todos: [], entries: [] };
+  }
 }

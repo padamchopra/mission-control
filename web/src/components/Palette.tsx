@@ -1,4 +1,6 @@
-import { MessagesSquare, Terminal } from "lucide-react";
+import type { ComponentType } from "react";
+import { MessagesSquare } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   CommandDialog,
   CommandEmpty,
@@ -6,11 +8,13 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "~/components/ui/command";
-import { Badge } from "~/components/ui/badge";
-import { Kbd } from "~/components/ui/kbd";
-import type { Chat, Session } from "~/state/types";
-import { cn, displayPath } from "~/lib/utils";
+  CommandSeparator,
+} from "@/components/ui/command";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { Separator } from "@/components/ui/separator";
+import { displayPath } from "@/lib/path";
+import { cn } from "@/lib/utils";
+import type { Chat } from "@/state/types";
 
 /// Everything addressable, behind ⌘K.
 ///
@@ -20,18 +24,16 @@ import { cn, displayPath } from "~/lib/utils";
 export function Palette({
   open,
   onOpenChange,
-  sessions,
   chats,
   sections,
-  onOpenSession,
+  onOpenChat,
   onOpenSection,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  sessions: Session[];
   chats: Chat[];
-  sections: { id: string; label: string; icon: React.ComponentType<{ className?: string }> }[];
-  onOpenSession: (name: string) => void;
+  sections: { id: string; label: string; icon: ComponentType<{ className?: string }> }[];
+  onOpenChat: (id: string) => void;
   onOpenSection: (id: string) => void;
 }) {
   const run = (fn: () => void) => () => {
@@ -39,53 +41,41 @@ export function Palette({
     fn();
   };
 
-  const attention = sessions.filter((s) => s.state === "needs_input");
-  const rest = sessions.filter((s) => s.state !== "needs_input");
+  const attention = chats.filter((chat) => chat.state === "needs_input");
+  const rest = chats.filter((chat) => chat.state !== "needs_input");
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Search sessions, chats, and commands" />
-      <CommandList>
-        <CommandEmpty className="py-10 text-center text-sm text-muted-foreground">
-          No matches. Try a session name, a folder, or a chat title.
-        </CommandEmpty>
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Quick open"
+      description="Search chats and commands"
+      showCloseButton={false}
+      className="top-[12%] translate-y-0 sm:max-w-[620px]"
+    >
+      <CommandInput placeholder="Search chats and commands" />
+      <CommandList className="max-h-[380px]">
+        <CommandEmpty>No matches. Try a chat title or a folder.</CommandEmpty>
 
         {attention.length > 0 && (
           <CommandGroup heading="Needs you">
-            {attention.map((session) => (
-              <SessionRow key={session.name} session={session} onSelect={run(() => onOpenSession(session.name))} />
+            {attention.map((chat) => (
+              <ChatRow key={chat.id} chat={chat} onSelect={run(() => onOpenChat(chat.id))} />
             ))}
           </CommandGroup>
         )}
+
+        {attention.length > 0 && rest.length > 0 && <CommandSeparator />}
 
         {rest.length > 0 && (
-          <CommandGroup heading="Sessions">
-            {rest.map((session) => (
-              <SessionRow key={session.name} session={session} onSelect={run(() => onOpenSession(session.name))} />
+          <CommandGroup heading="Chats">
+            {rest.map((chat) => (
+              <ChatRow key={chat.id} chat={chat} onSelect={run(() => onOpenChat(chat.id))} />
             ))}
           </CommandGroup>
         )}
 
-        {chats.length > 0 && (
-          <CommandGroup heading="Chats">
-            {chats.map((chat) => (
-              <CommandItem
-                key={chat.id}
-                value={`${chat.title} ${chat.cwd}`}
-                onSelect={run(() => onOpenSection("chats"))}
-              >
-                <MessagesSquare
-                  className={cn("size-4 shrink-0", chat.state === "needs_input" ? "text-warning-foreground" : "text-muted-foreground")}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{chat.title}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{chat.preview ?? displayPath(chat.cwd)}</span>
-                </span>
-                {chat.state === "needs_input" && <Badge tone="warning">Needs you</Badge>}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
+        {(attention.length > 0 || rest.length > 0) && <CommandSeparator />}
 
         <CommandGroup heading="Go to">
           {sections.map(({ id, label, icon: Icon }) => (
@@ -97,19 +87,22 @@ export function Palette({
         </CommandGroup>
       </CommandList>
 
-      <div className="flex h-10 items-center gap-4 border-t border-border bg-muted px-4">
-        <span className="text-xs text-muted-foreground">
-          Sessions, chats, and every section of the app
-        </span>
+      <Separator />
+      <div className="flex h-10 items-center gap-4 bg-muted px-4">
+        <span className="text-xs text-muted-foreground">Chats and every section of the app</span>
         <span className="ml-auto flex items-center gap-3 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
-            <Kbd keys={["↑", "↓"]} /> Navigate
+            <KbdGroup>
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd>
+            </KbdGroup>
+            Navigate
           </span>
           <span className="flex items-center gap-1">
-            <Kbd keys={["↵"]} /> Open
+            <Kbd>↵</Kbd> Open
           </span>
           <span className="flex items-center gap-1">
-            <Kbd keys={["esc"]} /> Close
+            <Kbd>esc</Kbd> Close
           </span>
         </span>
       </div>
@@ -117,25 +110,26 @@ export function Palette({
   );
 }
 
-function SessionRow({ session, onSelect }: { session: Session; onSelect: () => void }) {
+function ChatRow({ chat, onSelect }: { chat: Chat; onSelect: () => void }) {
   return (
-    <CommandItem value={`${session.name} ${displayPath(session.path)} ${session.command}`} onSelect={onSelect}>
-      <Terminal
+    <CommandItem value={`${chat.title} ${displayPath(chat.cwd)}`} onSelect={onSelect}>
+      <MessagesSquare
         className={cn(
           "size-4 shrink-0",
-          session.state === "needs_input" && "text-warning-foreground",
-          session.state === "working" && "text-info-foreground",
-          (session.state === "idle" || session.state === "unknown") && "text-muted-foreground",
+          chat.state === "needs_input" && "text-warning-foreground",
+          chat.state === "working" && "text-info-foreground",
+          chat.state === "error" && "text-destructive",
+          chat.state === "idle" && "text-muted-foreground",
         )}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate">{session.name}</span>
+        <span className="block truncate">{chat.title}</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {session.preview ?? displayPath(session.path)}
+          {chat.preview ?? displayPath(chat.cwd)}
         </span>
       </span>
-      {session.state === "needs_input" && <Badge tone="warning">Needs you</Badge>}
-      {session.state === "working" && <Badge tone="info">Working</Badge>}
+      {chat.state === "needs_input" && <Badge variant="warning">Needs you</Badge>}
+      {chat.state === "working" && <Badge variant="info">Working</Badge>}
     </CommandItem>
   );
 }

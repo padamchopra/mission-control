@@ -211,7 +211,7 @@ struct SessionListView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { _ in
-                Text("The selected path must be inside a Git repository. Mission Control saves its primary checkout and discovers all linked worktrees.")
+                Text("The selected path must be inside a Git repository. Remy saves its primary checkout and discovers all linked worktrees.")
             }
             .alert("Something went wrong", isPresented: errorPresented) {
                 Button("OK", role: .cancel) {}
@@ -265,7 +265,7 @@ struct SessionListView: View {
         // region, not the window. Draw this title across the full split view
         // and lift it into the title-bar row after hiding the native title.
         .overlay(alignment: .top) {
-            Text("Mission Control")
+            Text("Remy")
                 .font(.headline.weight(.semibold))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
@@ -335,7 +335,7 @@ struct SessionListView: View {
             HStack(alignment: .center, spacing: 10) {
                 desktopSidebarToggle
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Mission Control")
+                    Text("Remy")
                         .font(.title2.weight(.bold))
                         .lineLimit(1)
                     if store.servers.count > 1 || store.active != nil {
@@ -514,7 +514,7 @@ struct SessionListView: View {
             ContentUnavailableView {
                 Label("No servers", systemImage: "server.rack")
             } description: {
-                Text("Add a server by scanning the pairing QR your Mac's setup script prints.")
+                Text("Add a server by scanning the pairing QR the setup script prints.")
             } actions: {
                 Button("Add server") { showServers = true }
                     .buttonStyle(.borderedProminent)

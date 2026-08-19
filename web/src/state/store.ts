@@ -1,36 +1,21 @@
 import { create } from "zustand";
+import { codeFor, type DeviceIconId } from "~/lib/devices";
+import type { TintId } from "~/lib/tints";
 import { transport } from "~/lib/transport";
-import { fixtureChats, fixtureServers, fixtureSessions } from "./fixture";
-import type { Chat, ChatState, Server, Session, SessionState } from "./types";
+import { fixtureChats, fixtureServers, fixtureWorkspaces } from "./fixture";
+import type { Chat, ChatState, PathSuggestion, Server, Workspace, WorkspaceIconMatch } from "./types";
 
 /// The client's whole view of every connected server.
 ///
 /// Pushes patch what is already here rather than triggering a refetch, so a
-/// session changing state costs no requests. `/notify/stream` sends two kinds
-/// of frame: `session` carries the new state inline, and `sessions` / `chats`
-/// say only "the list changed", which is the one case that needs a fetch.
+/// chat changing state costs no requests. `/notify/stream` sends `chats` when
+/// the list changed, which is the one case that needs a fetch.
 ///
-/// A poll runs underneath both, because the push channel does not see
-/// everything. The server broadcasts `sessions` only when it is the one making
-/// the change — a tmux session started from a terminal is invisible to it until
-/// something asks `/sessions` again. Verified by watching the socket while
-/// running `tmux new-session`: `hello` arrives, nothing else does. The iOS
-/// client has the same fallback for the same reason. The interval is loose
-/// while the socket is up, because then it is only covering that blind spot,
-/// and tight while it is down, because then it is the only source of truth.
+/// A poll runs underneath the push channel. The interval is loose while the
+/// socket is up, because then it is only covering missed frames, and tight
+/// while it is down, because then it is the only source of truth.
 
 const useFixture = import.meta.env.VITE_MC_FIXTURE === "1";
-
-interface RawSession {
-  name: string;
-  state?: SessionState;
-  panePath?: string;
-  paneCommand?: string;
-  agent?: string;
-  preview?: string;
-  workspaceName?: string;
-  lastOutputAt?: number;
-}
 
 interface RawChat {
   id: string;
@@ -42,10 +27,19 @@ interface RawChat {
   updatedAt?: number;
 }
 
+interface RawWorkspace {
+  id: string;
+  name: string;
+  path: string;
+  origin?: string | null;
+  icon?: string | null;
+  tint?: string | null;
+}
+
 interface State {
   servers: Server[];
-  sessions: Session[];
   chats: Chat[];
+  workspaces: Workspace[];
   loading: boolean;
   /// Set when every configured server failed, so the UI can say why rather than
   /// showing an empty list as though nothing were running.
@@ -54,6 +48,15 @@ interface State {
 
   start(): () => void;
   refresh(): Promise<void>;
+  addServer(input: { url: string; token: string; name?: string }): Promise<void>;
+  removeServer(id: string): Promise<void>;
+  updateServer(id: string, patch: { name?: string; icon?: DeviceIconId; tint?: TintId }): Promise<void>;
+  addWorkspace(input: { path: string; name?: string }): Promise<void>;
+  updateWorkspace(id: string, patch: { name?: string; icon?: string | null; tint?: string | null }): Promise<void>;
+  removeWorkspace(id: string): Promise<void>;
+  suggestPaths(query: string): Promise<PathSuggestion[]>;
+  suggestWorkspaceIcons(id: string, query: string): Promise<WorkspaceIconMatch[]>;
+  workspaceFile(id: string, path: string): Promise<{ mime: string; data: string } | undefined>;
 }
 
 /// How often to poll. Long while pushes are arriving, short while they aren't.
@@ -62,8 +65,8 @@ const POLL_DISCONNECTED_MS = 4_000;
 
 export const useStore = create<State>((set, get) => ({
   servers: useFixture ? fixtureServers : [],
-  sessions: useFixture ? fixtureSessions : [],
   chats: useFixture ? fixtureChats : [],
+  workspaces: useFixture ? fixtureWorkspaces : [],
   loading: !useFixture,
   connected: useFixture,
 
@@ -72,38 +75,20 @@ export const useStore = create<State>((set, get) => ({
 
     void get().refresh();
 
-    const offPush = transport.subscribe((serverId, payload) => {
-      const frame = payload as { type?: string; session?: string; state?: SessionState };
-      switch (frame.type) {
-        case "session": {
-          // The frame carries the new state, so patch in place.
-          set((current) => ({
-            sessions: current.sessions.map((session) =>
-              session.serverId === serverId && session.name === frame.session
-                ? { ...session, state: frame.state ?? session.state }
-                : session,
-            ),
-          }));
-          break;
-        }
-        case "sessions":
-        case "chats":
-          // Only says the list changed; the contents have to be fetched.
-          void get().refresh();
-          break;
-        default:
-          // `hello`, `notification`, and the chat-feed frames are not part of
-          // the fleet view yet.
-          break;
-      }
+    const offPush = transport.subscribe((_serverId, payload) => {
+      const frame = payload as { type?: string };
+      if (frame.type === "chats") void get().refresh();
     });
 
-    const offStatus = transport.onStatus((serverId, online) => {
+    const offStatus = transport.onStatus((serverId, pushUp) => {
+      // The notify socket is a live-update channel, not reachability. In the
+      // preview tunnel it flaps constantly; treating that as "device offline"
+      // made a healthy local server look disconnected.
       set((current) => ({
-        connected: online || current.servers.some((s) => s.id !== serverId && s.online),
-        servers: current.servers.map((server) =>
-          server.id === serverId ? { ...server, online } : server,
-        ),
+        connected: pushUp || current.servers.some((server) => server.id !== serverId && server.online),
+        servers: pushUp
+          ? current.servers.map((server) => (server.id === serverId ? { ...server, online: true } : server))
+          : current.servers,
       }));
     });
 
@@ -132,11 +117,11 @@ export const useStore = create<State>((set, get) => ({
 
   async refresh() {
     if (useFixture) return;
-    set({ loading: true });
+    if (get().servers.length === 0) set({ loading: true });
 
     const servers = await transport.servers();
     if (servers.length === 0) {
-      set({ servers: [], sessions: [], chats: [], loading: false, error: undefined });
+      set({ servers: [], chats: [], workspaces: [], loading: false, error: undefined });
       return;
     }
 
@@ -146,53 +131,174 @@ export const useStore = create<State>((set, get) => ({
     const results = await Promise.all(
       servers.map(async (server) => {
         try {
-          const [sessions, chats] = await Promise.all([
-            transport.request<{ sessions?: RawSession[] }>(server.id, "/sessions"),
-            transport
-              .request<{ chats?: RawChat[] }>(server.id, "/chats")
-              // An older server has no /chats; that is not an error worth showing.
-              .catch(() => ({ chats: [] as RawChat[] })),
-          ]);
+          let chats: { chats?: RawChat[] };
+          try {
+            chats = await transport.request<{ chats?: RawChat[] }>(server.id, "/chats");
+          } catch (error) {
+            // An older server has no /chats; that is not an error worth showing.
+            const message = error instanceof Error ? error.message : String(error);
+            if (!/\b404\b/.test(message)) throw error;
+            chats = { chats: [] };
+          }
+          let workspaces: Workspace[] = [];
+          try {
+            const listed = await transport.request<{ workspaces?: RawWorkspace[] }>(server.id, "/workspaces");
+            workspaces = (listed.workspaces ?? []).map((raw) => toWorkspace(raw, server.id));
+          } catch {
+            workspaces = [];
+          }
           return {
             server: { ...server, online: true },
-            sessions: (sessions.sessions ?? []).map((raw) => toSession(raw, server.id)),
-            chats: (chats.chats ?? []).map(toChat),
+            chats: (chats.chats ?? []).map((raw) => toChat(raw, server.id)),
+            workspaces,
           };
         } catch (error) {
           failures.push(`${server.name}: ${error instanceof Error ? error.message : String(error)}`);
-          return { server: { ...server, online: false }, sessions: [], chats: [] };
+          return { server: { ...server, online: false }, chats: [], workspaces: [] };
         }
       }),
     );
 
     set({
       servers: results.map((r) => r.server),
-      sessions: results.flatMap((r) => r.sessions).sort(byAttention),
-      chats: results.flatMap((r) => r.chats).sort((a, b) => b.updatedAt - a.updatedAt),
+      chats: results.flatMap((r) => r.chats).sort(byAttention),
+      workspaces: results.flatMap((r) => r.workspaces),
       loading: false,
       error: failures.length === servers.length ? failures.join("; ") : undefined,
       connected: results.some((r) => r.server.online),
     });
   },
+
+  async addServer(input) {
+    await transport.addServer(input);
+    await get().refresh();
+  },
+
+  async removeServer(id) {
+    await transport.removeServer(id);
+    await get().refresh();
+  },
+
+  async updateServer(id, patch) {
+    await transport.updateServer(id, patch);
+    set((current) => ({
+      servers: current.servers.map((server) => {
+        if (server.id !== id) return server;
+        const name = patch.name?.trim() || server.name;
+        return {
+          ...server,
+          name,
+          code: patch.name ? codeFor(name) : server.code,
+          icon: patch.icon ?? server.icon,
+          tint: patch.tint ?? server.tint,
+        };
+      }),
+    }));
+  },
+
+  async addWorkspace(input) {
+    const path = input.path.trim();
+    const name = input.name?.trim() || nameFromPath(path);
+    if (!name) throw new Error("Pick a folder to add.");
+
+    if (useFixture) {
+      const serverId = get().servers.find((server) => server.local)?.id ?? get().servers[0]?.id ?? "studio";
+      set((current) => ({
+        workspaces: [
+          ...current.workspaces.filter((workspace) => !(workspace.serverId === serverId && workspace.path === path)),
+          { id: crypto.randomUUID(), serverId, name, path, origin: null },
+        ],
+      }));
+      return;
+    }
+
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    await transport.request(server.id, "/workspaces", { method: "POST", body: { name, path } });
+    await get().refresh();
+  },
+
+  async updateWorkspace(id, patch) {
+    if (useFixture) {
+      set((current) => ({
+        workspaces: current.workspaces.map((workspace) => (workspace.id === id ? { ...workspace, ...patch } : workspace)),
+      }));
+      return;
+    }
+    const workspace = get().workspaces.find((entry) => entry.id === id);
+    const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    await transport.request(server.id, `/workspaces/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
+    set((current) => ({
+      workspaces: current.workspaces.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+    }));
+  },
+
+  async removeWorkspace(id) {
+    if (useFixture) {
+      set((current) => ({ workspaces: current.workspaces.filter((workspace) => workspace.id !== id) }));
+      return;
+    }
+    const workspace = get().workspaces.find((entry) => entry.id === id);
+    const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    await transport.request(server.id, `/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await get().refresh();
+  },
+
+  async suggestPaths(query) {
+    if (useFixture) return [];
+    const server = localServer(get().servers);
+    if (!server?.online) return [];
+    try {
+      const listed = await transport.request<{ paths?: PathSuggestion[] }>(
+        server.id,
+        `/paths?q=${encodeURIComponent(query)}`,
+      );
+      return listed.paths ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  async suggestWorkspaceIcons(id, query) {
+    if (useFixture) return [];
+    const workspace = get().workspaces.find((entry) => entry.id === id);
+    const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? localServer(get().servers);
+    if (!server?.online) return [];
+    try {
+      const listed = await transport.request<{ icons?: WorkspaceIconMatch[] }>(
+        server.id,
+        `/workspaces/${encodeURIComponent(id)}/icons?q=${encodeURIComponent(query)}`,
+      );
+      return listed.icons ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  async workspaceFile(id, path) {
+    if (useFixture) return undefined;
+    const workspace = get().workspaces.find((entry) => entry.id === id);
+    const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? localServer(get().servers);
+    if (!server?.online) return undefined;
+    try {
+      const file = await transport.request<{ mime?: string; data?: string }>(
+        server.id,
+        `/workspaces/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`,
+      );
+      if (!file.mime || !file.data) return undefined;
+      return { mime: file.mime, data: file.data };
+    } catch {
+      return undefined;
+    }
+  },
 }));
 
-function toSession(raw: RawSession, serverId: string): Session {
-  return {
-    name: raw.name,
-    serverId,
-    state: raw.state ?? "unknown",
-    path: raw.panePath ?? "",
-    command: raw.paneCommand ?? "",
-    agent: raw.agent ? raw.agent[0].toUpperCase() + raw.agent.slice(1) : "Shell",
-    preview: raw.preview || undefined,
-    workspace: raw.workspaceName,
-    lastOutputAt: raw.lastOutputAt ?? 0,
-  };
-}
-
-function toChat(raw: RawChat): Chat {
+function toChat(raw: RawChat, serverId: string): Chat {
   return {
     id: raw.id,
+    serverId,
     title: raw.title,
     cwd: raw.cwd,
     state: raw.state ?? "idle",
@@ -202,9 +308,33 @@ function toChat(raw: RawChat): Chat {
   };
 }
 
-/// Needs-you first, then working, then most recently active — the order the
-/// fleet view is for.
-const RANK: Record<SessionState, number> = { needs_input: 0, working: 1, idle: 2, unknown: 3 };
-function byAttention(a: Session, b: Session): number {
-  return RANK[a.state] - RANK[b.state] || b.lastOutputAt - a.lastOutputAt;
+function toWorkspace(raw: RawWorkspace, serverId: string): Workspace {
+  return {
+    id: raw.id,
+    serverId,
+    name: raw.name,
+    path: raw.path,
+    origin: raw.origin,
+    icon: raw.icon,
+    tint: raw.tint,
+  };
+}
+
+function localServer(servers: Server[]): Server | undefined {
+  return servers.find((server) => server.local) ?? servers.find((server) => server.online) ?? servers[0];
+}
+
+function nameFromPath(path: string): string {
+  const part = path
+    .replace(/\/+$/, "")
+    .split("/")
+    .filter((segment) => segment && segment !== "~")
+    .pop();
+  return part ?? "";
+}
+
+/// Needs-you first, then working, then most recently updated.
+const RANK: Record<ChatState, number> = { needs_input: 0, working: 1, error: 2, idle: 3 };
+function byAttention(a: Chat, b: Chat): number {
+  return RANK[a.state] - RANK[b.state] || b.updatedAt - a.updatedAt;
 }

@@ -1,68 +1,64 @@
-import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "~/lib/utils";
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { Slot } from "radix-ui"
 
-/// The button, in shadcn's shape: variants owned in-tree via `cva`, so a look is
-/// decided once here rather than re-invented per call site.
-///
-/// Sizes are T3 Code's desktop values. Its own variants are written mobile-first
-/// (`h-9 … sm:h-8`, `text-base sm:text-sm`), so the numbers that apply in a
-/// desktop window are the `sm:` ones — 24 / 28 / 32 / 36 / 40 with 16px glyphs
-/// and a `text-sm` label. The `-1px` in the padding accounts for the border,
-/// which is drawn inside the box.
+import { cn } from "@/lib/utils"
+
 const buttonVariants = cva(
-  cn(
-    "relative inline-flex shrink-0 cursor-default select-none items-center justify-center gap-2",
-    "whitespace-nowrap rounded-[var(--control-radius)] border font-medium outline-none",
-    "transition-[background-color,border-color,box-shadow,color] duration-[130ms]",
-    "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-    "disabled:pointer-events-none disabled:opacity-50",
-    "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-  ),
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        primary:
-          "border-primary bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 active:bg-primary/80",
-        secondary:
-          "border-border bg-secondary text-foreground hover:bg-accent active:bg-accent",
-        outline: "border-border bg-transparent text-foreground hover:bg-accent active:bg-accent",
-        ghost: "border-transparent bg-transparent text-foreground hover:bg-accent active:bg-accent",
-        "ghost-muted":
-          "border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
-          "border-destructive bg-destructive text-white shadow-xs hover:bg-destructive/90",
-        "destructive-outline":
-          "border-border bg-transparent text-error-foreground hover:border-destructive/40 hover:bg-destructive/8",
+          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
+        outline:
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost:
+          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        xs: "h-6 gap-1 px-[7px] text-xs",
-        sm: "h-7 gap-1.5 px-[9px] text-xs",
-        md: "h-8 px-[11px] text-sm",
-        lg: "h-9 px-[13px] text-sm",
-        xl: "h-10 px-[15px] text-base",
-        "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3.5",
-        "icon-sm": "size-7 [&_svg:not([class*='size-'])]:size-3.5",
-        icon: "size-8",
-        "icon-lg": "size-9",
+        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-9",
+        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-8",
+        "icon-lg": "size-10",
       },
     },
-    defaultVariants: { variant: "secondary", size: "md" },
-  },
-);
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
 
-export interface ButtonProps
-  extends React.ComponentProps<"button">,
-    VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
-}
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  asChild = false,
+  ...props
+}: React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean
+  }) {
+  const Comp = asChild ? Slot.Root : "button"
 
-export function Button({ className, variant, size, asChild = false, ...props }: ButtonProps) {
-  const Comp = asChild ? Slot : "button";
   return (
-    <Comp data-slot="button" className={cn(buttonVariants({ variant, size }), className)} {...props} />
-  );
+    <Comp
+      data-slot="button"
+      data-variant={variant}
+      data-size={size}
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
 }
 
-export { buttonVariants };
+export { Button, buttonVariants }

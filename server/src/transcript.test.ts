@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-const home = mkdtempSync(join(tmpdir(), "mission-control-transcript-test-"));
+const home = mkdtempSync(join(tmpdir(), "remy-transcript-test-"));
 process.env.HOME = home;
 
 const { discoverClaudeTranscript } = await import("./transcript.js");

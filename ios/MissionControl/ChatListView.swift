@@ -28,13 +28,13 @@ struct ChatListView: View {
                 if servers.active == nil {
                     notice("No connection", "Add a device before starting a chat.")
                 } else if let reason = store.unavailableReason {
-                    notice("Chats aren't available on this Mac", reason)
+                    notice("Chats aren't available on this machine", reason)
                 } else if let error = store.loadError, store.chats.isEmpty {
                     notice("Couldn't load chats", error)
                 } else if store.chats.isEmpty, store.hasLoaded {
                     notice(
                         "No chats yet",
-                        "Start one against any repository on this Mac. Claude runs there, with your own settings, CLAUDE.md and skills."
+                        "Start one against any repository on this machine. Claude runs there, with your own settings, CLAUDE.md and skills."
                     )
                 } else if !store.hasLoaded {
                     ProgressView().tint(.white).frame(maxWidth: .infinity).padding(.vertical, 30)
@@ -127,7 +127,7 @@ struct ChatListView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("New chat")
                         .font(.subheadline.weight(.semibold))
-                    Text("Talk to Claude in any directory on this Mac")
+                    Text("Talk to Claude in any directory on this machine")
                         .font(.caption2)
                         .foregroundStyle(ConversationStyle.accent.opacity(0.75))
                 }

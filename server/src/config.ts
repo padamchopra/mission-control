@@ -1,7 +1,7 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+import { getKv, setKv } from "./db.js";
+
+export { configDir } from "./paths.js";
 
 export interface Config {
   port: number;
@@ -10,7 +10,7 @@ export interface Config {
   // The topic is a random, unguessable string — subscribe the ntfy app to it.
   ntfyServer: string;
   ntfyTopic: string;
-  // The context window the sessions on this Mac run with, for the context
+  // The context window the sessions on this host run with, for the context
   // meter. Transcripts record the model but not its window size, and the 1M
   // variants share a model id with the 200k ones — so a session running with a
   // larger window has to be declared here. Sessions self-correct upward once
@@ -18,24 +18,8 @@ export interface Config {
   contextLimit: number;
 }
 
-// A test and diagnostic hook: point the whole server's state at another
-// directory instead of the real one. Unset in normal operation, including under
-// launchd, so this is the home directory in every real deployment.
-export const configDir = process.env.MC_CONFIG_DIR
-  ? resolve(process.env.MC_CONFIG_DIR)
-  : join(homedir(), ".mission-control");
-const configFile = join(configDir, "config.json");
-
 function load(): Config {
-  mkdirSync(configDir, { recursive: true });
-  let parsed: Partial<Config> = {};
-  if (existsSync(configFile)) {
-    try {
-      parsed = JSON.parse(readFileSync(configFile, "utf8"));
-    } catch {
-      parsed = {};
-    }
-  }
+  const parsed = getKv<Partial<Config>>("config") ?? {};
   const config: Config = {
     port: Number(parsed.port) || 8420,
     token: typeof parsed.token === "string" && parsed.token.length >= 32 ? parsed.token : randomBytes(32).toString("hex"),
@@ -43,8 +27,7 @@ function load(): Config {
     ntfyTopic: typeof parsed.ntfyTopic === "string" && parsed.ntfyTopic ? parsed.ntfyTopic : `mc-${randomBytes(9).toString("hex")}`,
     contextLimit: Number(parsed.contextLimit) > 0 ? Number(parsed.contextLimit) : 200_000,
   };
-  writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
-  chmodSync(configFile, 0o600);
+  setKv("config", config);
   return config;
 }
 

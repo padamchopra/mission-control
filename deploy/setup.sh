@@ -1,14 +1,16 @@
 #!/bin/bash
-# One-shot setup for the Mac (server side). Idempotent — safe to re-run after git pull.
+# One-shot setup for the server. Idempotent — safe to re-run after git pull.
 #
-#   git clone <repo> ~/Documents/Projects/mission-control   (or pull)
-#   cd ~/mission-control && ./deploy/setup.sh
+#   git clone <repo> ~/Documents/Projects/remy   (or pull)
+#   cd ~/remy && ./deploy/setup.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER_DIR="$REPO_DIR/server"
-MC_DIR="$HOME/.mission-control"
-PLIST_LABEL="com.example.missioncontrol"
+# shellcheck source=config-dir.sh
+. "$(dirname "$0")/config-dir.sh"
+PLIST_LABEL="com.example.remy"
+LEGACY_PLIST_LABEL="com.example.missioncontrol"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
 
 for bin in node npm tmux curl; do
@@ -23,7 +25,7 @@ for candidate in /Applications/Tailscale.app/Contents/MacOS/Tailscale "$HOME/App
 done
 [ -n "$TAILSCALE" ] || { echo "Tailscale not found — install it and sign in first."; exit 1; }
 
-if [ "${MISSION_CONTROL_SKIP_QR:-0}" != "1" ] && ! command -v qrencode >/dev/null; then
+if [ "${REMY_SKIP_QR:-${MISSION_CONTROL_SKIP_QR:-0}}" != "1" ] && ! command -v qrencode >/dev/null; then
   echo "==> Installing qrencode (for pairing QR)"
   brew install qrencode
 fi
@@ -36,14 +38,16 @@ npm run build
 echo "==> Installing hook script"
 mkdir -p "$MC_DIR"
 cp "$SERVER_DIR/hooks/mc-hook.sh" "$MC_DIR/mc-hook.sh"
+cp "$SERVER_DIR/scripts/store.mjs" "$MC_DIR/store.mjs"
 chmod +x "$MC_DIR/mc-hook.sh"
+export MC_HOOK="$MC_DIR/mc-hook.sh"
 
 echo "==> Registering Claude Code hooks (every tmux Claude session reports)"
 node - <<'EOF'
 const fs = require("fs");
 const path = require("path");
 const settingsPath = path.join(process.env.HOME, ".claude", "settings.json");
-const hookCmd = (event) => `$HOME/.mission-control/mc-hook.sh ${event}`;
+const hookCmd = (event) => `${process.env.MC_HOOK} ${event}`;
 const events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "SessionEnd"];
 
 const settings = fs.existsSync(settingsPath)
@@ -74,7 +78,7 @@ if command -v codex >/dev/null; then
 const fs = require("fs");
 const path = require("path");
 const hooksPath = path.join(process.env.HOME, ".codex", "hooks.json");
-const hookCmd = (event) => `$HOME/.mission-control/mc-hook.sh ${event} codex`;
+const hookCmd = (event) => `${process.env.MC_HOOK} ${event} codex`;
 const events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "SessionEnd"];
 
 const config = fs.existsSync(hooksPath)
@@ -107,22 +111,26 @@ mkdir -p "$HOME/Library/LaunchAgents"
 sed -e "s|__NODE__|$NODE_BIN|g" \
     -e "s|__SERVER_DIR__|$SERVER_DIR|g" \
     -e "s|__HOME__|$HOME|g" \
+    -e "s|__CONFIG_DIR__|$MC_DIR|g" \
     "$REPO_DIR/deploy/$PLIST_LABEL.plist" > "$PLIST_PATH"
+launchctl bootout "gui/$(id -u)/$LEGACY_PLIST_LABEL" 2>/dev/null || true
+rm -f "$HOME/Library/LaunchAgents/$LEGACY_PLIST_LABEL.plist"
 launchctl bootout "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 launchctl kickstart -k "gui/$(id -u)/$PLIST_LABEL"
 
 sleep 2
-TOKEN="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).token' 2>/dev/null || echo "<server did not start — check ~/.mission-control/server.log>")"
-PORT="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).port' 2>/dev/null || echo 8420)"
+STORE="$MC_DIR/store.mjs"
+TOKEN="$(node "$STORE" get config token 2>/dev/null || echo "<server did not start — check $MC_DIR/server.log>")"
+PORT="$(node "$STORE" get config port 2>/dev/null || echo 8420)"
 TS_HOST="$("$TAILSCALE" status --json 2>/dev/null | node -p 'try { JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"") } catch { "<tailscale hostname>" }' 2>/dev/null || echo "<tailscale hostname>")"
-NTFY_SERVER="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).ntfyServer' 2>/dev/null || echo "https://ntfy.sh")"
-NTFY_TOPIC="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.mission-control/config.json","utf8")).ntfyTopic' 2>/dev/null || echo "<ntfy topic>")"
+NTFY_SERVER="$(node "$STORE" get config ntfyServer 2>/dev/null || echo "https://ntfy.sh")"
+NTFY_TOPIC="$(node "$STORE" get config ntfyTopic 2>/dev/null || echo "<ntfy topic>")"
 
 if curl -s -m 3 -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/health" | grep -q '"ok":true'; then
   HEALTH="healthy"
 else
-  HEALTH="NOT RESPONDING — check ~/.mission-control/server.log"
+  HEALTH="NOT RESPONDING — check $MC_DIR/server.log"
 fi
 
 # The node server is bound to 127.0.0.1 only. `tailscale serve` (NOT funnel) is
@@ -143,25 +151,21 @@ else
 fi
 
 # Persist the pairing values so deploy/show-pairing.sh can reprint the QR later.
-cat > "$MC_DIR/pairing.env" <<PAIRING
-APP_URL=$APP_URL
-TOKEN=$TOKEN
-PAIRING
-chmod 600 "$MC_DIR/pairing.env"
+node "$STORE" set-pairing "$APP_URL" "$TOKEN"
 
-PAIR_LINK="missioncontrol://configure?url=$APP_URL&token=$TOKEN"
+PAIR_LINK="remy://configure?url=$APP_URL&token=$TOKEN"
 
 cat <<SUMMARY
 
 ============================================================
-Mission Control server: $HEALTH
+Remy server: $HEALTH
 Tailnet exposure:        $SERVE_NOTE
 
 Pair the app: open Settings → "Scan pairing QR" and scan this:
 ============================================================
 SUMMARY
 
-if [ "${MISSION_CONTROL_SKIP_QR:-0}" != "1" ]; then
+if [ "${REMY_SKIP_QR:-${MISSION_CONTROL_SKIP_QR:-0}}" != "1" ]; then
   qrencode -t ANSIUTF8 -m 2 "$PAIR_LINK"
 fi
 
@@ -171,7 +175,7 @@ Or enter manually:
   Server URL : $APP_URL
   Token      : $TOKEN
 
-On a Mac, copy this link and use "Paste pairing link" in the app:
+On desktop, copy this link and use "Paste pairing link" in the app:
   $PAIR_LINK
 
 Reprint this QR anytime:  ./deploy/show-pairing.sh
@@ -179,13 +183,13 @@ Reprint this QR anytime:  ./deploy/show-pairing.sh
 Notifications (ntfy) — install the "ntfy" app on your phone, add
 server $NTFY_SERVER, and subscribe to topic:
   $NTFY_TOPIC
-Notifications tap through to the session in Mission Control.
+Notifications tap through to the session in Remy.
 
 Once the app is on your phone, turn off Claude Code remote control
-(remoteControlAtStartup: false) — Mission Control replaces it.
+(remoteControlAtStartup: false) — Remy replaces it.
 
 Codex will ask you to review newly installed lifecycle hooks. In a Codex
-session, run /hooks once and trust the Mission Control entries so live state,
+session, run /hooks once and trust the Remy entries so live state,
 conversation updates, and approval notifications can flow to the app.
 ============================================================
 SUMMARY

@@ -1,4 +1,5 @@
-import { cn } from "~/lib/utils";
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 /// The quiet heading above a group of rows. Sentence case, the way T3 writes
 /// "All projects" and "Settled" — the previous app shouted these in caps and it
@@ -8,8 +9,8 @@ export function SectionLabel({
   trailing,
   className,
 }: {
-  children: React.ReactNode;
-  trailing?: React.ReactNode;
+  children: ReactNode;
+  trailing?: ReactNode;
   className?: string;
 }) {
   return (

@@ -4,7 +4,7 @@ import SwiftUI
 /// collapsible reasoning, tool chips with diffs and output, and question cards.
 ///
 /// Two surfaces render these — the mirror of a tmux session's transcript
-/// (`ConversationView`) and a chat Mission Control runs itself (`ChatView`).
+/// (`ConversationView`) and a chat Remy runs itself (`ChatView`).
 /// They differ in where the entries come from and what you can do about them,
 /// never in how a turn reads, so the rows live here rather than in either one.
 

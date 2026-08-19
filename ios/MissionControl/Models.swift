@@ -247,7 +247,7 @@ struct QuickRepliesResponse: Codable {
 
 // The structured conversation feed, parsed server-side from the session's Claude
 // Code transcript. `available` is false for sessions without a transcript (plain
-// shells, or Claude sessions running without the Mission Control hooks).
+// shells, or Claude sessions running without the Remy hooks).
 struct Conversation: Decodable {
     var available: Bool
     var agent: AgentKind?
@@ -592,7 +592,7 @@ struct ArchiveResponse: Decodable {
 
 // MARK: - Chats
 
-/// A Claude conversation Mission Control runs itself, through the Claude Agent
+/// A Claude conversation Remy runs itself, through the Claude Agent
 /// SDK, rather than mirroring a terminal. There is no tmux session behind one:
 /// the server owns the process, keeps the feed, and streams it to every client,
 /// so approvals and questions are answered here rather than by driving a cursor.

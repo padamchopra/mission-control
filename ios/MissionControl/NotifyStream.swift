@@ -144,7 +144,7 @@ struct NotifyEvent: Codable {
     let message: String
     let highPriority: Bool
     /// Where tapping should land, when it isn't a tmux session — a chat sets
-    /// `missioncontrol://chat/<id>`.
+    /// `remy://chat/<id>`.
     var click: String?
 }
 

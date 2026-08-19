@@ -126,7 +126,7 @@ async function sendNtfy(evt: NotifyEvent): Promise<void> {
       method: "POST",
       headers: {
         Title: sanitizeHeader(evt.title),
-        Click: evt.click ?? `missioncontrol://session/${encodeURIComponent(evt.session)}`,
+        Click: evt.click ?? `remy://session/${encodeURIComponent(evt.session)}`,
         Priority: evt.highPriority ? "high" : "default",
         Tags: evt.highPriority ? "bell" : "white_check_mark",
       },

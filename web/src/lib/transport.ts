@@ -1,6 +1,8 @@
+import { codeFor, isDeviceIcon, loadAppearance, saveAppearance, type DeviceIconId } from "~/lib/devices";
+import type { TintId } from "~/lib/tints";
 import type { Server } from "~/state/types";
 
-/// How the UI reaches a Mission Control server.
+/// How the UI reaches a Remy server.
 ///
 /// Two implementations, because the app runs in two places:
 ///
@@ -22,11 +24,22 @@ export interface Transport {
   /// Live frames. Returns an unsubscribe.
   subscribe(handler: (serverId: string, payload: unknown) => void): () => void;
   onStatus(handler: (serverId: string, online: boolean, error?: string) => void): () => void;
+  addServer(input: { url: string; token: string; name?: string }): Promise<void>;
+  removeServer(id: string): Promise<void>;
+  updateServer(id: string, patch: { name?: string; icon?: DeviceIconId; tint?: TintId }): Promise<void>;
+}
+
+interface ListedServer {
+  id: string;
+  name: string;
+  url: string;
+  icon?: string;
+  builtin?: boolean;
 }
 
 interface Bridge {
   platform: string;
-  servers(): Promise<{ id: string; name: string; url: string }[]>;
+  servers(): Promise<ListedServer[]>;
   request(
     serverId: string,
     path: string,
@@ -34,12 +47,37 @@ interface Bridge {
   ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
   onPush(handler: (serverId: string, payload: unknown) => void): () => void;
   onStatus(handler: (serverId: string, online: boolean, error?: string) => void): () => void;
+  addServer(input: {
+    url: string;
+    token: string;
+    name?: string;
+  }): Promise<ListedServer[]>;
+  removeServer(id: string): Promise<ListedServer[]>;
+  updateServer?(id: string, patch: { name?: string; icon?: string }): Promise<ListedServer[]>;
 }
 
 declare global {
   interface Window {
     missionControl?: Bridge;
+    remy?: Bridge;
   }
+}
+
+
+function toServer(listed: ListedServer, online: boolean): Server {
+  const appearance = loadAppearance()[listed.id];
+  const name = appearance?.name || listed.name;
+  const icon: DeviceIconId = appearance?.icon ?? (isDeviceIcon(listed.icon) ? listed.icon : "laptop");
+  return {
+    id: listed.id,
+    name,
+    url: listed.url,
+    code: codeFor(name),
+    online,
+    icon,
+    tint: appearance?.tint,
+    local: listed.builtin,
+  };
 }
 
 function electronTransport(bridge: Bridge): Transport {
@@ -47,7 +85,7 @@ function electronTransport(bridge: Bridge): Transport {
     kind: "electron",
     async servers() {
       const list = await bridge.servers();
-      return list.map((s) => ({ ...s, code: codeFor(s.name), online: false }));
+      return list.map((item) => toServer(item, false));
     },
     async request<T>(serverId: string, path: string, init?: { method?: string; body?: unknown }) {
       const result = await bridge.request(serverId, path, init);
@@ -56,6 +94,16 @@ function electronTransport(bridge: Bridge): Transport {
     },
     subscribe: (handler) => bridge.onPush(handler),
     onStatus: (handler) => bridge.onStatus(handler),
+    async addServer(input) {
+      await bridge.addServer(input);
+    },
+    async removeServer(id) {
+      await bridge.removeServer(id);
+    },
+    async updateServer(id, patch) {
+      saveAppearance(id, patch);
+      if (bridge.updateServer) await bridge.updateServer(id, patch);
+    },
   };
 }
 
@@ -100,15 +148,18 @@ function proxyTransport(): Transport {
   return {
     kind: "proxy",
     async servers() {
-      // The proxy points at exactly one server, and `/health` is the cheapest
-      // way to learn whether it is actually there.
+      // This preview talks to exactly one server — the one Vite is proxying.
+      // List it even when /health is down so a blip looks like "offline", not
+      // "nothing is paired".
+      const fallback = import.meta.env.VITE_REMY_PROXY_DEVICE ?? "";
+      if (!fallback) return [];
+      const listed = { id: ID, name: fallback, url: "/api", builtin: true };
       try {
-        await fetch("/api/health").then((r) => {
-          if (!r.ok) throw new Error(String(r.status));
-        });
-        return [{ id: ID, name: "Local server", url: "/api", code: "LOCAL", online: true }];
+        const response = await fetch("/api/health");
+        if (!response.ok) throw new Error(String(response.status));
+        return [toServer(listed, true)];
       } catch {
-        return [];
+        return [toServer(listed, false)];
       }
     },
     async request<T>(_serverId: string, path: string, init?: { method?: string; body?: unknown }) {
@@ -142,20 +193,20 @@ function proxyTransport(): Transport {
       statusHandlers.add(handler);
       return () => statusHandlers.delete(handler);
     },
+    async addServer() {
+      throw new Error("Pair more devices from the desktop app. This browser is using the Vite proxy.");
+    },
+    async removeServer() {
+      throw new Error("This machine stays connected while Remy is running.");
+    },
+    async updateServer(id, patch) {
+      saveAppearance(id, patch);
+    },
   };
 }
 
-/// A short device code, the way the iOS app labels servers in dense rows.
-function codeFor(name: string): string {
-  const letters = name
-    .split(/[\s-_]+/)
-    .map((word) => word[0])
-    .filter(Boolean)
-    .join("")
-    .toUpperCase();
-  return (letters || name.slice(0, 2)).slice(0, 4);
-}
-
-export const transport: Transport = window.missionControl
-  ? electronTransport(window.missionControl)
-  : proxyTransport();
+export const transport: Transport = window.remy
+  ? electronTransport(window.remy)
+  : window.missionControl
+    ? electronTransport(window.missionControl)
+    : proxyTransport();

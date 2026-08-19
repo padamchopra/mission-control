@@ -1,64 +1,136 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
-  Bot,
-  ChevronDown,
   Folder,
   GitPullRequest,
   Inbox,
-  LayoutGrid,
   MessagesSquare,
   Plus,
   RefreshCw,
   Search,
-  Settings2,
-  Terminal,
 } from "lucide-react";
-import { Button } from "~/components/ui/button";
-import { Badge } from "~/components/ui/badge";
-import { Kbd } from "~/components/ui/kbd";
-import { SectionLabel } from "~/components/ui/section-label";
-import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
-import { Palette } from "~/components/Palette";
-import { useStore } from "~/state/store";
-import type { SessionState } from "~/state/types";
-import { cn, displayPath } from "~/lib/utils";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Card } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import {
+  Message,
+  MessageContent,
+  MessageFooter,
+  MessageHeader,
+} from "@/components/ui/message";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppSidebar } from "@/components/AppSidebar";
+import { Palette } from "@/components/Palette";
+import { AddWorkspaceDialog } from "@/components/AddWorkspace";
+import { SettingsPane, type SettingsTab } from "@/components/Settings";
+import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
+import { deviceIcon } from "@/lib/devices";
+import { displayPath } from "@/lib/path";
+import { isProjectIconFile } from "@/lib/projects";
+import { WorkspaceIcon } from "@/components/WorkspaceIcon";
+import { tintOf } from "@/lib/tints";
+import { cn } from "@/lib/utils";
+import { useStore } from "@/state/store";
+import type { ChatState } from "@/state/types";
+import remyMark from "@/assets/remy-mark.png";
 
-type Section = "inbox" | "command" | "chats" | "workspaces" | "prs" | "loops";
+type Section = "inbox" | "chats" | "workspaces" | "prs" | "loops";
 
 const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
-  { id: "command", label: "Command center", icon: LayoutGrid },
   { id: "chats", label: "Chats", icon: MessagesSquare },
   { id: "workspaces", label: "Workspaces", icon: Folder },
   { id: "prs", label: "Pull requests", icon: GitPullRequest },
   { id: "loops", label: "Loops", icon: RefreshCw },
 ];
 
-const STATE_TONE: Record<SessionState, "warning" | "info" | "neutral"> = {
+const STATE_TONE: Record<ChatState, "warning" | "info" | "secondary" | "destructive"> = {
   needs_input: "warning",
   working: "info",
-  idle: "neutral",
-  unknown: "neutral",
+  idle: "secondary",
+  error: "destructive",
 };
 
-const STATE_LABEL: Record<SessionState, string> = {
+const STATE_LABEL: Record<ChatState, string> = {
   needs_input: "Needs you",
   working: "Working",
   idle: "Idle",
-  unknown: "Unknown",
+  error: "Error",
+};
+
+const EMPTY: Record<
+  Section,
+  { title: string; detail: string; action: "none" | "chat" | "workspace" | "loop"; icon: typeof Inbox }
+> = {
+  inbox: {
+    title: "Inbox is clear",
+    detail: "Nothing is waiting on you.",
+    action: "none",
+    icon: Inbox,
+  },
+  chats: {
+    title: "No chats yet",
+    detail: "Start one in a workspace on this machine.",
+    action: "chat",
+    icon: MessagesSquare,
+  },
+  workspaces: {
+    title: "No workspaces yet",
+    detail: "Add a folder on this machine to run chats in.",
+    action: "workspace",
+    icon: Folder,
+  },
+  prs: {
+    title: "No pull requests",
+    detail: "Open a PR from a workspace on this machine.",
+    action: "none",
+    icon: GitPullRequest,
+  },
+  loops: {
+    title: "No loops yet",
+    detail: "Schedule a recurring run on a workspace.",
+    action: "loop",
+    icon: RefreshCw,
+  },
 };
 
 export function App() {
-  const [section, setSection] = useState<Section>("command");
+  const [section, setSection] = useState<Section>("chats");
   const [scope, setScope] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
+  const [view, setView] = useState<"app" | "settings">("app");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
+  const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string | null>(null);
+
+  const openSettings = (tab: SettingsTab = "general") => {
+    setWorkspaceSettingsId(null);
+    setSettingsTab(tab);
+    setView("settings");
+  };
+
+  const closeSettings = () => {
+    setWorkspaceSettingsId(null);
+    setView("app");
+  };
 
   const servers = useStore((s) => s.servers);
-  const allSessions = useStore((s) => s.sessions);
-  const chats = useStore((s) => s.chats);
+  const allChats = useStore((s) => s.chats);
+  const allWorkspaces = useStore((s) => s.workspaces);
   const loading = useStore((s) => s.loading);
   const error = useStore((s) => s.error);
   const start = useStore((s) => s.start);
@@ -66,9 +138,21 @@ export function App() {
   // Opens the connection and holds it for the life of the app.
   useEffect(() => start(), [start]);
 
-  const sessions = useMemo(
-    () => (scope ? allSessions.filter((s) => s.serverId === scope) : allSessions),
-    [allSessions, scope],
+  useEffect(() => {
+    if (error) toast.error("Can't reach this machine", { description: error });
+  }, [error]);
+
+  const scoped = useMemo(
+    () => (scope ? allChats.filter((chat) => chat.serverId === scope) : allChats),
+    [allChats, scope],
+  );
+  const chats = useMemo(
+    () => (section === "inbox" ? scoped.filter((chat) => chat.state === "needs_input") : scoped),
+    [scoped, section],
+  );
+  const workspaces = useMemo(
+    () => (scope ? allWorkspaces.filter((workspace) => workspace.serverId === scope) : allWorkspaces),
+    [allWorkspaces, scope],
   );
 
   useEffect(() => {
@@ -77,15 +161,27 @@ export function App() {
         event.preventDefault();
         setPaletteOpen((open) => !open);
       }
+      if (event.key === "Escape" && !paletteOpen) {
+        if (workspaceSettingsId) {
+          event.preventDefault();
+          setWorkspaceSettingsId(null);
+          return;
+        }
+        if (view === "settings") {
+          event.preventDefault();
+          setView("app");
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [paletteOpen, view, workspaceSettingsId]);
 
-  const active = sessions.find((s) => s.name === selected) ?? null;
-  const needsYou = sessions.filter((s) => s.state === "needs_input").length;
-  const working = sessions.filter((s) => s.state === "working").length;
-  const scopeServer = servers.find((s) => s.id === scope);
+  const active = chats.find((chat) => chat.id === selected) ?? null;
+  const needsYou = scoped.filter((chat) => chat.state === "needs_input").length;
+  const working = scoped.filter((chat) => chat.state === "working").length;
+  const anyOnline = servers.some((s) => s.online);
+  const openWorkspace = allWorkspaces.find((workspace) => workspace.id === workspaceSettingsId) ?? null;
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -94,319 +190,350 @@ export function App() {
         className="app-drag flex shrink-0 items-center gap-3 border-b border-border bg-sidebar pr-3"
         style={{ height: "var(--workspace-topbar-height)", paddingLeft: "var(--titlebar-traffic-light-inset)" }}
       >
-        <span className="text-sm font-medium">
-          {SECTIONS.find((s) => s.id === section)?.label}
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <img src={remyMark} alt="" className="size-6" />
+          Remy
         </span>
         <div className="app-no-drag ml-auto flex items-center gap-2">
-          <Badge tone={servers.some((s) => s.online) ? "success" : "neutral"} dot>
+          <Badge variant={anyOnline ? "success" : "secondary"}>
+            <span className="size-1.5 rounded-full bg-current" />
             {servers.length} device{servers.length === 1 ? "" : "s"}
           </Badge>
           <Button variant="outline" size="sm" onClick={() => setPaletteOpen(true)}>
             <Search />
-            <Kbd keys={["⌘", "K"]} />
+            <KbdGroup>
+              <Kbd>⌘</Kbd>
+              <Kbd>K</Kbd>
+            </KbdGroup>
           </Button>
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {/* Sidebar */}
-        <aside
-          className="flex w-[264px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
-          style={{ padding: "var(--sidebar-content-inset)" }}
-        >
-          <Popover open={deviceMenuOpen} onOpenChange={setDeviceMenuOpen}>
-            <PopoverTrigger asChild>
-              <button className="flex h-12 w-full items-center gap-2.5 rounded-lg border border-border bg-card px-2.5 text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring">
-                <span
-                  className={cn(
-                    "size-2 shrink-0 rounded-full",
-                    servers.some((s) => s.online) ? "bg-success" : "bg-muted-foreground",
-                  )}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {scopeServer?.name ?? "All devices"}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {servers.length} device{servers.length === 1 ? "" : "s"} · {allSessions.length} agent
-                    {allSessions.length === 1 ? "" : "s"}
-                  </span>
-                </span>
-                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[248px]">
-              <DeviceRow
-                label="All devices"
-                detail={`${servers.length} device${servers.length === 1 ? "" : "s"}`}
-                selected={scope === null}
-                online
-                onSelect={() => {
-                  setScope(null);
-                  setDeviceMenuOpen(false);
-                }}
-              />
-              {servers.map((server) => (
-                <DeviceRow
-                  key={server.id}
-                  label={server.name}
-                  detail={`${server.code} · ${allSessions.filter((s) => s.serverId === server.id).length} agents`}
-                  selected={scope === server.id}
-                  online={server.online}
-                  onSelect={() => {
-                    setScope(server.id);
-                    setDeviceMenuOpen(false);
-                  }}
-                />
-              ))}
-              <div className="my-1 h-px bg-border" />
-              <button className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground">
-                <Plus className="size-3.5" />
-                Add connection
-              </button>
-            </PopoverContent>
-          </Popover>
+      <SidebarProvider className="min-h-0 flex-1">
+        <AppSidebar
+          view={view}
+          settingsTab={settingsTab}
+          section={section}
+          scope={scope}
+          selected={selected}
+          servers={servers}
+          chats={allChats}
+          scoped={scoped}
+          needsYou={needsYou}
+          sections={SECTIONS}
+          onScope={setScope}
+          onSection={(id) => {
+            setWorkspaceSettingsId(null);
+            setSection(id as Section);
+          }}
+          onSelectChat={(id) => {
+            setSection("chats");
+            setSelected(id);
+          }}
+          openSettings={openSettings}
+          closeSettings={closeSettings}
+        />
 
-          <nav className="mt-3 flex flex-col gap-0.5">
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setSection(id)}
-                className={cn(
-                  "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none",
-                  "focus-visible:ring-2 focus-visible:ring-ring",
-                  section === id
-                    ? "bg-sidebar-row-selected font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-row-hover hover:text-foreground",
+        {view === "settings" ? (
+          <SettingsPane tab={settingsTab} />
+        ) : openWorkspace ? (
+          <WorkspaceSettings workspace={openWorkspace} onBack={() => setWorkspaceSettingsId(null)} />
+        ) : (
+          <main className="flex min-w-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-baseline gap-3 border-b border-border px-5 py-4">
+              <h1 className="text-xl font-semibold tracking-tight">
+                {SECTIONS.find((s) => s.id === section)?.label}
+              </h1>
+              <div className="ml-auto flex items-center gap-4">
+                {(section === "inbox" || section === "chats") && (
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <span>{needsYou} need you</span>
+                    <span>{working} active</span>
+                    <span>{scoped.length - needsYou - working} idle</span>
+                  </div>
                 )}
-              >
-                <Icon className={cn("size-4 shrink-0", section === id && "text-primary")} />
-                <span className="truncate">{label}</span>
-                {id === "inbox" && needsYou > 0 && (
-                  <Badge tone="warning" className="ml-auto">
-                    {needsYou}
-                  </Badge>
+                {section === "chats" && (
+                  <Button size="sm">
+                    <Plus />
+                    New chat
+                  </Button>
                 )}
-              </button>
-            ))}
-          </nav>
+                {section === "workspaces" && (
+                  <Button size="sm" onClick={() => setAddWorkspaceOpen(true)}>
+                    <Plus />
+                    Add workspace
+                  </Button>
+                )}
+                {section === "loops" && (
+                  <Button size="sm">
+                    <Plus />
+                    New loop
+                  </Button>
+                )}
+              </div>
+            </div>
 
-          <div className="mt-4 mb-1.5">
-            <SectionLabel trailing={sessions.length || undefined}>Agents</SectionLabel>
-          </div>
-
-          <div className="scrollbar-thin -mx-1 min-h-0 flex-1 overflow-y-auto px-1">
-            {sessions.length === 0 ? (
-              <p className="px-1.5 py-2 text-xs text-muted-foreground">No agents running.</p>
+            {section === "inbox" || section === "chats" ? (
+              chats.length === 0 ? (
+                <EmptyState
+                  section={section}
+                  loading={loading}
+                  error={error}
+                  hasServers={servers.length > 0}
+                  hasWorkspaces={workspaces.length > 0}
+                  onAddConnection={() => openSettings("devices")}
+                  onAddWorkspace={() => setAddWorkspaceOpen(true)}
+                />
+              ) : (
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="flex flex-col gap-3 p-4">
+                    {chats.map((chat) => (
+                      <Message
+                        key={chat.id}
+                        className={cn(
+                          "cursor-default rounded-xl border px-3 py-3",
+                          active?.id === chat.id ? "border-primary/40" : "hover:bg-accent",
+                        )}
+                        onClick={() => setSelected(chat.id)}
+                      >
+                        <MessageContent className="gap-1.5">
+                          <MessageHeader className="gap-2 px-0 text-foreground">
+                            <StateDot state={chat.state} />
+                            <span className="truncate font-medium">{chat.title}</span>
+                            {chat.state !== "idle" && (
+                              <Badge variant={STATE_TONE[chat.state]}>
+                                {chat.state === "working" ? (
+                                  <span className="shimmer">{STATE_LABEL[chat.state]}</span>
+                                ) : (
+                                  STATE_LABEL[chat.state]
+                                )}
+                              </Badge>
+                            )}
+                          </MessageHeader>
+                          {chat.preview && (
+                            <Bubble variant="muted" className="max-w-full">
+                              <BubbleContent className="line-clamp-2">{chat.preview}</BubbleContent>
+                            </Bubble>
+                          )}
+                          <MessageFooter className="px-0 font-mono">{displayPath(chat.cwd)}</MessageFooter>
+                        </MessageContent>
+                      </Message>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )
+            ) : section === "workspaces" ? (
+              workspaces.length === 0 ? (
+                <EmptyState
+                  section={section}
+                  loading={loading}
+                  error={error}
+                  hasServers={servers.length > 0}
+                  hasWorkspaces={workspaces.length > 0}
+                  onAddConnection={() => openSettings("devices")}
+                  onAddWorkspace={() => setAddWorkspaceOpen(true)}
+                />
+              ) : (
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="flex flex-col gap-2 p-4">
+                    {workspaces.map((workspace) => {
+                      const colors = tintOf(workspace.tint);
+                      const devices = devicesForWorkspace(workspace, allWorkspaces, servers);
+                      return (
+                      <Card
+                        key={workspace.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setWorkspaceSettingsId(workspace.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setWorkspaceSettingsId(workspace.id);
+                          }
+                        }}
+                        className="cursor-pointer gap-0 py-0 shadow-none hover:bg-accent"
+                      >
+                        <div className="flex items-center gap-3 px-3.5 py-2.5">
+                          <span
+                            className={cn(
+                              "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg",
+                              colors.well,
+                              colors.fg,
+                            )}
+                          >
+                            <WorkspaceIcon
+                              workspaceId={workspace.id}
+                              icon={workspace.icon}
+                              className={isProjectIconFile(workspace.icon) ? "size-8" : "size-4"}
+                            />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm leading-5 font-medium">{workspace.name}</span>
+                            <span className="block truncate font-mono text-[11px] leading-4 text-muted-foreground">
+                              {displayPath(workspace.path)}
+                            </span>
+                          </span>
+                          {devices.length > 0 && (
+                            <span className="flex shrink-0 items-center -space-x-1.5">
+                              {devices.map((server) => {
+                                const DeviceIcon = deviceIcon(server.icon);
+                                const chip = tintOf(server.tint);
+                                return (
+                                  <Tooltip key={server.id}>
+                                    <TooltipTrigger asChild>
+                                      <span
+                                        className={cn(
+                                          "relative flex size-6 items-center justify-center rounded-full border border-background",
+                                          chip.well,
+                                          chip.fg,
+                                        )}
+                                      >
+                                        <DeviceIcon className="size-3" />
+                                        <span
+                                          className={cn(
+                                            "absolute -right-0 -bottom-0 size-1.5 rounded-full ring-1 ring-background",
+                                            server.online ? "bg-success" : "bg-muted-foreground",
+                                          )}
+                                        />
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{server.name}</TooltipContent>
+                                  </Tooltip>
+                                );
+                              })}
+                            </span>
+                          )}
+                        </div>
+                      </Card>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              )
             ) : (
-              <div className="flex flex-col gap-0.5">
-                {sessions.map((session) => (
-                  <button
-                    key={session.name}
-                    onClick={() => setSelected(session.name)}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left outline-none",
-                      selected === session.name
-                        ? "bg-sidebar-row-selected"
-                        : "hover:bg-sidebar-row-hover",
-                    )}
-                  >
-                    <StateDot state={session.state} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] text-foreground">{session.name}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {[session.agent, session.workspace].filter(Boolean).join(" · ")}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              <EmptyState
+                section={section}
+                loading={loading}
+                error={error}
+                hasServers={servers.length > 0}
+                hasWorkspaces={workspaces.length > 0}
+                onAddConnection={() => openSettings("devices")}
+                onAddWorkspace={() => setAddWorkspaceOpen(true)}
+              />
             )}
-          </div>
+          </main>
+        )}
+      </SidebarProvider>
 
-          <div className="mt-2 border-t border-sidebar-border pt-2">
-            <SidebarUtility icon={Terminal} label="Archived chats" />
-            <SidebarUtility icon={Search} label="Quick open" onClick={() => setPaletteOpen(true)} />
-            <SidebarUtility icon={Settings2} label="Connection settings" />
-          </div>
-        </aside>
-
-        {/* Content */}
-        <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-baseline gap-3 border-b border-border px-5 py-4">
-            <h1 className="text-xl font-semibold tracking-tight">
-              {sessions.length} live agent{sessions.length === 1 ? "" : "s"}
-            </h1>
-            <div className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
-              <span>{needsYou} need you</span>
-              <span>{working} active</span>
-              <span>{sessions.length - needsYou - working} idle</span>
-            </div>
-            <Button variant="primary" size="sm">
-              <Plus />
-              New shell
-            </Button>
-          </div>
-
-          {sessions.length === 0 ? (
-            <EmptyState loading={loading} error={error} hasServers={servers.length > 0} />
-          ) : (
-            <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="flex flex-col gap-2">
-                {sessions.map((session) => (
-                  <article
-                    key={session.name}
-                    onClick={() => setSelected(session.name)}
-                    className={cn(
-                      "cursor-default rounded-xl border border-border bg-card p-3.5 transition-colors",
-                      active?.name === session.name ? "border-primary/40" : "hover:bg-accent",
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <StateDot state={session.state} />
-                      <h2 className="truncate text-sm font-medium">{session.name}</h2>
-                      {session.state !== "idle" && session.state !== "unknown" && (
-                        <Badge tone={STATE_TONE[session.state]}>{STATE_LABEL[session.state]}</Badge>
-                      )}
-                      <span className="ml-auto truncate font-mono text-[11px] text-muted-foreground">
-                        {displayPath(session.path)}
-                      </span>
-                    </div>
-                    {session.preview && (
-                      <p className="mt-2 line-clamp-2 text-[13px] text-muted-foreground">
-                        {session.preview}
-                      </p>
-                    )}
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
-
+      <AddWorkspaceDialog open={addWorkspaceOpen} onOpenChange={setAddWorkspaceOpen} />
       <Palette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
-        sessions={sessions}
-        chats={chats}
-        onOpenSession={(name) => {
-          setSection("command");
-          setSelected(name);
+        chats={scoped}
+        onOpenChat={(id) => {
+          closeSettings();
+          setSection("chats");
+          setSelected(id);
         }}
-        onOpenSection={(id) => setSection(id as Section)}
+        onOpenSection={(id) => {
+          closeSettings();
+          setSection(id as Section);
+        }}
         sections={SECTIONS}
       />
     </div>
   );
 }
 
-function StateDot({ state }: { state: SessionState }) {
+function StateDot({ state }: { state: ChatState }) {
   return (
     <span
       className={cn(
         "size-1.5 shrink-0 rounded-full",
         state === "needs_input" && "bg-warning",
         state === "working" && "bg-info",
-        (state === "idle" || state === "unknown") && "bg-muted-foreground/60",
+        state === "error" && "bg-destructive",
+        state === "idle" && "bg-muted-foreground/60",
       )}
     />
   );
 }
 
-function DeviceRow({
-  label,
-  detail,
-  selected,
-  online,
-  onSelect,
-}: {
-  label: string;
-  detail: string;
-  selected: boolean;
-  online: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      onClick={onSelect}
-      className={cn(
-        "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left outline-none",
-        selected ? "bg-accent" : "hover:bg-accent",
-      )}
-    >
-      <span className={cn("size-2 shrink-0 rounded-full", online ? "bg-success" : "bg-error")} />
-      <span className="min-w-0 flex-1">
-        <span className={cn("block truncate text-sm", selected && "font-medium")}>{label}</span>
-        <span className="block truncate text-xs text-muted-foreground">{detail}</span>
-      </span>
-    </button>
-  );
-}
-
-function SidebarUtility({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: typeof Inbox;
-  label: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex h-7 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-xs text-muted-foreground outline-none hover:bg-sidebar-row-hover hover:text-foreground"
-    >
-      <Icon className="size-3.5 shrink-0" />
-      {label}
-    </button>
-  );
-}
-
-/// Four different nothings, and saying which one it is matters: an app still
-/// loading, an app that cannot reach the server, an app with no server
-/// configured, and a server that genuinely has no agents running.
 function EmptyState({
+  section,
   loading,
   error,
   hasServers,
+  hasWorkspaces,
+  onAddConnection,
+  onAddWorkspace,
 }: {
+  section: Section;
   loading: boolean;
   error?: string;
   hasServers: boolean;
+  hasWorkspaces: boolean;
+  onAddConnection: () => void;
+  onAddWorkspace: () => void;
 }) {
-  const { title, detail, action } = loading
-    ? { title: "Connecting…", detail: "Asking your Macs what they are running.", action: false }
+  const fallback = EMPTY[section];
+  const { title, detail, action, icon: Icon } = loading
+    ? { title: "Connecting…", detail: "Loading chats from this machine.", action: "none" as const, icon: fallback.icon }
     : error
-      ? { title: "Can't reach the server", detail: error, action: false }
-      : hasServers
+      ? { title: "Can't reach this machine", detail: error, action: "none" as const, icon: fallback.icon }
+      : !hasServers
         ? {
-            title: "No agents running",
-            detail: "Launch a shell on a connected Mac and it shows up here.",
-            action: false,
+            title: "No devices connected",
+            detail: "Pair a machine from Devices.",
+            action: "connect" as const,
+            icon: fallback.icon,
           }
-        : {
-            title: "No Macs connected",
-            detail: "Pair a Mac running the Mission Control server to see its agents.",
-            action: true,
-          };
+        : section === "chats" && !hasWorkspaces
+          ? {
+              title: "No chats yet",
+              detail: "Add a workspace on this machine first. Chats run there.",
+              action: "workspace" as const,
+              icon: fallback.icon,
+            }
+          : fallback;
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <span className="flex size-13 items-center justify-center rounded-full bg-muted">
-        <Bot className="size-6 text-muted-foreground" strokeWidth={1.5} />
-      </span>
-      <div className="max-w-[340px] space-y-1.5">
-        <h2 className="text-[15px] font-semibold">{title}</h2>
-        <p className="text-[13px] break-words text-muted-foreground">{detail}</p>
-      </div>
-      {action && (
-        <Button variant="primary" size="md">
-          Add a connection
-          <ArrowUpRight />
-        </Button>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Icon />
+        </EmptyMedia>
+        <EmptyTitle className={loading ? "shimmer" : undefined}>{title}</EmptyTitle>
+        <EmptyDescription>{detail}</EmptyDescription>
+      </EmptyHeader>
+      {action !== "none" && (
+        <EmptyContent>
+          {action === "connect" && (
+            <Button onClick={onAddConnection}>
+              Add a connection
+              <ArrowUpRight />
+            </Button>
+          )}
+          {action === "chat" && (
+            <Button>
+              <Plus />
+              New chat
+            </Button>
+          )}
+          {action === "workspace" && (
+            <Button onClick={onAddWorkspace}>
+              <Plus />
+              Add workspace
+            </Button>
+          )}
+          {action === "loop" && (
+            <Button>
+              <Plus />
+              New loop
+            </Button>
+          )}
+        </EmptyContent>
       )}
-    </div>
+    </Empty>
   );
 }

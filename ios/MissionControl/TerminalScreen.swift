@@ -145,7 +145,7 @@ struct TerminalScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The path must be inside a Git repository. Mission Control saves its primary checkout and discovers linked worktrees.")
+            Text("The path must be inside a Git repository. Remy saves its primary checkout and discovers linked worktrees.")
         }
         .alert("Rename session", isPresented: $showRename) {
             TextField("Name", text: $renameText)
@@ -213,7 +213,7 @@ struct TerminalScreen: View {
                 FlightDeckDialogModal(
                     eyebrow: "SESSION / SAVE WORKSPACE",
                     title: "Save repository as workspace",
-                    message: "The path must be inside a Git repository. Mission Control saves its primary checkout and discovers linked worktrees."
+                    message: "The path must be inside a Git repository. Remy saves its primary checkout and discovers linked worktrees."
                 ) {
                     VStack(spacing: 12) {
                         TextField("Workspace name", text: $workspaceName)

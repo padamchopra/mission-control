@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mission Control</string>
+	<string>Remy</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -23,6 +23,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>remy</string>
 				<string>missioncontrol</string>
 			</array>
 		</dict>

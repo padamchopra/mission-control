@@ -1,68 +1,23 @@
-import type { Chat, Server, Session } from "./types";
+import type { Chat, Server, Workspace } from "./types";
 
 /// Development fixture.
 ///
-/// The desktop app is judged on how it renders a *populated* window, and a Mac
-/// with nothing connected shows three empty columns no matter how good the
+/// The desktop app is judged on how it renders a *populated* window, and a
+/// machine with nothing connected shows empty columns no matter how good the
 /// design is. This exists so the layout can be reviewed against real-shaped
 /// content before a server is attached. It is only reachable when
 /// `VITE_MC_FIXTURE=1`, never in a packaged build.
 export const fixtureServers: Server[] = [
-  { id: "mini", name: "Mac mini", url: "http://mini:8787", code: "MINI", online: true },
-  { id: "mbp", name: "MacBook Pro", url: "http://mbp:8787", code: "MBP", online: true },
-];
-
-export const fixtureSessions: Session[] = [
-  {
-    name: "mission-control",
-    serverId: "mini",
-    state: "needs_input",
-    path: "~/code/mission-control",
-    command: "claude",
-    agent: "Claude",
-    workspace: "mission-control",
-    preview: "Should I convert the remaining mono labels too?",
-    lastOutputAt: Date.now() - 30_000,
-  },
-  {
-    name: "phere-guest-tabs",
-    serverId: "mini",
-    state: "working",
-    path: "~/code/phere",
-    command: "claude",
-    agent: "Claude",
-    workspace: "phere",
-    preview: "Editing GuestTabsViewModel.kt",
-    lastOutputAt: Date.now() - 4_000,
-  },
-  {
-    name: "jupiter-gacha",
-    serverId: "mbp",
-    state: "working",
-    path: "~/code/jupiter-mobile",
-    command: "claude",
-    agent: "Claude",
-    workspace: "jupiter",
-    preview: "Running ./gradlew :app:assembleDebug",
-    lastOutputAt: Date.now() - 12_000,
-  },
-  {
-    name: "site",
-    serverId: "mbp",
-    state: "idle",
-    path: "~/code/site",
-    command: "zsh",
-    agent: "Shell",
-    workspace: "site",
-    lastOutputAt: Date.now() - 3_600_000,
-  },
+  { id: "studio", name: "Studio", url: "http://studio:8787", code: "STU", online: true, icon: "monitor" },
+  { id: "laptop", name: "Laptop", url: "http://laptop:8787", code: "LAP", online: true, icon: "laptop" },
 ];
 
 export const fixtureChats: Chat[] = [
   {
     id: "c1",
+    serverId: "studio",
     title: "Port the chat tab",
-    cwd: "~/code/mission-control",
+    cwd: "~/code/remy",
     state: "idle",
     model: "opus",
     preview: "Both PRs are open and the stack is linked.",
@@ -70,11 +25,49 @@ export const fixtureChats: Chat[] = [
   },
   {
     id: "c2",
+    serverId: "studio",
     title: "SQLite migration notes",
-    cwd: "~/code/mission-control/server",
+    cwd: "~/code/remy/server",
     state: "needs_input",
     model: "sonnet",
     preview: "Approve running the migration against the live database?",
     updatedAt: Date.now() - 120_000,
+  },
+  {
+    id: "c3",
+    serverId: "studio",
+    title: "Guest tabs review",
+    cwd: "~/code/phere",
+    state: "working",
+    model: "opus",
+    preview: "Editing GuestTabsViewModel.kt",
+    updatedAt: Date.now() - 4_000,
+  },
+  {
+    id: "c4",
+    serverId: "laptop",
+    title: "Jupiter gacha",
+    cwd: "~/code/jupiter-mobile",
+    state: "working",
+    model: "sonnet",
+    preview: "Updating the pull animation timing.",
+    updatedAt: Date.now() - 12_000,
+  },
+];
+
+export const fixtureWorkspaces: Workspace[] = [
+  {
+    id: "w1",
+    serverId: "studio",
+    name: "remy",
+    path: "~/code/remy",
+    origin: "github.com/padamchopra/remy",
+  },
+  {
+    id: "w2",
+    serverId: "laptop",
+    name: "jupiter-mobile",
+    path: "~/code/jupiter-mobile",
+    origin: "github.com/padamchopra/jupiter-mobile",
   },
 ];

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.example.missioncontrol</string>
+    <string>com.example.remy</string>
     <key>ProgramArguments</key>
     <array>
         <string>__NODE__</string>
@@ -21,8 +21,8 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>__HOME__/.mission-control/server.log</string>
+    <string>__CONFIG_DIR__/server.log</string>
     <key>StandardErrorPath</key>
-    <string>__HOME__/.mission-control/server.log</string>
+    <string>__CONFIG_DIR__/server.log</string>
 </dict>
 </plist>

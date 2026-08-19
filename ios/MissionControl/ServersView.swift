@@ -74,7 +74,7 @@ struct ServersView: View {
             .alert("No pairing link found", isPresented: $pasteFailed) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("Copy the missioncontrol://configure link printed by the setup script, then try again.")
+                Text("Copy the remy://configure link printed by the setup script, then try again.")
             }
             .confirmationDialog("Update server?", isPresented: $showUpdateConfirmation) {
                 Button("Pull and install update") {
@@ -120,7 +120,7 @@ struct ServersView: View {
     @ViewBuilder
     private var serverListContent: some View {
         if store.servers.isEmpty {
-            Text("No servers yet. Add one by scanning the pairing QR your Mac's setup script prints.")
+            Text("No servers yet. Add one by scanning the pairing QR the setup script prints.")
                 .foregroundStyle(MCColor.mutedForeground)
         }
         ForEach(store.servers) { server in
@@ -293,7 +293,7 @@ private struct ManualServerForm: View {
                 Section("Server") {
                     TextField("Name (optional)", text: $name)
                         .autocorrectionDisabled()
-                    TextField("https://your-mac.tailnet.ts.net", text: $url)
+                    TextField("https://your-machine.tailnet.ts.net", text: $url)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)

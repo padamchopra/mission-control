@@ -1,7 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { AgentKind } from "./agent.js";
-import { configDir } from "./config.js";
+import { db, runTransaction } from "./db.js";
 
 export type SessionState = "working" | "needs_input" | "idle" | "unknown";
 
@@ -26,7 +24,7 @@ export interface RegistryEntry {
 /// picks them up when the turn ends, but that queue lives only in its TUI — it
 /// is never written to disk, so no amount of transcript reading can find it.
 /// Recording what we sent is the only way any client can show it, and it means
-/// a message queued from the Mac is visible on the phone too.
+/// a message queued from one client is visible on the others too.
 export interface PendingMessage {
   text: string;
   at: number;
@@ -43,18 +41,16 @@ export interface SessionActivity {
   at: number;
 }
 
-const stateFile = join(configDir, "registry.json");
-
 class Registry {
   private entries = new Map<string, RegistryEntry>();
 
   constructor() {
-    if (existsSync(stateFile)) {
+    const rows = db.prepare("select name, json from registry").all() as { name: string; json: string }[];
+    for (const row of rows) {
       try {
-        const parsed = JSON.parse(readFileSync(stateFile, "utf8")) as Record<string, RegistryEntry>;
-        for (const [name, entry] of Object.entries(parsed)) this.entries.set(name, entry);
+        this.entries.set(row.name, JSON.parse(row.json) as RegistryEntry);
       } catch {
-        // corrupt state file starts fresh
+        // Skip a corrupt row rather than dropping the whole registry.
       }
     }
   }
@@ -129,7 +125,11 @@ class Registry {
   }
 
   private persist(): void {
-    writeFileSync(stateFile, JSON.stringify(Object.fromEntries(this.entries), null, 2) + "\n");
+    runTransaction(() => {
+      db.exec("delete from registry");
+      const insert = db.prepare("insert into registry (name, json) values (?, ?)");
+      for (const [name, entry] of this.entries) insert.run(name, JSON.stringify(entry));
+    });
   }
 }
 

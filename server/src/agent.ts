@@ -29,7 +29,7 @@ export function agentCommand(agent: AgentKind): string | undefined {
     }
   }
   const displayName = agent === "claude" ? "Claude" : "Codex";
-  throw new AgentUnavailableError(`${displayName} is not installed on the Mission Control server.`);
+  throw new AgentUnavailableError(`${displayName} is not installed on the Remy server.`);
 }
 
 export function inferAgent(paneCommand: string, recorded?: AgentKind): AgentKind {

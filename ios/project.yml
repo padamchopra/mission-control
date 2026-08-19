@@ -22,7 +22,7 @@ targets:
     dependencies:
       - package: SwiftTerm
     postBuildScripts:
-      - name: Bundle Mission Control service
+      - name: Bundle Remy service
         basedOnDependencyAnalysis: false
         script: |
           set -euo pipefail
@@ -37,14 +37,14 @@ targets:
       path: MissionControl/Info.plist
       properties:
         UILaunchScreen: {}
-        CFBundleDisplayName: Mission Control
+        CFBundleDisplayName: Remy
         NSAppTransportSecurity:
           # Plain HTTP is acceptable here: the server is only reachable inside
           # the WireGuard-encrypted tailnet. Tighten via `tailscale serve` TLS later.
           NSAllowsArbitraryLoads: true
         NSCameraUsageDescription: Scan the pairing QR code shown by the setup script.
         CFBundleURLTypes:
-          - CFBundleURLSchemes: [missioncontrol]
+          - CFBundleURLSchemes: [remy, missioncontrol]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:

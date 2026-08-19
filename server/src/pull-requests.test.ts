@@ -6,8 +6,8 @@ import test from "node:test";
 import type { Workspace } from "./workspaces.js";
 
 // workspaces.ts loads the server config at module evaluation time. Keep that
-// test-only config isolated from the user's real Mission Control installation.
-process.env.HOME = mkdtempSync(join(tmpdir(), "mission-control-pr-test-"));
+// test-only config isolated from the user's real Remy installation.
+process.env.HOME = mkdtempSync(join(tmpdir(), "remy-pr-test-"));
 
 const { parseAuthoredPullRequests, parsePullRequestTimeline, parseUnreadReviewComments } = await import("./pull-requests.js");
 
@@ -16,6 +16,8 @@ const workspace: Workspace = {
   name: "Control",
   path: "/code/control",
   origin: "github.com/acme/control",
+  icon: null,
+  tint: null,
   worktrees: [
     { path: "/code/control", branch: "main", isMain: true, dirty: false },
     { path: "/code/control-pr", branch: "feature/flight-deck", isMain: false, dirty: false },

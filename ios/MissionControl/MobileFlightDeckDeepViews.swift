@@ -141,7 +141,7 @@ struct MobileWorkspaceDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The repository stays on disk. Mission Control only forgets this saved workspace.")
+            Text("The repository stays on disk. Remy only forgets this saved workspace.")
         }
     }
 

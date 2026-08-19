@@ -42,7 +42,7 @@ await shoot("01-main");
 await page.keyboard.press("Meta+k");
 await page.waitForTimeout(350);
 await shoot("02-palette");
-await page.keyboard.type("gach");
+await page.keyboard.type("sql");
 await page.waitForTimeout(250);
 await shoot("03-palette-filtered");
 await page.keyboard.press("Escape");
@@ -55,10 +55,10 @@ await page.waitForTimeout(300);
 await shoot("04-device-popover");
 
 // Prove it floats: the nav below must not have moved.
-const navBox = await page.getByText("Command center").last().boundingBox();
+const navBox = await page.getByText("Chats").last().boundingBox();
 await page.keyboard.press("Escape");
 await page.waitForTimeout(300);
-const navBoxAfter = await page.getByText("Command center").last().boundingBox();
+const navBoxAfter = await page.getByText("Chats").last().boundingBox();
 const shifted = Math.abs((navBox?.y ?? 0) - (navBoxAfter?.y ?? 0));
 console.log(`\npopover reflow check: nav moved ${shifted.toFixed(1)}px (must be 0)`);
 

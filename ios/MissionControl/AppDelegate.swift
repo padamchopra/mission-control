@@ -7,7 +7,7 @@ extension Notification.Name {
 }
 
 /// On the phone, notifications are delivered by the ntfy app (not this app),
-/// and tapping one opens a `missioncontrol://session/…` deep link that
+/// and tapping one opens a `remy://session/…` deep link that
 /// SessionListView handles — no notification permissions or push token needed.
 /// On the Mac (Catalyst) the app itself is the notification target: it shows
 /// native banners, which also tells the server to keep the phone quiet.

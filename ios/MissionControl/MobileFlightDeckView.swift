@@ -237,7 +237,7 @@ struct MobileFlightDeckView: View {
                         .overlay(Circle().stroke(MobileFlightDeckPalette.border))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Mission Control menu")
+                .accessibilityLabel("Remy menu")
             }
 
             Text(headerTitle)
@@ -248,7 +248,7 @@ struct MobileFlightDeckView: View {
                 fleetStrip
             } else if selectedTab == .chat {
                 Text(chats.chats.isEmpty
-                     ? "Claude conversations this Mac runs for you"
+                     ? "Claude conversations this machine runs for you"
                      : "\(chats.chats.count) chat\(chats.chats.count == 1 ? "" : "s") · \(chats.waitingCount) waiting on you")
                     .font(.mobileDeckSans(13))
                     .foregroundStyle(MobileFlightDeckPalette.secondary)
@@ -836,7 +836,7 @@ private struct MobileConnectionsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Paired devices")
                                 .font(.mobileDeckSans(23, weight: .bold))
-                            Text("Encrypted Mission Control connections")
+                            Text("Encrypted Remy connections")
                                 .font(.mobileDeckSans(12))
                                 .foregroundStyle(MobileFlightDeckPalette.secondary)
                         }
@@ -1094,7 +1094,7 @@ private struct MobileCommandMenu: View {
                 .padding(.bottom, 7)
 
             HStack {
-                Text("Mission Control")
+                Text("Remy")
                     .font(.mobileDeckSans(20, weight: .bold))
                 Spacer()
                 Button("Done") { dismiss() }
@@ -1559,7 +1559,7 @@ private struct MobilePullRequestDetailView: View {
                 Text(isChecksView ? "\(pullRequest.failedCheckCount) REQUIRED CHECK\(pullRequest.failedCheckCount == 1 ? "" : "S") FAILED" : "\(pullRequest.resolvedUnreadComments.count) COMMENTS SINCE YOU LAST LOOKED")
                     .font(.mobileDeckMono(9, weight: .semibold))
                     .foregroundStyle(color)
-                Text(activeSession == nil ? "This PR has no active Mission Control session." : "A live \((activeSession?.agent ?? .shell).displayName) session is already targeting this PR branch.")
+                Text(activeSession == nil ? "This PR has no active Remy session." : "A live \((activeSession?.agent ?? .shell).displayName) session is already targeting this PR branch.")
                     .font(.mobileDeckSans(14))
                     .foregroundStyle(MobileFlightDeckPalette.text)
                     .fixedSize(horizontal: false, vertical: true)

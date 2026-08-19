@@ -1,18 +1,30 @@
-import { cn } from "~/lib/utils";
+import type { ComponentProps } from "react"
 
-/// Keycaps for shortcut hints. Display only — the real shortcut is registered
-/// by whoever owns the action.
-export function Kbd({ keys, className }: { keys: string[]; className?: string }) {
+import { cn } from "@/lib/utils"
+
+function Kbd({ className, ...props }: ComponentProps<"kbd">) {
   return (
-    <span className={cn("inline-flex items-center gap-0.5", className)}>
-      {keys.map((key) => (
-        <kbd
-          key={key}
-          className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] border border-border bg-muted px-1 font-sans text-[10px] leading-none text-muted-foreground"
-        >
-          {key}
-        </kbd>
-      ))}
-    </span>
-  );
+    <kbd
+      data-slot="kbd"
+      className={cn(
+        "pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-sm bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none",
+        "[&_svg:not([class*='size-'])]:size-3",
+        "[[data-slot=tooltip-content]_&]:bg-background/20 [[data-slot=tooltip-content]_&]:text-background dark:[[data-slot=tooltip-content]_&]:bg-background/10",
+        className
+      )}
+      {...props}
+    />
+  )
 }
+
+function KbdGroup({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <kbd
+      data-slot="kbd-group"
+      className={cn("inline-flex items-center gap-1", className)}
+      {...props}
+    />
+  )
+}
+
+export { Kbd, KbdGroup }

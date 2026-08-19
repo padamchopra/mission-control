@@ -1,6 +1,15 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { hostname as osHostname } from "node:os";
 import { join } from "node:path";
-import { Connection, loadServers, saveServers, serversFile, type ServerConfig } from "./connection";
+import {
+  Connection,
+  loadServers,
+  saveServers,
+  serversFile,
+  type DeviceIcon,
+  type ServerConfig,
+} from "./connection";
+import { ensureLocalServer, isLoopback, localTargetFromConfig, stopSpawnedServer } from "./local-server";
 
 /// The desktop shell. Deliberately thin — it owns the window and nothing else,
 /// the same split T3 Code uses, so the UI stays a plain web app that can be run
@@ -20,9 +29,45 @@ let connection: Connection | undefined;
 /// Called once for the app, not once per window: `ipcMain.handle` throws on a
 /// second registration for the same channel, so doing this in `createWindow`
 /// would crash the moment a window was reopened from the dock.
-function wireIpc(): void {
+function urlsMatch(a: string, b: string): boolean {
+  try {
+    const left = new URL(a);
+    const right = new URL(b);
+    return left.origin === right.origin;
+  } catch {
+    return a.replace(/\/$/, "") === b.replace(/\/$/, "");
+  }
+}
+
+function withBuiltinLocal(existing: ServerConfig[], local: ServerConfig): ServerConfig[] {
+  const match = existing.find((server) => urlsMatch(server.url, local.url));
+  if (match) {
+    return existing.map((server) =>
+      server.id === match.id ? { ...server, token: local.token || server.token, builtin: true } : server,
+    );
+  }
+  return [{ ...local, builtin: true }, ...existing];
+}
+
+async function wireIpc(): Promise<void> {
   const configPath = serversFile(app.getPath("userData"));
-  connection = new Connection(loadServers(configPath));
+  let servers = loadServers(configPath);
+  const envUrl = process.env.MC_SERVER_URL;
+  if (!envUrl || isLoopback(envUrl)) {
+    const target = await ensureLocalServer(join(__dirname, "../../server"), localTargetFromConfig());
+    if (target.token) {
+      servers = withBuiltinLocal(servers, {
+        id: "local",
+        name: osHostname().replace(/\.local$/, ""),
+        url: target.url,
+        token: target.token,
+        icon: "laptop",
+        builtin: true,
+      });
+      if (!envUrl) saveServers(configPath, servers);
+    }
+  }
+  connection = new Connection(servers);
 
   // Broadcast rather than target one window, so a reopened window still
   // receives pushes without re-wiring anything.
@@ -37,6 +82,45 @@ function wireIpc(): void {
   );
 
   ipcMain.handle("mc:servers", () => connection?.list() ?? []);
+
+  ipcMain.handle("mc:add-server", (_event, input: { url: string; token: string; name?: string }) => {
+    if (!connection) throw new Error("no connection");
+    const url = input.url.trim();
+    const token = input.token.trim();
+    if (!url || !token) throw new Error("url and token are required");
+    let hostname = url;
+    try {
+      hostname = new URL(url).hostname || url;
+    } catch {
+      // Keep the raw string as the name if it isn't a URL yet.
+    }
+    const existing = connection.configs();
+    const id = existing.find((server) => server.url === url)?.id ?? crypto.randomUUID();
+    const next = [
+      ...existing.filter((server) => server.url !== url),
+      { id, name: input.name?.trim() || hostname, url, token },
+    ];
+    saveServers(configPath, next);
+    connection.replace(next);
+    return connection.list();
+  });
+
+  ipcMain.handle("mc:remove-server", (_event, id: string) => {
+    if (!connection) throw new Error("no connection");
+    const target = connection.configs().find((server) => server.id === id);
+    if (target?.builtin) throw new Error("This machine stays connected while Remy is running.");
+    const next = connection.configs().filter((server) => server.id !== id);
+    saveServers(configPath, next);
+    connection.replace(next);
+    return connection.list();
+  });
+
+  ipcMain.handle("mc:update-server", (_event, id: string, patch: { name?: string; icon?: DeviceIcon }) => {
+    if (!connection) throw new Error("no connection");
+    connection.update(id, patch);
+    saveServers(configPath, connection.configs());
+    return connection.list();
+  });
 
   ipcMain.handle(
     "mc:request",
@@ -63,6 +147,7 @@ function wireIpc(): void {
 
 function createWindow(): void {
   const window = new BrowserWindow({
+    title: "Remy",
     width: 1280,
     height: 840,
     minWidth: 880,
@@ -99,8 +184,9 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
-  wireIpc();
+void app.whenReady().then(async () => {
+  app.setName("Remy");
+  await wireIpc();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -111,4 +197,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => connection?.stop());
+app.on("before-quit", () => {
+  connection?.stop();
+  stopSpawnedServer();
+});

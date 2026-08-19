@@ -1,8 +1,8 @@
 {
-  "name": "mission-control",
+  "name": "remy",
   "private": true,
   "version": "0.1.0",
-  "description": "Run Claude Code on your Macs from anywhere.",
+  "description": "Run Claude Code on your machines from anywhere.",
   "scripts": {
     "install:all": "npm --prefix server install && npm --prefix web install && npm --prefix desktop install",
     "dev": "MC_DEV_SERVER_URL=http://127.0.0.1:5173 npm --prefix desktop run start",

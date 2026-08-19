@@ -49,7 +49,11 @@ import {
   listWorkspaces,
   openPullRequestSession,
   openSessionInWorkspace,
+  readWorkspaceImage,
   removeWorkspace,
+  suggestWorkspaceIcons,
+  suggestWorkspacePaths,
+  updateWorkspace,
   worktreeDirtyMap,
 } from "./workspaces.js";
 import { startServerUpdate, updateStatus } from "./update.js";
@@ -187,7 +191,7 @@ const server = createServer(async (req, res) => {
     }
 
     // Claude's interactive PreToolUse hook waits on this response. The request
-    // remains open while the Mac or phone renders the exact structured question;
+    // remains open while a client renders the exact structured question;
     // responding returns updatedInput to Claude, which continues inside the same
     // ordinary subscription-backed terminal session.
     if (req.method === "POST" && url.pathname === "/hooks/ask-user-question") {
@@ -255,7 +259,7 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { timeline: await pullRequestTimeline(repository, number) });
     }
 
-    // Chats are Mission Control's own Claude conversations: the server drives
+    // Chats are Remy's own Claude conversations: the server drives
     // the Agent SDK, so unlike a tmux session there is no terminal to fall back
     // to and every interaction — messages, approvals, questions — lands here.
     if (req.method === "GET" && url.pathname === "/chats") {
@@ -449,6 +453,10 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { workspaces: await listWorkspaces() });
     }
 
+    if (url.pathname === "/paths" && req.method === "GET") {
+      return json(res, 200, { paths: suggestWorkspacePaths(url.searchParams.get("q") ?? "") });
+    }
+
     if (url.pathname === "/loops" && req.method === "GET") {
       return json(res, 200, { loops: listLoops() });
     }
@@ -509,6 +517,34 @@ const server = createServer(async (req, res) => {
       if (req.method === "DELETE" && parts.length === 2) {
         removeWorkspace(id);
         return json(res, 200, { ok: true });
+      }
+      if (req.method === "PATCH" && parts.length === 2) {
+        try {
+          const body = await readJson(req);
+          return json(res, 200, {
+            workspace: await updateWorkspace(id, {
+              name: body.name === undefined ? undefined : String(body.name),
+              icon: body.icon === undefined ? undefined : body.icon === null ? null : String(body.icon),
+              tint: body.tint === undefined ? undefined : body.tint === null ? null : String(body.tint),
+            }),
+          });
+        } catch (error) {
+          return json(res, 400, { error: (error as Error).message || "could not update workspace" });
+        }
+      }
+      if (req.method === "GET" && parts[2] === "icons" && parts.length === 3) {
+        try {
+          return json(res, 200, { icons: await suggestWorkspaceIcons(id, url.searchParams.get("q") ?? "") });
+        } catch (error) {
+          return json(res, 400, { error: (error as Error).message || "could not list icons" });
+        }
+      }
+      if (req.method === "GET" && parts[2] === "file" && parts.length === 3) {
+        try {
+          return json(res, 200, await readWorkspaceImage(id, url.searchParams.get("path") ?? ""));
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "file not found" });
+        }
       }
       if (req.method === "POST" && parts[2] === "session") {
         const name = await openSessionInWorkspace(id);
@@ -882,6 +918,6 @@ server.on("upgrade", (req, socket, head) => {
 // terminates TLS and restricts access to the tailnet — the process is never
 // exposed on the LAN or any public interface.
 server.listen(config.port, "127.0.0.1", () => {
-  console.log(`mission-control server listening on 127.0.0.1:${config.port}`);
+  console.log(`remy server listening on 127.0.0.1:${config.port}`);
 });
 startLoopScheduler(pushSessionList);

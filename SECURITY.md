@@ -1,6 +1,6 @@
 # Security model & review
 
-Mission Control drives a fleet of Claude Code and Codex sessions on a personal machine
+Remy drives a fleet of Claude Code and Codex sessions on a personal machine
 that may hold sensitive source and credentials, so the server is treated as
 security-relevant even though it's only meant to be reachable by its owner.
 
@@ -9,7 +9,7 @@ security-relevant even though it's only meant to be reachable by its owner.
 - **Reachability:** the server binds to `127.0.0.1` only. The single path in
   from outside is `tailscale serve` (not funnel) — tailnet devices only,
   TLS-terminated, never the LAN or public internet.
-- **Authentication:** a 256-bit random bearer token (`~/.mission-control/config.json`,
+- **Authentication:** a 256-bit random bearer token (`~/.remy/remy.db`,
   `chmod 600`), compared with `timingSafeEqual`, required on every request and
   on the WebSocket upgrade. Header only — never a query parameter — so it can't
   leak into request logs.
@@ -19,7 +19,7 @@ security-relevant even though it's only meant to be reachable by its owner.
   The authenticated server-update endpoint is deliberately narrow: it starts
   the repository-owned `deploy/update-server.sh`, which only fast-forward pulls
   the current branch, runs `npm ci`/the server build, writes status to
-  `~/.mission-control`, and restarts Mission Control's fixed launchd label.
+  `~/.remy`, and restarts Remy's fixed launchd label.
 
 ## Input handling
 
@@ -32,14 +32,14 @@ security-relevant even though it's only meant to be reachable by its owner.
 - **Text** is delivered through a per-call `load-buffer`/`paste-buffer` (via
   stdin, bracketed-paste), never as an argv, so it can't inject tmux commands.
 - **Scroll actions** are validated against a fixed set; line counts are clamped.
-- **Uploads** save under `$TMPDIR/mission-control-uploads/<session>/`; filenames
+- **Uploads** save under `$TMPDIR/remy-uploads/<session>/`; filenames
   are reduced to their basename, stripped to `[A-Za-z0-9._-]` with leading dots
   removed (no traversal), and capped at 64 MB. `$TMPDIR` is auto-purged by macOS.
 - **Bodies** are size-capped (256 KB JSON, 64 MB upload).
 - **Server updates** are bearer-token protected like every other endpoint and
   cannot accept a repository, branch, package command, or arbitrary script path
   from the client. The script's detailed output remains local in
-  `~/.mission-control/update.log`.
+  `~/.remy/update.log`.
 - **Workspace worktrees** are discovered directly from `git worktree list` for
   a saved repository. A close request must name one of those current linked
   worktrees; the primary checkout is never removable. Git is invoked with argv

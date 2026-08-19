@@ -1,6 +1,8 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-/* Mission Control's design tokens.
+/* Remy's design tokens.
  *
  * Ported from T3 Code's `index.css`, in the same oklch values it uses rather
  * than converted approximations — this is a CSS file talking to a CSS file, so
@@ -36,6 +38,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -58,6 +61,11 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
 }
 
 :root {
@@ -68,13 +76,15 @@
   --radius: 0.625rem;
   --control-radius: 0.5rem;
   --sidebar-content-inset: 0.5rem;
+  --sidebar-width: 13rem;
   --sidebar-row-content-inset: 0.625rem;
   --command-shell-inset: 0.5rem;
   --command-content-inset: 1rem;
   --floating-content-inset: 0.75rem;
   --workspace-topbar-height: 52px;
-  /* Clears the macOS traffic lights under `titleBarStyle: hiddenInset`. */
-  --titlebar-traffic-light-inset: 78px;
+  /* In the browser this matches the sidebar. Electron sets the 78px overlay
+     inset so the title clears the traffic lights under hiddenInset. */
+  --titlebar-traffic-light-inset: var(--sidebar-content-inset);
 
   /* Dark is the only scheme wired up today. Every token has a light value in
      the `.light` block below, so enabling it is a class on <html>. */
@@ -106,6 +116,7 @@
   --error: color-mix(in srgb, oklch(63.7% 0.237 25.331) 90%, #fff);
   --error-foreground: oklch(70.4% 0.191 22.216);
   --destructive: var(--error);
+  --destructive-foreground: var(--error-foreground);
   --info: oklch(62.3% 0.214 259.815);
   --info-foreground: oklch(70.7% 0.165 254.624);
 
@@ -114,6 +125,15 @@
   --sidebar-border: var(--border);
   --sidebar-row-hover: var(--accent);
   --sidebar-row-selected: var(--muted);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-ring: var(--ring);
+}
+
+html.electron {
+  --titlebar-traffic-light-inset: 78px;
 }
 
 .light {
@@ -138,6 +158,11 @@
   --sidebar: oklch(98.5% 0 0);
   --sidebar-row-hover: oklch(99.2% 0 0);
   --sidebar-row-selected: #fff;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-ring: var(--ring);
 }
 
 @layer base {

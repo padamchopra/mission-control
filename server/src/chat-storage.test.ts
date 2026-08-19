@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import test from "node:test";
 import type { ConvEntry } from "./transcript.js";
 // Type-only, so it is erased at compile time and does not open the database
 // before the directory override below takes effect.
-import type { ChatRow, StoredChat } from "./chat-storage.js";
+import type { ChatRow } from "./chat-storage.js";
 
 // The storage module opens its database at import time against `configDir`, so
 // the whole suite runs against a throwaway directory. node:test gives each file
@@ -16,7 +14,7 @@ import type { ChatRow, StoredChat } from "./chat-storage.js";
 const stateDir = mkdtempSync(join(tmpdir(), "mc-chat-storage-"));
 process.env.MC_CONFIG_DIR = stateDir;
 
-// Imported after the override so config.ts resolves to the temp directory.
+// Imported after the override so paths.ts resolves to the temp directory.
 const storage = await import("./chat-storage.js");
 
 function entry(id: string, text: string): ConvEntry {
@@ -103,53 +101,3 @@ test("newest chat first", () => {
   assert.ok(ids.indexOf("new") < ids.indexOf("old"));
 });
 
-// The upgrade path: chats used to be one JSON file each. A server that has them
-// must bring them across on first boot and keep the originals. This only ever
-// happens at boot, and `configDir` is resolved once per process, so the test
-// runs it the way a real server does: in a fresh process.
-test("imports the JSON layout a previous build wrote", () => {
-  const legacyState = mkdtempSync(join(tmpdir(), "mc-chat-legacy-"));
-  const legacyChats = join(legacyState, "chats");
-  mkdirSync(legacyChats, { recursive: true });
-  writeFileSync(
-    join(legacyChats, "old-chat.json"),
-    JSON.stringify({
-      id: "old-chat",
-      title: "From JSON",
-      cwd: "/tmp",
-      permissionMode: "plan",
-      createdAt: 5,
-      updatedAt: 6,
-      claudeSessionId: "resume-me",
-      turns: 2,
-      todos: [{ content: "ship it", status: "pending" }],
-      entries: [entry("j1", "hello"), entry("j2", "world")],
-    }),
-  );
-  // A corrupt file must not stop the rest of the import.
-  writeFileSync(join(legacyChats, "broken.json"), "{ not json");
-
-  const moduleUrl = pathToFileURL(join(import.meta.dirname, "chat-storage.js")).href;
-  const output = execFileSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      `const s = await import(${JSON.stringify(moduleUrl)});
-       process.stdout.write("RESULT:" + JSON.stringify(s.loadChats(100)));`,
-    ],
-    { env: { ...process.env, MC_CONFIG_DIR: legacyState }, encoding: "utf8" },
-  );
-  const chats = JSON.parse(output.slice(output.indexOf("RESULT:") + "RESULT:".length)) as StoredChat[];
-
-  const loaded = chats.find((c) => c.id === "old-chat");
-  assert.ok(loaded, "the JSON chat should have been imported");
-  assert.equal(loaded.title, "From JSON");
-  assert.equal(loaded.permissionMode, "plan");
-  assert.equal(loaded.claudeSessionId, "resume-me");
-  assert.deepEqual(loaded.todos, [{ content: "ship it", status: "pending" }]);
-  assert.deepEqual(loaded.entries.map((e) => e.id), ["j1", "j2"]);
-  // The originals are moved aside, never deleted.
-  assert.equal(existsSync(legacyChats), false);
-  assert.ok(readdirSync(legacyState).some((name) => name.startsWith("chats-imported-")));
-});

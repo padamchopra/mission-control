@@ -1,15 +1,15 @@
-# Mission Control
+# Remy
 
-A native iOS remote for a fleet of [Claude Code](https://claude.com/claude-code)
+A native remote for a fleet of [Claude Code](https://claude.com/claude-code)
 and [Codex CLI](https://developers.openai.com/codex/cli) sessions running in
-`tmux` on your Mac. Check what every session is doing, get a
+`tmux` on your machines. Check what every session is doing, get a
 push when one needs you, drop into a live terminal, and send a message (or a
 photo) — all over your private
 [Tailscale](https://tailscale.com) network.
 
 It gives people who run many long-lived coding-agent sessions one remote control
 on an always-on machine. The design principle: **the source
-of truth never leaves the Mac.** The terminal is streamed straight from
+of truth never leaves the machine.** The terminal is streamed straight from
 `tmux attach`, and input is injected locally with `tmux send-keys` — so there's
 no mirrored state to go stale and no keystrokes to drop in a sync layer.
 
@@ -24,7 +24,7 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
 
 ```
 ┌──────────────┐   Tailscale (WireGuard)   ┌─────────────────────────────┐
-│  iOS app     │ ◄──────────────────────►  │  Mac                        │
+│  iOS app     │ ◄──────────────────────►  │  Machine                    │
 │  (SwiftUI +  │   REST + WebSocket        │  server/ (Node, launchd)    │
 │   SwiftTerm) │                           │    ├─ tmux ls / send-keys   │
 └──────────────┘                           │    ├─ PTY ↔ WS streaming    │
@@ -42,25 +42,25 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   workspaces, stores uploaded media, parses transcripts into the conversation
   feed, the decision queue, and per-session context usage, and sends
   notifications via ntfy.
-- **`server/src/chat.ts`** — Mission Control's own Claude conversations, run
+- **`server/src/chat.ts`** — Remy's own Claude conversations, run
   through the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview).
   These have no tmux session behind them: the server holds the Claude process,
   keeps the feed, streams each turn to every connected client, and parks tool
   approvals and `AskUserQuestion` prompts until someone answers them.
-- **`server/src/chat-storage.ts`** — chats in SQLite (`~/.mission-control/chats.db`),
+- **`server/src/chat-storage.ts`** — chats in SQLite (`~/.remy/remy.db`),
   via Node's built-in `node:sqlite`, so it costs no dependency and nothing at
   install time. A chat is one row plus one row per feed entry, which means a
   streaming turn appends instead of rewriting its own history, and the chat list
-  is a single query. Everything else in the server keeps its state in JSON, which
-  is right for a handful of sessions and wrong for conversations that grow. The
-  conversation's real home is still Claude's own transcript — this is the
-  rendered view, and the session id that resumes it.
+  is a single query. The same database holds config, settings, workspaces, loops,
+  archives, and the session registry. The conversation's real home is still
+  Claude's own transcript — this is the rendered view, and the session id that
+  resumes it.
 - **`server/hooks/mc-hook.sh`** — shared Claude Code and Codex lifecycle hooks
   that report each session's state to the server. Every configured agent session
   running inside tmux reports automatically. Each event is pushed straight on to
   the connected apps, so the UI tracks an agent as it works rather than polling
   for changes. Claude's `AskUserQuestion` is intercepted before its terminal
-  dialog: Mission Control renders the exact structured questions and returns the
+  dialog: Remy renders the exact structured questions and returns the
   selected answers to the same interactive Claude process. A mirrored session is
   always the user's own interactive Claude Code process — no Agent SDK session is
   involved, unlike a chat, which the server runs itself. Either way the work runs
@@ -72,15 +72,16 @@ no mirrored state to go stale and no keystrokes to drop in a sync layer.
   chips, fields, rows, keycaps); `CommandPalette.swift` is the ⌘K palette.
   `ThemeCompat.swift` maps the app's two older palettes onto the token set and is
   meant to shrink to nothing.
-- **`web/`** — the desktop UI: React 19, Tailwind v4, and shadcn-style primitives
-  owned in-tree (`src/components/ui`). Design tokens live in `src/index.css`,
-  ported from T3 Code's own CSS. `npm run shots` renders the app and its
-  interactions to PNGs with Playwright's cached Chromium, so a UI change can be
-  looked at without a human taking screenshots.
+- **`web/`** — the desktop UI: React 19, Tailwind v4, and [shadcn/ui](https://ui.shadcn.com)
+  (Radix). Add components with `npx shadcn@latest add` from `web/`; they land in
+  `src/components/ui`. Design tokens live in `src/index.css`, ported from T3
+  Code's own CSS. `npm run shots` renders the app and its interactions to PNGs
+  with Playwright's cached Chromium, so a UI change can be looked at without a
+  human taking screenshots.
 - **`desktop/`** — the Electron shell. Deliberately thin: it owns the window
   (`titleBarStyle: hiddenInset`, traffic lights at 16/18) and nothing else, so
   the UI stays a plain web app that runs in a browser.
-- **`deploy/`** — one setup script for the Mac (launchd + hooks + `tailscale serve`).
+- **`deploy/`** — one setup script for the server (launchd + hooks + `tailscale serve`).
 
 ## Running the desktop app
 
@@ -91,9 +92,10 @@ npm run dev             # Electron, pointed at the dev server
 ```
 
 `VITE_MC_FIXTURE=1 npm run dev:web` fills the window with sample data, which is
-how the layout gets reviewed without a Mac attached. To run against a real
-server in a plain browser, set `MC_SERVER_URL` and `MC_TOKEN` — Vite proxies
-`/api` and injects the bearer header, so the token never reaches the page.
+how the layout gets reviewed without a server attached. Otherwise Vite starts
+the local Remy server if it isn't already running, proxies `/api`, and injects
+the bearer header from `~/.remy/remy.db` (or `MC_TOKEN`) so the token never
+reaches the page. The desktop app does the same on launch.
 
 ```sh
 npm run shots        # render the window and its interactions to /tmp/mc-shots
@@ -107,10 +109,10 @@ npm run live-check   # start a tmux session; assert the window picks it up
   whatever needs you first, and full keyboard control: ↑↓ or ⌃N/⌃P to move, ↵ to
   open, esc to close. Hovering moves the selection too, so the mouse and the
   keyboard never disagree about what ↵ will do.
-- **Multiple servers** — connect to more than one Mac (e.g. a desktop and a
+- **Multiple servers** — connect to more than one machine (e.g. a desktop and a
   laptop) and switch between them from the top bar.
-- **Chats** — conversations Mission Control runs itself, in any directory on the
-  Mac, with no terminal involved. Start one from the Chat tab, pick the model and
+- **Chats** — conversations Remy runs itself, in any directory on the
+  machine, with no terminal involved. Start one from the Chat tab, pick the model and
   how much Claude may do unasked (ask / accept edits / plan / full access), and
   the turn streams in live: assistant text token by token, collapsible reasoning,
   tool calls with inline diffs and output, and the plan as it changes. Tool
@@ -128,23 +130,23 @@ npm run live-check   # start a tmux session; assert the window picks it up
   ask, the tool call it's blocked on, the options if it asked a question, and what
   the agent last said — enough to triage immediately. Permission prompts can be
   approved, denied, or replied to there; structured questions open their native
-  Conversation card. Acting advances to the next one. Shift-Command-D on the Mac.
+  Conversation card. Acting advances to the next one. Shift-Command-D on desktop.
 - **Native Claude questions** — single-choice, multi-select, multi-question, and
   free-text `AskUserQuestion` prompts render as first-class Conversation cards.
   Answers are correlated by Claude's tool-use ID instead of terminal cursor
-  position. If the blocking hook cannot reach Mission Control, Claude falls back
+  position. If the blocking hook cannot reach Remy, Claude falls back
   to its ordinary terminal dialog and the existing pane parser remains available.
 - **Context meter** — how full each supported agent's context window is, read from the
   token accounting in its transcript, with the number of times it has already
   compacted and how much history that discarded. Shown above the conversation and
-  in the Mac inspector; fleet cards raise a chip only once a session is actually
+  in the inspector; fleet cards raise a chip only once a session is actually
   under pressure. Tap it for the rest of the session's configuration — model,
   reasoning effort, permission mode, branch, Claude Code build — all read from
   what Claude Code records as it goes, so none of it needs a slash command whose
   output would only render inside the terminal. A session running in plan mode,
   auto-accepting edits, or with permissions bypassed says so in orange.
 - **Repository workspaces** — each workspace is a Git repository's primary
-  checkout. Mission Control discovers every linked worktree, groups sessions
+  checkout. Remy discovers every linked worktree, groups sessions
   from any checkout together, and opens fresh shells in the primary checkout.
   Use the repository control beside a workspace to inspect branches and paths,
   close one linked worktree or all of them, and choose clean close (refuses
@@ -170,16 +172,16 @@ npm run live-check   # start a tmux session; assert the window picks it up
   Each chip is a whitelisted key or one fixed slash command; there's no route
   from a chip to an arbitrary command.
 - **Media** — paste an image into the field or pick a photo/video; it uploads to
-  the Mac and its path is sent so the active agent can read it.
+  the machine and its path is sent so the active agent can read it.
 - **Per-session actions** — open the conversation in claude.ai, view its GitHub
   PR, search terminal history, review activity, mute or resume notifications,
   rename the session, save its repository as a workspace, or kill it (with an
   offer to clean up the linked worktree).
-- **Mac app** — the same target builds for macOS via Mac Catalyst: one codebase,
+- **Desktop app** — the same target builds for the desktop via Mac Catalyst: one codebase,
   and workspaces/sessions are served by the server so every device sees the same
-  thing. While the Mac app is running (even in the background) notifications
-  arrive as native macOS banners and the phone stays quiet; quit it and pushes
-  fall back to the phone automatically. The Mac uses a two-pane layout, supports
+  thing. While the desktop app is running (even in the background) notifications
+  arrive as native banners and the phone stays quiet; quit it and pushes
+  fall back to the phone automatically. The desktop app uses a two-pane layout, supports
   Command-Return to send, Command-[ / Command-] to navigate history,
   Command-K to jump directly to a session, Shift-Command-D to open the decision
   queue, and Command-Option-S to toggle the sidebar. The terminal toolbar explicitly checks the current branch for an
@@ -192,13 +194,13 @@ npm run live-check   # start a tmux session; assert the window picks it up
 
 ## Prerequisites
 
-- A Mac that stays on, with [Homebrew](https://brew.sh), Node 22.5+ (for
-  `node:sqlite`, which chats are stored in — everything else works on Node 20),
+- A machine that stays on, with [Homebrew](https://brew.sh), Node 22.5+ (for
+  `node:sqlite`, which is how Remy stores its state),
   `tmux`, `git`,
   and the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — for the
   "view PR" action).
 - Claude Code and/or Codex CLI installed for whichever agents you want to run.
-- [Tailscale](https://tailscale.com) installed and logged in on both the Mac and
+- [Tailscale](https://tailscale.com) installed and logged in on both the server and
   your iPhone (same tailnet).
 - Xcode 16+ (a free Apple ID is enough to build on your own device — no paid
   Developer Program needed).
@@ -206,11 +208,11 @@ npm run live-check   # start a tmux session; assert the window picks it up
 
 ## Setup
 
-### 1. Server (on the Mac)
+### 1. Server (on the machine)
 
 ```sh
-git clone <this-repo> ~/mission-control
-cd ~/mission-control
+git clone <this-repo> ~/remy
+cd ~/remy
 ./deploy/setup.sh
 ```
 
@@ -225,15 +227,15 @@ When upgrading from a build without native `AskUserQuestion`, rerun
 raise its timeout inside `~/.claude/settings.json`; setup performs both changes.
 
 Codex requires a one-time trust review for user-installed lifecycle hooks. Start
-Codex, run `/hooks`, and trust the Mission Control entries after setup. Until
+Codex, run `/hooks`, and trust the Remy entries after setup. Until
 then, its live terminal works but enriched state, approvals, notifications, and
 the native conversation feed will not update.
 
 After this version is installed, future server updates can be started from the
-app on either iPhone or Mac: **Settings → Server maintenance → Update server**.
+app on either iPhone or desktop: **Settings → Server maintenance → Update server**.
 It performs a fast-forward `git pull`, `npm ci`, a server build, and a launchd
 restart. Status is shown in the app; detailed output is saved to
-`~/.mission-control/update.log` on the server Mac.
+`~/.remy/update.log` on the server.
 
 > The first update to a server running an older version still needs a manual
 > `git pull`, `npm ci`, `npm run build`, and launchd restart, because that older
@@ -257,15 +259,15 @@ Copy `ios/Config/Signing.local.xcconfig.example` to
 That local file is ignored by Git and survives `xcodegen generate`. Then select
 your iPhone run destination and build. Tap the **gear → +  → Scan
 pairing QR** and scan the QR the setup script printed — that adds the server (no
-username or manual token entry). Repeat on another Mac to add a second server;
+username or manual token entry). Repeat on another machine to add a second server;
 switch between them from the menu in the top-left.
 
-For the **Mac app**, pick the "My Mac (Mac Catalyst)" run destination instead.
-On first launch, choose **Add connection → Set up this Mac**. Mission Control
+For the **desktop app**, pick the "My Mac (Mac Catalyst)" run destination instead.
+On first launch, choose **Add connection → Set up this machine**. Remy
 automatically finds an existing checkout (or prepares its own managed checkout),
 runs the installer, starts the service, and pairs it with the app. No Terminal
 command or pairing-link copy/paste is required. The manual server flow above is
-still available when setting up a different Mac or pairing the iOS app.
+still available when setting up a different machine or pairing the iOS app.
 
 ### 3. Notifications (ntfy)
 
@@ -274,9 +276,9 @@ Apple Developer Program required. The setup script generates a random, private
 topic and prints it. On your phone: install the **ntfy** app, add the server
 (`https://ntfy.sh` by default), and subscribe to that topic. Done — when a
 session needs input or finishes a turn, you get a push, and tapping it opens
-that session in Mission Control (via the `missioncontrol://` deep link).
+that session in Remy (via the `remy://` deep link).
 
-Mission Control suppresses repeated copies of the same hook event. To silence a
+Remy suppresses repeated copies of the same hook event. To silence a
 noisy session everywhere, use **Unsubscribe from notifications** in its context
 menu (or the session's `…` menu); use **Subscribe to notifications** there to
 turn them back on.
@@ -284,12 +286,12 @@ turn them back on.
 Keep messages in mind for privacy: with the hosted `ntfy.sh`, notification text
 transits their server, so it's kept terse (session name + short reason). For a
 fully private setup, self-host ntfy and set `ntfyServer` in
-`~/.mission-control/config.json` to your own server.
+`~/.remy/remy.db` to your own server.
 
 Both apps hold a WebSocket to each paired server while they're in the
-foreground, but only the Mac app asks to receive notifications over it. So if
-the Mac app is running, the server delivers there instead of ntfy — native
-banners on the Mac, nothing on the phone. Quit the Mac app (or let the
+foreground, but only the desktop app asks to receive notifications over it. So if
+the desktop app is running, the server delivers there instead of ntfy — native
+banners on the desktop, nothing on the phone. Quit the desktop app (or let the
 connection drop) and notifications fall back to ntfy within about 30 seconds.
 The phone's socket carries live session state only, and never diverts a
 notification away from ntfy.
@@ -339,13 +341,13 @@ the full threat model and input-handling notes.
   out of a transcript. The server instead records what *it* submitted while a
   session was mid-turn, and drops each entry once that text shows up in the
   transcript as a real turn. A prompt you type directly into the terminal on the
-  Mac is therefore invisible to the app until Claude picks it up, and an
+  machine is therefore invisible to the app until Claude picks it up, and an
   interrupt (Escape) clears the record, since it clears Claude's queue too.
 - **Context meter window size.** Transcripts record which model a session runs but
   never its context window, and the 1M-token variants share a model id with the
   200k ones — so the meter assumes 200k and marks the figure with a `~`. If your
   sessions run a larger window, set `contextLimit` in
-  `~/.mission-control/config.json`. Either way it self-corrects: a session whose
+  `~/.remy/remy.db`. Either way it self-corrects: a session whose
   context passes the assumed limit is treated as a 1M one, and once a session
   auto-compacts, that point *is* its real ceiling and the `~` disappears.
 - **Repositories on an external/removable volume** (e.g. `/Volumes/...`) need the
@@ -354,6 +356,6 @@ the full threat model and input-handling notes.
   by default — so git/`gh` commands against such a repo silently stall (workspace
   saves and PR checks hang). Fix: System Settings → Privacy & Security → Full Disk
   Access → add the node binary (`readlink -f "$(command -v node)"`), then restart
-  the server (`launchctl kickstart -k gui/$(id -u)/com.example.missioncontrol`).
+  the server (`launchctl kickstart -k gui/$(id -u)/com.example.remy`).
   Every git/`gh`/tmux call is also capped at 15s, so a stalled volume fails fast
   instead of hanging.

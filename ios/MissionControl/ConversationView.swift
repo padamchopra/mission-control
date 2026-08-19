@@ -778,7 +778,7 @@ struct ConversationView: View {
             Text("No conversation for this session")
                 .font(.headline)
                 .foregroundStyle(MCColor.foreground)
-            Text("This looks like a shell session, or the agent is running without trusted Mission Control hooks. The live terminal has everything.")
+            Text("This looks like a shell session, or the agent is running without trusted Remy hooks. The live terminal has everything.")
                 .font(.callout)
                 .foregroundStyle(MCColor.mutedForeground)
                 .multilineTextAlignment(.center)

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-process.env.HOME = mkdtempSync(join(tmpdir(), "mission-control-events-test-"));
+process.env.HOME = mkdtempSync(join(tmpdir(), "remy-events-test-"));
 
 const { handleHookEvent } = await import("./events.js");
 const { registry } = await import("./registry.js");

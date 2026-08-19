@@ -8,7 +8,7 @@ export const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
 // Under the OS temp dir so macOS purges old uploads on its own (periodic
 // cleanup + reboot) — no manual retention needed. Files live far longer than
 // any session, so Claude always has time to read them.
-export const uploadRoot = join(tmpdir(), "mission-control-uploads");
+export const uploadRoot = join(tmpdir(), "remy-uploads");
 
 function sanitizeFilename(raw: string): string {
   const base = (raw.split(/[\\/]/).pop() ?? "").trim();

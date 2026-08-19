@@ -1,9 +1,9 @@
 #!/bin/bash
-# Agent hook → Mission Control event forwarder.
+# Agent hook → Remy event forwarder.
 # Reports Claude Code and Codex sessions running inside tmux (non-tmux sessions
 # have no pane to attach to, so they're skipped). Always exits 0 so a forwarding
 # failure can never block the agent session itself. AskUserQuestion is the one
-# deliberate exception: its Claude PreToolUse hook waits for Mission Control to
+# deliberate exception: its Claude PreToolUse hook waits for Remy to
 # return structured answers, then falls back to Claude's terminal dialog if the
 # server is unavailable or the request times out.
 
@@ -16,11 +16,13 @@ case "$AGENT" in claude|codex) ;; *) exit 0 ;; esac
 SESSION="$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null | tr -cd 'A-Za-z0-9._-')"
 [ -n "$SESSION" ] || exit 0
 
-CONFIG="$HOME/.mission-control/config.json"
-[ -f "$CONFIG" ] || exit 0
-TOKEN="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).token' "$CONFIG" 2>/dev/null)"
-PORT="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).port || 8420' "$CONFIG" 2>/dev/null)"
+STORE="$HOME/.remy/store.mjs"
+[ -f "$STORE" ] || STORE="$HOME/.mission-control/store.mjs"
+[ -f "$STORE" ] || exit 0
+TOKEN="$(node "$STORE" get config token 2>/dev/null)"
+PORT="$(node "$STORE" get config port 2>/dev/null)"
 [ -n "$TOKEN" ] || exit 0
+[ -n "$PORT" ] || PORT=8420
 
 PAYLOAD="$(cat)"
 TOOL_NAME=""

@@ -30,13 +30,18 @@ export type SkillSuggestion = { name: string; description: string | null; source
  * a bounded directory walk otherwise. Obvious credential files are always hidden:
  * the picker should help the agent, not turn into a secret-file browser.
  */
-export async function findProjectFiles(root: string, query: string): Promise<FileSuggestion[]> {
+export async function findProjectFiles(
+  root: string,
+  query: string,
+  opts?: { match?: (path: string) => boolean },
+): Promise<FileSuggestion[]> {
   root = await projectRoot(root);
   const needle = query.trim().toLowerCase();
   const candidates = await listCandidateFiles(root);
 
   const scored: Array<{ path: string; score: number }> = [];
   for (const path of candidates) {
+    if (opts?.match && !opts.match(path)) continue;
     if (SECRET_FILE.test(path)) continue;
     const score = matchScore(path.toLowerCase(), needle);
     if (score < 0) continue;
