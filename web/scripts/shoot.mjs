@@ -51,11 +51,13 @@ await page.getByText("All devices").first().click();
 await page.waitForTimeout(300);
 await shoot("04-device-popover");
 
-// Prove it floats: the nav below must not have moved.
-const navBox = await page.getByText("Chats").last().boundingBox();
+// Prove it floats: the nav below must not have moved. Anchor on a label the
+// open popover cannot also contain — its rows list each device's thread count.
+const navItem = page.locator("[data-slot=sidebar]").getByText("Workspaces", { exact: true });
+const navBox = await navItem.boundingBox();
 await page.keyboard.press("Escape");
 await page.waitForTimeout(300);
-const navBoxAfter = await page.getByText("Chats").last().boundingBox();
+const navBoxAfter = await navItem.boundingBox();
 const shifted = Math.abs((navBox?.y ?? 0) - (navBoxAfter?.y ?? 0));
 console.log(`\npopover reflow check: nav moved ${shifted.toFixed(1)}px (must be 0)`);
 

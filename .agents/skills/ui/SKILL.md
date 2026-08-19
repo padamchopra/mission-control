@@ -1,23 +1,21 @@
 ---
 name: ui
-description: Remy web UI conventions — shadcn primitives and keyboard access. Use when adding, changing, or reviewing ANY web component, dialog, modal, form, menu, picker, empty state, or shortcut.
+description: Layout and keyboard for the Remy web UI. Use when adding or changing ANY web component, dialog, menu, picker, list row, empty state, or shortcut.
 ---
 
 # UI
 
-`content` owns the words. This skill owns Remy layout and keyboard. `.agents/skills/shadcn` owns the CLI, composition rules, and component APIs — read it before adding or rewriting a primitive.
+`content` owns the words. `qa` owns clicking the result. `.agents/skills/shadcn` owns the CLI, composition rules, and component APIs — read it before adding or rewriting a primitive.
 
-Remy's web UI is shadcn New York (Radix) in `web/src/components/ui`, configured by `web/components.json`. Run CLI commands from `web/`.
+The UI is shadcn New York (Radix, not Base) in `web/src/components/ui`, configured by `web/components.json`. Run CLI commands from `web/`.
 
 ## Primitives
 
-Use a primitive from `web/src/components/ui` for every control. If it is missing, add it with `npx shadcn@latest add <name>` from `web/` and then use it.
+Every control comes from `web/src/components/ui`. A primitive that is missing is added with `npx shadcn@latest add <name>` from `web/`, then used.
 
-This project is Radix, not Base. Toast is `sonner` (`toast()` from `sonner`, `<Toaster />` from `@/components/ui/sonner`). Do not add the Base `toast` component.
+Answer the prompt to overwrite an existing file with no: the CLI pulls a component's dependencies, and this project has edited some of them.
 
-Composed screens (`Palette`, `AddWorkspace`, `Settings`, `AppSidebar`, `ChatComposer`) assemble those primitives. They are not a substitute for a primitive that already exists.
-
-A custom `div`/`button` control is the last resort, only after no shadcn primitive can do the job.
+A custom `div` or `button` is the last resort, after no primitive can do the job.
 
 BAD
 ```tsx
@@ -42,36 +40,38 @@ GOOD
 </Command>
 ```
 
-The reference for a searchable, keyboard-driven list is `web/src/components/Palette.tsx`. The reference for app chrome is `web/src/components/AppSidebar.tsx`.
-
 | Job | Primitive |
 |---|---|
-| App chrome | `Sidebar` (`AppSidebar`) |
-| Searchable / selectable list | `Command` |
-| ⌘K | `CommandDialog` (`Palette`) |
+| App chrome | `Sidebar` |
+| Searchable, keyboard-driven list | `Command` |
+| ⌘K | `CommandDialog` |
+| A row with icon, title, description, trailing action | `Item` |
+| A message in a thread | `Message` + `Bubble` |
 | Empty panel | `Empty` |
-| Chat row / last preview | `Message` + `Bubble` |
-| Confirm a destructive action | `AlertDialog` |
-| Transient status | `toast()` from `sonner` |
-| Loading text | `shimmer` class from `shadcn/tailwind.css` |
-| Modal | `Dialog` (`esc` closes) |
-| Menu | `DropdownMenu` (selected is a trailing `Check`, not a left radio) |
+| Modal | `Dialog`, or `AlertDialog` to confirm something destructive |
+| Menu | `DropdownMenu`, selected marked by a trailing `Check` |
 | Form dropdown | `Select` |
 | Labeled setting row | `Field` |
-| Chat compose | `InputGroup` + `Textarea` (`ChatComposer`) |
-| Tabs | `Tabs` |
-| Confirm / submit | `Button` in a focusable dialog |
+| Composing a message | `InputGroup` |
+| Transient status | `toast()` from `sonner` |
+| Loading text | the `shimmer` class from `shadcn/tailwind.css` |
+
+`Palette.tsx` is the reference for a searchable list, `AppSidebar.tsx` for app chrome, and `PathPicker.tsx` for choosing a folder.
+
+A composed screen assembles primitives; it never replaces one that exists. A control that appears on two screens moves into its own module rather than being copied — `ComposerMenu.tsx` and `PathPicker.tsx` are shared this way.
 
 ## Keyboard
 
-Every interactive surface has keyboard access. Prefer primitives that already implement it over home-rolled `onKeyDown`.
+Every interactive surface has keyboard access, from the primitive that already implements it rather than a home-rolled `onKeyDown`.
 
-Arrow keys move the highlight. Enter activates. Escape closes. Tab moves between chrome (input, list, footer actions). ⌘K already opens the palette.
+Arrow keys move the highlight, Enter activates, Escape closes, Tab moves between input, list, and footer actions.
 
-In a path picker, Enter fills the highlighted folder so you can keep going. ⌘Enter confirms.
+In a path picker, Enter opens the highlighted folder so you can keep going, and ⌘Enter confirms.
 
-If the primitive cannot own a shortcut, bind it and show it with `Kbd` / `KbdGroup` next to the action, matching the palette footer.
+A shortcut no primitive owns is bound in the component and shown with `Kbd` next to the action.
 
-Do not ship a click-only list, picker, or toolbar when the same job exists as a shadcn primitive with keys.
+## Where the window is
 
-After the control is on the page, follow `qa` and click it in the running preview. A snapshot of the default paint is not a test.
+Threads, settings tabs, workspaces, and the device scope are hash routes, parsed and formatted by `web/src/lib/route.ts`. A new place a person can be gets a route, so a reload lands back on it.
+
+State that is genuinely transient — an open palette, an open dialog — stays in React.

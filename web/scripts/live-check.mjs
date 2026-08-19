@@ -1,19 +1,37 @@
-// Proves the window is Remy's chats remote: it must load a chats heading from
-// the connected server (or the empty-chats composer) without anyone touching
-// the UI.
+// Proves the window is Remy's threads remote: it loads, reaches the daemon, and
+// shows somewhere you could start work — without anyone touching the UI.
 import { chromium } from "playwright-core";
 import { chromiumPath } from "./chromium.mjs";
 
 const browser = await chromium.launch({ executablePath: chromiumPath() });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-await page.goto("http://localhost:5173", { waitUntil: "networkidle" });
+const errors = [];
+page.on("pageerror", (error) => errors.push(String(error)));
 
-const heading = await page.locator("h1").first().innerText();
-console.log("heading:", heading);
+await page.goto("http://127.0.0.1:5173", { waitUntil: "networkidle" });
+await page.waitForSelector("[data-slot=sidebar]", { timeout: 30_000 });
+await page.waitForTimeout(1500);
 
-const ok = /chat/i.test(heading) || /need/i.test(heading) || /Connecting/i.test(heading);
-console.log(ok ? "\nPASS: the window is showing chats" : "\nFAIL: expected a chats heading");
+const sidebar = await page.locator("[data-slot=sidebar]").innerText();
+const main = await page.locator("main").innerText();
+console.log("sidebar:", sidebar.split("\n").filter(Boolean).slice(0, 6).join(" | "));
+console.log("main:", main.split("\n").filter(Boolean).slice(0, 3).join(" | "));
 
-await page.screenshot({ path: "/tmp/mc-live/05-chats.png" });
+// The sidebar always lists the sections; the main pane is either the composer,
+// an open thread, or the state that explains why it is neither.
+const listsThreads = /threads/i.test(sidebar);
+const usable =
+  /what do you want to do in/i.test(main)
+  || /reply, or ask/i.test(main)
+  || /connecting/i.test(main)
+  || /can't reach|no devices/i.test(main);
+
+const ok = listsThreads && usable && errors.length === 0;
+if (!listsThreads) console.log("FAIL: the sidebar is not listing threads");
+if (!usable) console.log("FAIL: the main pane is neither a composer, a thread, nor an explained empty state");
+if (errors.length) console.log("FAIL: page errors:", errors.join(" | "));
+console.log(ok ? "\nPASS: the window is showing threads" : "\nFAIL: the window is not usable");
+
+await page.screenshot({ path: "/tmp/mc-live/05-threads.png" });
 await browser.close();
 if (!ok) process.exit(1);
