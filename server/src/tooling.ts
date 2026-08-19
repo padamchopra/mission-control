@@ -82,6 +82,25 @@ export async function githubLogin(): Promise<string | undefined> {
   }
 }
 
+/// This account's picture on GitHub, as a `data:` URL.
+///
+/// Fetched here rather than in the page: the window never calls out, and this
+/// way an avatar that came from GitHub is stored the same way as one someone
+/// picked off their disk. `s=128` asks GitHub for a small one, so nothing has
+/// to be resized afterwards.
+export async function githubAvatar(): Promise<string> {
+  const { stdout } = await exec("gh", ["api", "user", "--jq", ".avatar_url"], { cwd: homedir(), timeout: 8_000 });
+  const url = stdout.trim();
+  if (!/^https:\/\/[^\s]+$/.test(url)) throw new Error("GitHub did not give a picture");
+
+  const response = await fetch(`${url}${url.includes("?") ? "&" : "?"}s=128`);
+  if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+  const type = response.headers.get("content-type") ?? "image/png";
+  if (!/^image\/(png|jpeg|webp|gif)/.test(type)) throw new Error("that is not an image");
+  const body = Buffer.from(await response.arrayBuffer());
+  return `data:${type.split(";")[0]};base64,${body.toString("base64")}`;
+}
+
 export async function tooling(): Promise<Tooling> {
   const [git, gh, claude] = await Promise.all([
     probe("git", ["--version"]),

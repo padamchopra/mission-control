@@ -1,39 +1,70 @@
 /// Faces for your own messages.
 ///
-/// The built-in ones are drawn here rather than fetched: this window talks to
-/// loopback and nothing else, so an avatar service is not an option. An emoji
-/// on a saturated disc is full colour at any size, needs no asset, and looks
-/// like somebody rather than like an icon.
+/// The built-in ones are generated rather than fetched: this window talks to
+/// loopback and nothing else, so an avatar service is not an option. Each seed
+/// draws the same abstract mark every time — overlapping shapes in one hue
+/// family — which is what an avatar is for: telling one person from another at
+/// a glance, without being a picture of anything.
 
-export interface AvatarPreset {
-  id: string;
-  label: string;
-  emoji: string;
-  /// The disc behind it. Written out per preset so each can be read as the
-  /// thing it looks like.
-  className: string;
+export interface AvatarArt {
+  background: string;
+  circle: string;
+  band: string;
+  /// Where the shapes sit, so two seeds with close hues still differ.
+  offsetX: number;
+  offsetY: number;
+  rotation: number;
 }
 
-export const AVATAR_PRESETS: AvatarPreset[] = [
-  { id: "alien", label: "Alien", emoji: "👾", className: "bg-gradient-to-br from-violet-500 to-fuchsia-600" },
-  { id: "fox", label: "Fox", emoji: "🦊", className: "bg-gradient-to-br from-orange-400 to-red-500" },
-  { id: "octopus", label: "Octopus", emoji: "🐙", className: "bg-gradient-to-br from-pink-400 to-rose-600" },
-  { id: "unicorn", label: "Unicorn", emoji: "🦄", className: "bg-gradient-to-br from-fuchsia-400 to-purple-600" },
-  { id: "frog", label: "Frog", emoji: "🐸", className: "bg-gradient-to-br from-lime-400 to-emerald-600" },
-  { id: "cactus", label: "Cactus", emoji: "🌵", className: "bg-gradient-to-br from-emerald-400 to-teal-600" },
-  { id: "pizza", label: "Pizza", emoji: "🍕", className: "bg-gradient-to-br from-amber-400 to-orange-600" },
-  { id: "ufo", label: "UFO", emoji: "🛸", className: "bg-gradient-to-br from-sky-400 to-indigo-600" },
-  { id: "fire", label: "Fire", emoji: "🔥", className: "bg-gradient-to-br from-yellow-400 to-red-600" },
-  { id: "wave", label: "Wave", emoji: "🌊", className: "bg-gradient-to-br from-cyan-400 to-blue-600" },
-  { id: "bolt", label: "Bolt", emoji: "⚡", className: "bg-gradient-to-br from-yellow-300 to-amber-500" },
-  { id: "brain", label: "Brain", emoji: "🧠", className: "bg-gradient-to-br from-rose-300 to-pink-500" },
-  { id: "ghost", label: "Ghost", emoji: "👻", className: "bg-gradient-to-br from-slate-300 to-slate-500" },
-  { id: "robot", label: "Robot", emoji: "🤖", className: "bg-gradient-to-br from-zinc-400 to-slate-600" },
+/// The seeds offered in Settings. Named for the palette each lands on, so the
+/// list reads as choices rather than as numbers.
+export const AVATAR_SEEDS = [
+  "ember",
+  "aurora",
+  "reef",
+  "orchid",
+  "moss",
+  "dusk",
+  "coral",
+  "tide",
+  "amber",
+  "iris",
+  "fern",
+  "slate",
 ];
 
-export function presetFor(avatar: string | undefined): AvatarPreset | undefined {
+/// A stable 32-bit hash. Two seeds that differ anywhere land far apart.
+function hash(seed: string): number {
+  let value = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    value ^= seed.charCodeAt(i);
+    value = Math.imul(value, 16777619);
+  }
+  return Math.abs(value);
+}
+
+export function avatarArt(seed: string): AvatarArt {
+  const h = hash(seed);
+  // A hash spreads unevenly over a dozen short words, and a picker where half
+  // the choices are the same orange is not a choice. The offered seeds take
+  // their hue from their place in the list; anything else falls back to the
+  // hash, so a seed from somewhere else still draws something stable.
+  const known = AVATAR_SEEDS.indexOf(seed);
+  const hue = known >= 0 ? Math.round((known * 360) / AVATAR_SEEDS.length) : h % 360;
+  return {
+    background: `hsl(${hue} 62% 42%)`,
+    circle: `hsl(${(hue + 38) % 360} 78% 62%)`,
+    band: `hsl(${(hue + 76) % 360} 82% 72%)`,
+    offsetX: ((h >> 3) % 7) - 3,
+    offsetY: ((h >> 6) % 7) - 3,
+    rotation: (h >> 9) % 180,
+  };
+}
+
+export function seedFor(avatar: string | undefined): string | undefined {
   if (!avatar?.startsWith("preset:")) return undefined;
-  return AVATAR_PRESETS.find((entry) => entry.id === avatar.slice("preset:".length));
+  const seed = avatar.slice("preset:".length);
+  return seed || undefined;
 }
 
 export function isImageAvatar(avatar: string | undefined): boolean {

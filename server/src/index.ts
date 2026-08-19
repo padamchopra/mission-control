@@ -40,7 +40,7 @@ import { questionBroker } from "./questions.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
-import { githubLogin, tooling } from "./tooling.js";
+import { githubAvatar, githubLogin, tooling } from "./tooling.js";
 import { lastUpdateRun, syncRepoUpdateSchedule, updateRepositories } from "./repo-update.js";
 import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
@@ -223,6 +223,15 @@ const server = createServer(async (req, res) => {
       return json(res, 202, startServerUpdate());
     }
 
+    // Your GitHub picture, stored the same way as one picked off a disk.
+    if (url.pathname === "/server/avatar/github" && req.method === "POST") {
+      try {
+        const avatar = await githubAvatar();
+        return json(res, 200, patchSettings({ avatar }));
+      } catch (error) {
+        return json(res, 502, { error: (error as Error).message || "could not read your GitHub picture" });
+      }
+    }
     // What git, gh, and Claude Code report about themselves on this machine.
     if (url.pathname === "/server/tooling" && req.method === "GET") {
       return json(res, 200, await tooling());

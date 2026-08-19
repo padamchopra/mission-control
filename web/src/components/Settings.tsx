@@ -1,4 +1,4 @@
-import { Archive, Boxes, Check, Folder, GitBranch, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Archive, Boxes, Check, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +54,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { ClaudeMark } from "@/components/ClaudeMark";
-import { AvatarFrom, PresetAvatar } from "@/components/UserAvatar";
+import { AvatarFrom, SeedAvatar } from "@/components/UserAvatar";
 import {
   Dialog,
   DialogContent,
@@ -67,7 +67,7 @@ import { PaneHeader } from "@/components/PaneHeader";
 import { PathPickerDialog } from "@/components/PathPicker";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
-import { AVATAR_PRESETS, isImageAvatar, readAvatarFile } from "@/lib/avatars";
+import { AVATAR_SEEDS, isImageAvatar, readAvatarFile } from "@/lib/avatars";
 import {
   askToNotify,
   notificationsEnabled,
@@ -207,7 +207,9 @@ function GeneralPane({
 /// holds a photo straight off a phone.
 function AvatarField() {
   const { settings, save } = useServerSettings();
+  const useGithubAvatar = useStore((s) => s.useGithubAvatar);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const file = useRef<HTMLInputElement>(null);
 
   if (!settings) return null;
@@ -216,6 +218,18 @@ function AvatarField() {
   const choose = (next: string) => {
     void save({ avatar: next }, "your avatar");
     setOpen(false);
+  };
+
+  const fromGithub = async () => {
+    setBusy(true);
+    try {
+      await useGithubAvatar();
+      setOpen(false);
+    } catch (caught) {
+      toast.error("Couldn't get your GitHub picture", { description: apiError(caught) });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const upload = async (picked: File | undefined) => {
@@ -251,7 +265,7 @@ function AvatarField() {
             <DialogDescription>Pick one, or use a picture of your own.</DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-6 gap-2">
             <button
               type="button"
               aria-label="Default"
@@ -261,20 +275,20 @@ function AvatarField() {
                 avatar ? "border-transparent hover:bg-accent" : "border-primary",
               )}
             >
-              <PresetAvatar />
+              <SeedAvatar />
             </button>
-            {AVATAR_PRESETS.map((preset) => (
+            {AVATAR_SEEDS.map((seed) => (
               <button
-                key={preset.id}
+                key={seed}
                 type="button"
-                aria-label={preset.label}
-                onClick={() => choose(`preset:${preset.id}`)}
+                aria-label={seed}
+                onClick={() => choose(`preset:${seed}`)}
                 className={cn(
                   "flex items-center justify-center rounded-lg border p-1.5",
-                  avatar === `preset:${preset.id}` ? "border-primary" : "border-transparent hover:bg-accent",
+                  avatar === `preset:${seed}` ? "border-primary" : "border-transparent hover:bg-accent",
                 )}
               >
-                <PresetAvatar preset={preset} />
+                <SeedAvatar seed={seed} />
               </button>
             ))}
           </div>
@@ -290,10 +304,16 @@ function AvatarField() {
                 event.target.value = "";
               }}
             />
-            <Button type="button" variant="outline" size="sm" onClick={() => file.current?.click()}>
-              <ImagePlus />
-              Use a picture
-            </Button>
+            <span className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => file.current?.click()}>
+                <ImagePlus />
+                Use a picture
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void fromGithub()}>
+                <Github />
+                {busy ? "Fetching…" : "From GitHub"}
+              </Button>
+            </span>
             {isImageAvatar(avatar) && (
               <Button type="button" variant="ghost" size="sm" onClick={() => choose("")}>
                 Remove picture

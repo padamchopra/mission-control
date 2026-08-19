@@ -102,6 +102,7 @@ interface State {
   loadSettings(): Promise<void>;
   saveSettings(patch: Partial<ServerSettings>): Promise<void>;
   loadTooling(): Promise<void>;
+  useGithubAvatar(): Promise<void>;
   loadRepoRun(): Promise<void>;
   updateRepos(): Promise<void>;
   openChat(id: string): Promise<void>;
@@ -464,6 +465,16 @@ export const useStore = create<State>((set, get) => ({
     const server = localServer(get().servers);
     if (!server) return;
     set({ tooling: await transport.request<Tooling>(server.id, "/server/tooling") });
+  },
+
+  async useGithubAvatar() {
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    const settings = await transport.request<ServerSettings>(server.id, "/server/avatar/github", {
+      method: "POST",
+      body: {},
+    });
+    set({ settings });
   },
 
   async loadRepoRun() {

@@ -1,6 +1,6 @@
 import { User } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { AVATAR_PRESETS, presetFor, type AvatarPreset } from "@/lib/avatars";
+import { AVATAR_SEEDS, avatarArt, seedFor } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
 
@@ -26,11 +26,12 @@ export function AvatarFrom({ avatar, className }: { avatar: string; className?: 
       </Avatar>
     );
   }
-  return <PresetAvatar preset={presetFor(avatar)} className={className} />;
+  return <SeedAvatar seed={seedFor(avatar)} className={className} />;
 }
 
-export function PresetAvatar({ preset, className }: { preset?: AvatarPreset; className?: string }) {
-  if (!preset) {
+/// The generated mark for a seed, or the plain default when there is none.
+export function SeedAvatar({ seed, className }: { seed?: string; className?: string }) {
+  if (!seed) {
     return (
       <Avatar className={className}>
         <AvatarFallback className="bg-primary/15 text-primary">
@@ -39,15 +40,26 @@ export function PresetAvatar({ preset, className }: { preset?: AvatarPreset; cla
       </Avatar>
     );
   }
+
+  const art = avatarArt(seed);
   return (
-    <Avatar className={className}>
-      {/* The emoji carries the colour; the disc is behind it, so the fallback
-          sets no text colour of its own. */}
-      <AvatarFallback className={cn("text-base leading-none", preset.className)}>
-        <span aria-hidden="true">{preset.emoji}</span>
-      </AvatarFallback>
+    <Avatar className={cn("shrink-0", className)}>
+      <svg viewBox="0 0 40 40" className="size-full" aria-hidden="true">
+        <rect width="40" height="40" fill={art.background} />
+        <circle cx={20 + art.offsetX} cy={14 + art.offsetY} r="11" fill={art.circle} opacity="0.95" />
+        <rect
+          x="-6"
+          y={24 + art.offsetY}
+          width="52"
+          height="13"
+          rx="6.5"
+          fill={art.band}
+          opacity="0.9"
+          transform={`rotate(${art.rotation - 90} 20 30)`}
+        />
+      </svg>
     </Avatar>
   );
 }
 
-export { AVATAR_PRESETS };
+export { AVATAR_SEEDS };
