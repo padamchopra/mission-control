@@ -184,7 +184,7 @@ job fails on purpose so an unsigned build never ships.
    |---|---|
    | `CSC_LINK` | base64 of the `.p12` |
    | `CSC_KEY_PASSWORD` | password for that `.p12` |
-   | `APPLE_API_KEY` | full contents of the `.p8` (including `BEGIN`/`END`) |
+   | `APPLE_API_KEY` | the `.p8` itself (`gh secret set APPLE_API_KEY < AuthKey_….p8`) or a base64 of that file |
    | `APPLE_API_KEY_ID` | the Key ID |
    | `APPLE_API_ISSUER` | the Issuer UUID |
    | `APPLE_TEAM_ID` | 10-character Team ID |
