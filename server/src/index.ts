@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
-import { config } from "./config.js";
+import { config, patchSettings, publicSettings } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
 import {
@@ -34,6 +34,7 @@ import {
 import { buildInbox } from "./inbox.js";
 import { listAuthoredPullRequests, markPullRequestRead, pullRequestTimeline } from "./pull-requests.js";
 import { createLoop, deleteLoop, listLoops, runLoop, startLoopScheduler, updateLoop } from "./loops.js";
+import { setSleepBusyCheck, sleepSupported, syncSleepAssertion } from "./sleep.js";
 import { highlightedIndex, parsePanePrompt } from "./prompt.js";
 import { questionBroker } from "./questions.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
@@ -43,10 +44,12 @@ import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
 import {
   addWorkspace,
+  checkoutWorkspaceBranch,
   closeAllWorkspaceWorktrees,
   closeWorkspaceWorktree,
   createTaskSession,
   listWorkspaces,
+  listWorkspaceBranches,
   openPullRequestSession,
   openSessionInWorkspace,
   readWorkspaceImage,
@@ -216,6 +219,16 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === "/server/update" && req.method === "POST") {
       return json(res, 202, startServerUpdate());
+    }
+
+    if (url.pathname === "/server/settings" && req.method === "GET") {
+      return json(res, 200, { ...publicSettings(), preventSleepSupported: sleepSupported() });
+    }
+    if (url.pathname === "/server/settings" && req.method === "PATCH") {
+      const body = await readJson(req);
+      const settings = patchSettings(body);
+      syncSleepAssertion();
+      return json(res, 200, { ...settings, preventSleepSupported: sleepSupported() });
     }
 
     // Composer quick replies, shared across every client connected to this server.
@@ -563,6 +576,23 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "GET" && parts[2] === "dirty") {
         return json(res, 200, { dirty: await worktreeDirtyMap(id) });
+      }
+      if (req.method === "GET" && parts[2] === "branches") {
+        try {
+          return json(res, 200, { branches: await listWorkspaceBranches(id) });
+        } catch (error) {
+          return json(res, 400, { error: (error as Error).message || "could not list branches" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "checkout") {
+        const body = await readJson(req);
+        try {
+          return json(res, 200, await checkoutWorkspaceBranch(id, String(body.branch ?? ""), String(body.mode ?? "")));
+        } catch (error) {
+          const message = (error as Error).message || "could not switch branch";
+          const status = /not found/i.test(message) ? 404 : /already|stash|Commit|this checkout/i.test(message) ? 409 : 400;
+          return json(res, status, { error: message });
+        }
       }
       if (req.method === "POST" && parts[2] === "task") {
         const body = await readJson(req);
@@ -920,4 +950,8 @@ server.on("upgrade", (req, socket, head) => {
 server.listen(config.port, "127.0.0.1", () => {
   console.log(`remy server listening on 127.0.0.1:${config.port}`);
 });
+setSleepBusyCheck(() =>
+  listChats().some((chat) => chat.state === "working" || chat.state === "needs_input"),
+);
+syncSleepAssertion();
 startLoopScheduler(pushSessionList);

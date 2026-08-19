@@ -3,7 +3,7 @@ import { codeFor, type DeviceIconId } from "~/lib/devices";
 import type { TintId } from "~/lib/tints";
 import { transport } from "~/lib/transport";
 import { fixtureChats, fixtureServers, fixtureWorkspaces } from "./fixture";
-import type { Chat, ChatState, PathSuggestion, Server, Workspace, WorkspaceIconMatch } from "./types";
+import type { Chat, ChatState, GitBranch, GitWorktree, PathSuggestion, Server, Workspace, WorkspaceIconMatch } from "./types";
 
 /// The client's whole view of every connected server.
 ///
@@ -34,6 +34,7 @@ interface RawWorkspace {
   origin?: string | null;
   icon?: string | null;
   tint?: string | null;
+  worktrees?: GitWorktree[];
 }
 
 interface State {
@@ -57,6 +58,19 @@ interface State {
   suggestPaths(query: string): Promise<PathSuggestion[]>;
   suggestWorkspaceIcons(id: string, query: string): Promise<WorkspaceIconMatch[]>;
   workspaceFile(id: string, path: string): Promise<{ mime: string; data: string } | undefined>;
+  listBranches(workspaceId: string): Promise<GitBranch[]>;
+  checkoutBranch(input: {
+    workspaceId: string;
+    branch: string;
+    mode: "main" | "worktree";
+  }): Promise<{ path: string }>;
+  createChat(input: {
+    cwd: string;
+    text: string;
+    serverId?: string;
+    model?: string;
+    permissionMode?: string;
+  }): Promise<{ id: string; serverId: string }>;
 }
 
 /// How often to poll. Long while pushes are arriving, short while they aren't.
@@ -206,7 +220,7 @@ export const useStore = create<State>((set, get) => ({
       set((current) => ({
         workspaces: [
           ...current.workspaces.filter((workspace) => !(workspace.serverId === serverId && workspace.path === path)),
-          { id: crypto.randomUUID(), serverId, name, path, origin: null },
+          { id: crypto.randomUUID(), serverId, name, path, origin: null, worktrees: [] },
         ],
       }));
       return;
@@ -293,6 +307,90 @@ export const useStore = create<State>((set, get) => ({
       return undefined;
     }
   },
+
+  async listBranches(workspaceId) {
+    const workspace = get().workspaces.find((entry) => entry.id === workspaceId);
+    const fromTrees = branchesFromWorktrees(workspace);
+    if (useFixture) return fromTrees;
+    const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    try {
+      const listed = await transport.request<{ branches?: GitBranch[] }>(
+        server.id,
+        `/workspaces/${encodeURIComponent(workspaceId)}/branches`,
+      );
+      return listed.branches ?? fromTrees;
+    } catch {
+      return fromTrees;
+    }
+  },
+
+  async checkoutBranch(input) {
+    const workspace = get().workspaces.find((entry) => entry.id === input.workspaceId);
+    const main = workspace?.worktrees.find((tree) => tree.isMain);
+    if (input.mode === "main" && main && main.branch === input.branch) {
+      return { path: main.path };
+    }
+    if (input.mode === "worktree") {
+      const existing = workspace?.worktrees.find((tree) => tree.branch === input.branch && !tree.isMain);
+      if (existing) return { path: existing.path };
+    }
+    if (useFixture) {
+      return { path: main?.path ?? workspace?.path ?? "~" };
+    }
+    const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    const result = await transport.request<{ path?: string }>(
+      server.id,
+      `/workspaces/${encodeURIComponent(input.workspaceId)}/checkout`,
+      { method: "POST", body: { branch: input.branch, mode: input.mode } },
+    );
+    await get().refresh();
+    if (!result.path) throw new Error("Couldn't switch to that branch.");
+    return { path: result.path };
+  },
+
+  async createChat(input) {
+    const text = input.text.trim();
+    if (!text) throw new Error("Write a message first.");
+    const cwd = input.cwd.trim() || "~";
+    const title = text.split("\n")[0]?.slice(0, 80) || "New chat";
+
+    if (useFixture) {
+      const serverId = input.serverId ?? get().servers.find((server) => server.local)?.id ?? get().servers[0]?.id ?? "studio";
+      const chat: Chat = {
+        id: crypto.randomUUID(),
+        serverId,
+        title,
+        cwd,
+        state: "working",
+        preview: text,
+        updatedAt: Date.now(),
+      };
+      set((current) => ({ chats: [chat, ...current.chats].sort(byAttention) }));
+      return { id: chat.id, serverId };
+    }
+
+    const server = get().servers.find((entry) => entry.id === input.serverId) ?? localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    const created = await transport.request<{ chat?: RawChat }>(server.id, "/chats", {
+      method: "POST",
+      body: {
+        cwd,
+        title,
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+      },
+    });
+    const id = created.chat?.id;
+    if (!id) throw new Error("Couldn't start that chat.");
+    await transport.request(server.id, `/chats/${encodeURIComponent(id)}/message`, {
+      method: "POST",
+      body: { text },
+    });
+    await get().refresh();
+    return { id, serverId: server.id };
+  },
 }));
 
 function toChat(raw: RawChat, serverId: string): Chat {
@@ -317,7 +415,17 @@ function toWorkspace(raw: RawWorkspace, serverId: string): Workspace {
     origin: raw.origin,
     icon: raw.icon,
     tint: raw.tint,
+    worktrees: raw.worktrees ?? [],
   };
+}
+
+function branchesFromWorktrees(workspace?: Workspace): GitBranch[] {
+  if (!workspace) return [];
+  return workspace.worktrees.flatMap((tree) =>
+    tree.branch
+      ? [{ name: tree.branch, current: tree.isMain, checkout: tree.isMain ? "main" as const : "worktree" as const }]
+      : [],
+  );
 }
 
 function localServer(servers: Server[]): Server | undefined {

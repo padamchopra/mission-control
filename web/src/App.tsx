@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  SquarePen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -33,10 +34,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/AppSidebar";
+import { ChatComposer } from "@/components/ChatComposer";
 import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
 import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
+import { useRelease } from "@/hooks/use-release";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { isProjectIconFile } from "@/lib/projects";
@@ -116,6 +119,7 @@ export function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
   const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
 
   const openSettings = (tab: SettingsTab = "general") => {
     setWorkspaceSettingsId(null);
@@ -134,6 +138,7 @@ export function App() {
   const loading = useStore((s) => s.loading);
   const error = useStore((s) => s.error);
   const start = useStore((s) => s.start);
+  const release = useRelease();
 
   // Opens the connection and holds it for the life of the app.
   useEffect(() => start(), [start]);
@@ -170,18 +175,38 @@ export function App() {
         if (view === "settings") {
           event.preventDefault();
           setView("app");
+          return;
+        }
+        if (composing) {
+          event.preventDefault();
+          setComposing(false);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen, view, workspaceSettingsId]);
+  }, [composing, paletteOpen, view, workspaceSettingsId]);
 
   const active = chats.find((chat) => chat.id === selected) ?? null;
   const needsYou = scoped.filter((chat) => chat.state === "needs_input").length;
   const working = scoped.filter((chat) => chat.state === "working").length;
   const anyOnline = servers.some((s) => s.online);
   const openWorkspace = allWorkspaces.find((workspace) => workspace.id === workspaceSettingsId) ?? null;
+  const showComposer =
+    section === "chats" && !loading && servers.length > 0 && (chats.length === 0 || composing);
+
+  const draftChat = () => {
+    setSelected(null);
+    setComposing(true);
+  };
+
+  const chatCounts = (
+    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+      <span>{needsYou} need you</span>
+      <span>{working} active</span>
+      <span>{scoped.length - needsYou - working} idle</span>
+    </div>
+  );
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -224,40 +249,50 @@ export function App() {
           onScope={setScope}
           onSection={(id) => {
             setWorkspaceSettingsId(null);
+            setComposing(false);
             setSection(id as Section);
           }}
           onSelectChat={(id) => {
             setSection("chats");
+            setComposing(false);
             setSelected(id);
           }}
           openSettings={openSettings}
           closeSettings={closeSettings}
+          updateAvailable={release.available}
         />
 
         {view === "settings" ? (
-          <SettingsPane tab={settingsTab} />
+          <SettingsPane tab={settingsTab} release={release} />
         ) : openWorkspace ? (
           <WorkspaceSettings workspace={openWorkspace} onBack={() => setWorkspaceSettingsId(null)} />
         ) : (
           <main className="flex min-w-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-baseline gap-3 border-b border-border px-5 py-4">
+            {showComposer ? (
+              <ChatComposer
+                workspaces={workspaces}
+                servers={scope ? servers.filter((server) => server.id === scope) : servers}
+                onCreated={(id) => {
+                  setComposing(false);
+                  setSelected(id);
+                }}
+                onAddWorkspace={() => setAddWorkspaceOpen(true)}
+                headerEnd={
+                  <>
+                    {chatCounts}
+                    <NewChatButton onClick={draftChat} />
+                  </>
+                }
+              />
+            ) : (
+              <>
+            <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
               <h1 className="text-xl font-semibold tracking-tight">
                 {SECTIONS.find((s) => s.id === section)?.label}
               </h1>
               <div className="ml-auto flex items-center gap-4">
-                {(section === "inbox" || section === "chats") && (
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>{needsYou} need you</span>
-                    <span>{working} active</span>
-                    <span>{scoped.length - needsYou - working} idle</span>
-                  </div>
-                )}
-                {section === "chats" && (
-                  <Button size="sm">
-                    <Plus />
-                    New chat
-                  </Button>
-                )}
+                {(section === "inbox" || section === "chats") && chatCounts}
+                {section === "chats" && <NewChatButton onClick={draftChat} />}
                 {section === "workspaces" && (
                   <Button size="sm" onClick={() => setAddWorkspaceOpen(true)}>
                     <Plus />
@@ -280,7 +315,6 @@ export function App() {
                   loading={loading}
                   error={error}
                   hasServers={servers.length > 0}
-                  hasWorkspaces={workspaces.length > 0}
                   onAddConnection={() => openSettings("devices")}
                   onAddWorkspace={() => setAddWorkspaceOpen(true)}
                 />
@@ -294,7 +328,10 @@ export function App() {
                           "cursor-default rounded-xl border px-3 py-3",
                           active?.id === chat.id ? "border-primary/40" : "hover:bg-accent",
                         )}
-                        onClick={() => setSelected(chat.id)}
+                        onClick={() => {
+                          setComposing(false);
+                          setSelected(chat.id);
+                        }}
                       >
                         <MessageContent className="gap-1.5">
                           <MessageHeader className="gap-2 px-0 text-foreground">
@@ -329,7 +366,6 @@ export function App() {
                   loading={loading}
                   error={error}
                   hasServers={servers.length > 0}
-                  hasWorkspaces={workspaces.length > 0}
                   onAddConnection={() => openSettings("devices")}
                   onAddWorkspace={() => setAddWorkspaceOpen(true)}
                 />
@@ -416,10 +452,11 @@ export function App() {
                 loading={loading}
                 error={error}
                 hasServers={servers.length > 0}
-                hasWorkspaces={workspaces.length > 0}
                 onAddConnection={() => openSettings("devices")}
                 onAddWorkspace={() => setAddWorkspaceOpen(true)}
               />
+            )}
+              </>
             )}
           </main>
         )}
@@ -445,6 +482,19 @@ export function App() {
   );
 }
 
+function NewChatButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="New chat" onClick={onClick}>
+          <SquarePen />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>New chat</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function StateDot({ state }: { state: ChatState }) {
   return (
     <span
@@ -464,7 +514,6 @@ function EmptyState({
   loading,
   error,
   hasServers,
-  hasWorkspaces,
   onAddConnection,
   onAddWorkspace,
 }: {
@@ -472,7 +521,6 @@ function EmptyState({
   loading: boolean;
   error?: string;
   hasServers: boolean;
-  hasWorkspaces: boolean;
   onAddConnection: () => void;
   onAddWorkspace: () => void;
 }) {
@@ -488,14 +536,7 @@ function EmptyState({
             action: "connect" as const,
             icon: fallback.icon,
           }
-        : section === "chats" && !hasWorkspaces
-          ? {
-              title: "No chats yet",
-              detail: "Add a workspace on this machine first. Chats run there.",
-              action: "workspace" as const,
-              icon: fallback.icon,
-            }
-          : fallback;
+        : fallback;
 
   return (
     <Empty>

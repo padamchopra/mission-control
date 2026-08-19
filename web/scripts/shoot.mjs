@@ -1,10 +1,7 @@
-// Screenshot harness for the desktop UI.
+// Screenshot harness for the web window.
 //
-// The reason this exists: the SwiftUI app could not be built on this machine
-// (Command Line Tools only, no iOS SDK), so every UI change went out
-// unverified and the review loop ran through a human taking screenshots. A web
-// UI can be driven here, so it should be — this script renders states and
-// interactions to PNGs that can be looked at directly.
+// The UI is a web app (Electron in production, Vite in preview). This script
+// renders states and interactions to PNGs that can be looked at directly.
 //
 // Uses Playwright's already-cached Chromium; nothing is downloaded.
 import { chromium } from "playwright-core";

@@ -19,7 +19,7 @@ export function WorkspaceIcon({
     return <WorkspaceFileIcon workspaceId={workspaceId} path={icon} className={className} />;
   }
   const Icon = projectIcon(icon);
-  return <Icon className={className} />;
+  return <Icon className={cn("size-4", className)} />;
 }
 
 export function WorkspaceFileIcon({
@@ -51,6 +51,6 @@ export function WorkspaceFileIcon({
     };
   }, [key, path, workspaceFile, workspaceId]);
 
-  if (!src) return <Folder className={className} />;
-  return <img src={src} alt="" className={cn("object-contain", className)} />;
+  if (!src) return <Folder className={cn("size-4", className)} />;
+  return <img src={src} alt="" className={cn("block size-4 object-contain object-center", className)} />;
 }

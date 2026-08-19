@@ -28,6 +28,12 @@ export interface GitWorktree {
   dirty: boolean;
 }
 
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  checkout: "main" | "worktree" | null;
+}
+
 interface StoredWorkspace {
   id: string;
   name: string;
@@ -739,4 +745,132 @@ export async function worktreeDirtyMap(id: string): Promise<Record<string, boole
     workspace.worktrees.map(async (worktree) => [worktree.path, await worktreeDirty(worktree.path)] as const),
   );
   return Object.fromEntries(entries);
+}
+
+export async function listWorkspaceBranches(id: string): Promise<GitBranch[]> {
+  const workspace = await workspaceByID(id);
+  if (workspace.worktrees.length === 0) return [];
+  let refs: { name: string; remote: boolean }[] = [];
+  try {
+    const { stdout } = await exec(
+      "git",
+      [
+        "-C",
+        workspace.path,
+        "for-each-ref",
+        "--format=%(refname)%00%(refname:short)",
+        "--sort=-committerdate",
+        "refs/heads",
+        "refs/remotes",
+      ],
+      { cwd: homedir() },
+    );
+    refs = stdout
+      .split("\n")
+      .flatMap((line) => {
+        const [ref, short] = line.split("\0");
+        if (!ref || !short || short.endsWith("/HEAD")) return [];
+        return [{ name: short, remote: ref.startsWith("refs/remotes/") }];
+      });
+    const seen = new Set<string>();
+    refs = refs.filter((entry) => {
+      if (seen.has(entry.name)) return false;
+      seen.add(entry.name);
+      return true;
+    });
+  } catch {
+    return [];
+  }
+  const current = workspace.worktrees.find((worktree) => worktree.isMain)?.branch;
+  const preferred = `origin/${current ?? "main"}`;
+  refs.sort((a, b) => {
+    if (a.name === current) return -1;
+    if (b.name === current) return 1;
+    if (a.name === preferred) return -1;
+    if (b.name === preferred) return 1;
+    return 0;
+  });
+  const byBranch = new Map(
+    workspace.worktrees.flatMap((worktree) => (worktree.branch ? [[worktree.branch, worktree] as const] : [])),
+  );
+  return refs.map((entry) => {
+    const tree = byBranch.get(entry.name);
+    return {
+      name: entry.name,
+      current: entry.name === current,
+      checkout: tree ? (tree.isMain ? "main" : "worktree") : null,
+    };
+  });
+}
+
+async function isRemoteTracking(repoPath: string, name: string): Promise<boolean> {
+  try {
+    await exec("git", ["-C", repoPath, "show-ref", "--verify", "--quiet", `refs/remotes/${name}`], { cwd: homedir() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function checkoutWorkspaceBranch(
+  id: string,
+  branchValue: string,
+  modeValue: string,
+): Promise<{ path: string; workspace: Workspace }> {
+  const branch = branchValue.trim();
+  const mode = modeValue === "worktree" ? "worktree" : modeValue === "main" ? "main" : null;
+  if (!branch) throw new Error("Pick a branch.");
+  if (!mode) throw new Error("Pick Main checkout or New worktree.");
+  await exec("git", ["check-ref-format", "--branch", branch], { cwd: homedir() });
+
+  const workspace = await workspaceByID(id);
+  if (workspace.worktrees.length === 0) throw new Error("This folder is not a git checkout.");
+  const main = workspace.worktrees.find((worktree) => worktree.isMain) ?? workspace.worktrees[0];
+  const existing = workspace.worktrees.find((worktree) => worktree.branch === branch);
+  const remote = await isRemoteTracking(workspace.path, branch);
+
+  if (mode === "main") {
+    if (existing && !existing.isMain) throw new Error("That branch is already in a worktree. Pick New worktree.");
+    if (remote) throw new Error("Pick a local branch for Main checkout, or pick New worktree.");
+    if (main.branch !== branch) {
+      try {
+        await exec("git", ["-C", main.path, "checkout", branch], { cwd: homedir(), timeout: 60_000 });
+      } catch (error) {
+        throw new Error(checkoutError(error));
+      }
+    }
+    invalidateWorkspacesCache();
+    return { path: main.path, workspace: await workspaceByID(id) };
+  }
+
+  if (existing?.isMain) throw new Error("That branch is this checkout. Pick Main checkout.");
+  if (existing) return { path: existing.path, workspace };
+
+  const path = await managedWorktreePath(workspace.path, branch);
+  const already = workspace.worktrees.find((worktree) => worktree.path === path);
+  if (already) return { path, workspace };
+  if (existsSync(path)) throw new Error("A worktree folder for that branch already exists.");
+  try {
+    const args = remote
+      ? ["-C", workspace.path, "worktree", "add", "--detach", path, branch]
+      : ["-C", workspace.path, "worktree", "add", path, branch];
+    await exec("git", args, { cwd: homedir(), timeout: 60_000 });
+  } catch (error) {
+    throw new Error(checkoutError(error));
+  }
+  invalidateWorkspacesCache();
+  return { path, workspace: await workspaceByID(id) };
+}
+
+function checkoutError(error: unknown): string {
+  const raw = String((error as { stderr?: unknown }).stderr ?? (error as Error).message ?? error);
+  if (/already (checked out|used by worktree)/i.test(raw)) {
+    return "That branch is already checked out somewhere else. Pick New worktree, or pick a free branch.";
+  }
+  if (/would be overwritten|Please commit your changes|uncommitted|local changes/i.test(raw)) {
+    return "Commit or stash on this checkout before you switch.";
+  }
+  if (/did not match|unknown revision|not a commit/i.test(raw)) return "That branch is not in this folder.";
+  const first = raw.trim().split("\n")[0]?.replace(/^fatal:\s*/i, "").trim();
+  return first || "Couldn't switch to that branch.";
 }

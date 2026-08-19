@@ -7,6 +7,9 @@ import { contextBridge, ipcRenderer } from "electron";
 /// the UI cannot be talked into reaching somewhere else.
 contextBridge.exposeInMainWorld("remy", {
   platform: process.platform,
+  version: process.env.npm_package_version,
+
+  info: (): Promise<{ version: string; name: string }> => ipcRenderer.invoke("app:info"),
 
   servers: (): Promise<{ id: string; name: string; url: string; icon?: string; builtin?: boolean }[]> =>
     ipcRenderer.invoke("mc:servers"),

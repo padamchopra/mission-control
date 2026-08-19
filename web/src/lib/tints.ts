@@ -1,5 +1,5 @@
 export const TINTS = {
-  zinc: { swatch: "bg-zinc-400", fg: "text-zinc-300", well: "bg-zinc-500/20" },
+  zinc: { swatch: "bg-zinc-100 ring-1 ring-inset ring-border", fg: "text-zinc-300", well: "bg-zinc-500/20" },
   red: { swatch: "bg-red-400", fg: "text-red-400", well: "bg-red-500/20" },
   orange: { swatch: "bg-orange-400", fg: "text-orange-400", well: "bg-orange-500/20" },
   amber: { swatch: "bg-amber-400", fg: "text-amber-400", well: "bg-amber-500/20" },

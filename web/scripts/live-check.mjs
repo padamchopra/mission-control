@@ -1,5 +1,6 @@
-// Proves the window is the chat fleet: it must load a chats heading from the
-// connected server (or the empty-chats state) without anyone touching the UI.
+// Proves the window is Remy's chats remote: it must load a chats heading from
+// the connected server (or the empty-chats composer) without anyone touching
+// the UI.
 import { chromium } from "playwright-core";
 import { chromiumPath } from "./chromium.mjs";
 

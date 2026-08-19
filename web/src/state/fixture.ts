@@ -62,6 +62,7 @@ export const fixtureWorkspaces: Workspace[] = [
     name: "remy",
     path: "~/code/remy",
     origin: "github.com/padamchopra/remy",
+    worktrees: [{ path: "~/code/remy", branch: "main", isMain: true, dirty: false }],
   },
   {
     id: "w2",
@@ -69,5 +70,6 @@ export const fixtureWorkspaces: Workspace[] = [
     name: "jupiter-mobile",
     path: "~/code/jupiter-mobile",
     origin: "github.com/padamchopra/jupiter-mobile",
+    worktrees: [{ path: "~/code/jupiter-mobile", branch: "main", isMain: true, dirty: false }],
   },
 ];

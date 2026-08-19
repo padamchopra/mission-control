@@ -30,6 +30,19 @@ export interface Chat {
   updatedAt: number;
 }
 
+export interface GitWorktree {
+  path: string;
+  branch: string | null;
+  isMain: boolean;
+  dirty: boolean;
+}
+
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  checkout: "main" | "worktree" | null;
+}
+
 export interface Workspace {
   id: string;
   serverId: string;
@@ -38,6 +51,7 @@ export interface Workspace {
   origin?: string | null;
   icon?: string | null;
   tint?: string | null;
+  worktrees: GitWorktree[];
 }
 
 export interface PathSuggestion {

@@ -1,9 +1,13 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { fileURLToPath, URL } from "node:url";
 import { ensureLocalServer, isLoopback, readHomeConfig, readLocalTarget, stopSpawnedServer } from "./local-server";
+
+const remyVersion = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
+  .version;
 
 const local = readLocalTarget();
 const deviceName = isLoopback(local.url)
@@ -62,6 +66,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), previewReload(), ensureRemyServer()],
   define: {
     "import.meta.env.VITE_REMY_PROXY_DEVICE": JSON.stringify(deviceName),
+    "import.meta.env.VITE_REMY_VERSION": JSON.stringify(remyVersion),
   },
   resolve: {
     alias: {

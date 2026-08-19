@@ -17,7 +17,7 @@ An empty state is a next action, not a caption for the blank panel.
 
 Title names the state. Detail tells them what to do. The button is that action.
 
-If a prerequisite is missing, send them there. Chats run in a workspace: no workspace means the chats empty state is Add workspace, not New chat. That branch lives in `EmptyState` in `web/src/App.tsx`.
+If a prerequisite is missing, send them there. Chats can start without a registered workspace: the chats panel is a composer, and with no workspace it runs in `~` on this machine. That composer lives in `web/src/components/ChatComposer.tsx`. Do not send an empty chats list to Add workspace.
 
 BAD
 ```
@@ -27,8 +27,8 @@ detail: "Start a chat on a connected device and it shows up here."
 
 GOOD
 ```
-title: "No chats yet"
-detail: "Add a workspace on this machine first. Chats run there."
+title: "Inbox is clear"
+detail: "Nothing is waiting on you."
 ```
 
 Never: "shows up here", "this page", "this list", "get started", "simply", "just".

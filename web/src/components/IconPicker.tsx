@@ -85,7 +85,7 @@ export function IconPicker<Id extends string>({
           </div>
         </DialogHeader>
 
-        <div className="px-5 py-3">
+        <div className="px-3 py-3">
           <ToggleGroup
             type="single"
             spacing={2}
@@ -94,7 +94,7 @@ export function IconPicker<Id extends string>({
             onValueChange={(value) => {
               if (isTint(value)) onChange({ tint: value });
             }}
-            className="flex w-full justify-between"
+            className="flex w-full flex-wrap justify-start"
             aria-label="Tint"
           >
             {TINT_IDS.map((id) => {
@@ -103,14 +103,14 @@ export function IconPicker<Id extends string>({
                 <ToggleGroupItem
                   key={id}
                   value={id}
-                  aria-label={`${id} tint`}
-                  className={cn(
-                    "size-5 min-w-5 rounded-full border-0 p-0 shadow-none",
-                    "hover:bg-transparent data-[state=on]:bg-transparent",
-                    swatch.swatch,
-                  )}
+                  aria-label={id === "zinc" ? "Default tint" : `${id} tint`}
+                  className="size-9 min-w-9 border-0 bg-transparent p-0 shadow-none hover:bg-transparent data-[state=on]:bg-transparent"
                 >
-                  {selectedTint === id && <CheckIcon className="size-2.5 text-black/70" />}
+                  <span className={cn("flex size-5 items-center justify-center rounded-full", swatch.swatch)}>
+                    {selectedTint === id ? (
+                      <CheckIcon className={cn("size-2.5", id === "zinc" ? "text-zinc-700" : "text-black/70")} />
+                    ) : null}
+                  </span>
                 </ToggleGroupItem>
               );
             })}
@@ -212,7 +212,7 @@ function GlyphGrid<Id extends string>({
       onValueChange={(next) => {
         if (next) onChange(next as Id);
       }}
-      className="grid w-full grid-cols-4 justify-items-center"
+      className="grid w-full grid-cols-4 justify-items-start"
       aria-label="Glyph"
     >
       {icons.map((id) => {

@@ -9,6 +9,7 @@
     "dev:web": "npm --prefix web run dev",
     "dev:server": "npm --prefix server run build && npm --prefix server start",
     "build": "npm --prefix web run build && npm --prefix desktop run build",
+    "pack:mac": "npm --prefix web run build && npm --prefix desktop run pack:mac",
     "typecheck": "npm --prefix web run typecheck && npm --prefix desktop run typecheck",
     "test": "npm --prefix server test",
     "shots": "npm --prefix web run shots",

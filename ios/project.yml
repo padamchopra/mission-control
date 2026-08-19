@@ -1,6 +1,6 @@
 name: MissionControl
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: me.padamchopra
   deploymentTarget:
     iOS: "17.0"
 packages:
@@ -54,6 +54,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.padamchopra.Remy
         SWIFT_VERSION: "5.0"
         # 1,2 (iPhone + iPad) is required for Mac Catalyst — the Mac app is the
         # iPad layout running natively on macOS, same codebase and target.
