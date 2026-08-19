@@ -26,11 +26,15 @@ DMG (`127.0.0.1:8420`) and the same database (`~/.remy/remy.db`) — chats,
 workspaces, settings, token. If Remy.app is already running, Vite attaches to
 that process and does not start a second server.
 
-Open the browser at `http://127.0.0.1:5173`. For the Electron window instead of
-the browser, run this in a second terminal:
+Open the browser at `http://127.0.0.1:5173`. This is the way to run Remy —
+`npm run dev:web` and a browser tab. Offer it, and nothing else, unless the
+person asks for the desktop app by name.
+
+When they do ask for Electron, leave `npm run dev:web` running and start the
+window from a second terminal:
 
 ```sh
-npm run dev
+npm run dev   # Electron, pointed at the same Vite server
 ```
 
 **UI changes** — leave Remy.app open or quit it; either way the page is your
