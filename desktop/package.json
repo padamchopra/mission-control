@@ -53,7 +53,7 @@
         "dmg"
       ],
       "artifactName": "Remy-${version}-${arch}.${ext}",
-      "identity": null
+      "identity": "-"
     },
     "dmg": {
       "title": "Remy ${version}"
