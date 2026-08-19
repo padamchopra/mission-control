@@ -54,7 +54,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { ClaudeMark } from "@/components/ClaudeMark";
-import { AvatarFrom, SeedAvatar } from "@/components/UserAvatar";
+import { AvatarFrom, PresetAvatar } from "@/components/UserAvatar";
 import {
   Dialog,
   DialogContent,
@@ -67,7 +67,7 @@ import { PaneHeader } from "@/components/PaneHeader";
 import { PathPickerDialog } from "@/components/PathPicker";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
-import { AVATAR_SEEDS, isImageAvatar, readAvatarFile } from "@/lib/avatars";
+import { AVATAR_PRESETS, isImageAvatar, readAvatarFile } from "@/lib/avatars";
 import {
   askToNotify,
   notificationsEnabled,
@@ -265,30 +265,31 @@ function AvatarField() {
             <DialogDescription>Pick one, or use a picture of your own.</DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-6 gap-2">
+          <div className="grid grid-cols-4 gap-3">
             <button
               type="button"
               aria-label="Default"
               onClick={() => choose("")}
               className={cn(
-                "flex items-center justify-center rounded-lg border p-1.5",
+                "flex items-center justify-center rounded-xl border p-2",
                 avatar ? "border-transparent hover:bg-accent" : "border-primary",
               )}
             >
-              <SeedAvatar />
+              <PresetAvatar className="size-12" />
             </button>
-            {AVATAR_SEEDS.map((seed) => (
+            {AVATAR_PRESETS.map((preset) => (
               <button
-                key={seed}
+                key={preset.id}
                 type="button"
-                aria-label={seed}
-                onClick={() => choose(`preset:${seed}`)}
+                aria-label={preset.label}
+                title={preset.label}
+                onClick={() => choose(`preset:${preset.id}`)}
                 className={cn(
-                  "flex items-center justify-center rounded-lg border p-1.5",
-                  avatar === `preset:${seed}` ? "border-primary" : "border-transparent hover:bg-accent",
+                  "flex items-center justify-center rounded-xl border p-2",
+                  avatar === `preset:${preset.id}` ? "border-primary" : "border-transparent hover:bg-accent",
                 )}
               >
-                <SeedAvatar seed={seed} />
+                <PresetAvatar preset={preset} className="size-12" />
               </button>
             ))}
           </div>

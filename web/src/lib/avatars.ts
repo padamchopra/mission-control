@@ -1,70 +1,35 @@
+import cobaltCyclops from "@/assets/avatars/cobalt-cyclops.jpg";
+import coralSprout from "@/assets/avatars/coral-sprout.jpg";
+import lavenderJelly from "@/assets/avatars/lavender-jelly.jpg";
+import mintCrescent from "@/assets/avatars/mint-crescent.jpg";
+import tangerineSunburst from "@/assets/avatars/tangerine-sunburst.jpg";
+import turquoiseCloud from "@/assets/avatars/turquoise-cloud.jpg";
+
 /// Faces for your own messages.
 ///
-/// The built-in ones are generated rather than fetched: this window talks to
-/// loopback and nothing else, so an avatar service is not an option. Each seed
-/// draws the same abstract mark every time — overlapping shapes in one hue
-/// family — which is what an avatar is for: telling one person from another at
-/// a glance, without being a picture of anything.
+/// The built-in ones ship with the app rather than being fetched: this window
+/// talks to loopback and nothing else, so an avatar service is not an option.
+/// They are stored at 128px — an avatar renders at 32, so that covers retina
+/// several times over — and as JPEG, since the art has no transparency to keep.
 
-export interface AvatarArt {
-  background: string;
-  circle: string;
-  band: string;
-  /// Where the shapes sit, so two seeds with close hues still differ.
-  offsetX: number;
-  offsetY: number;
-  rotation: number;
+export interface AvatarPreset {
+  id: string;
+  label: string;
+  src: string;
 }
 
-/// The seeds offered in Settings. Named for the palette each lands on, so the
-/// list reads as choices rather than as numbers.
-export const AVATAR_SEEDS = [
-  "ember",
-  "aurora",
-  "reef",
-  "orchid",
-  "moss",
-  "dusk",
-  "coral",
-  "tide",
-  "amber",
-  "iris",
-  "fern",
-  "slate",
+export const AVATAR_PRESETS: AvatarPreset[] = [
+  { id: "cobalt-cyclops", label: "Cobalt cyclops", src: cobaltCyclops },
+  { id: "coral-sprout", label: "Coral sprout", src: coralSprout },
+  { id: "lavender-jelly", label: "Lavender jelly", src: lavenderJelly },
+  { id: "mint-crescent", label: "Mint crescent", src: mintCrescent },
+  { id: "tangerine-sunburst", label: "Tangerine sunburst", src: tangerineSunburst },
+  { id: "turquoise-cloud", label: "Turquoise cloud", src: turquoiseCloud },
 ];
 
-/// A stable 32-bit hash. Two seeds that differ anywhere land far apart.
-function hash(seed: string): number {
-  let value = 2166136261;
-  for (let i = 0; i < seed.length; i += 1) {
-    value ^= seed.charCodeAt(i);
-    value = Math.imul(value, 16777619);
-  }
-  return Math.abs(value);
-}
-
-export function avatarArt(seed: string): AvatarArt {
-  const h = hash(seed);
-  // A hash spreads unevenly over a dozen short words, and a picker where half
-  // the choices are the same orange is not a choice. The offered seeds take
-  // their hue from their place in the list; anything else falls back to the
-  // hash, so a seed from somewhere else still draws something stable.
-  const known = AVATAR_SEEDS.indexOf(seed);
-  const hue = known >= 0 ? Math.round((known * 360) / AVATAR_SEEDS.length) : h % 360;
-  return {
-    background: `hsl(${hue} 62% 42%)`,
-    circle: `hsl(${(hue + 38) % 360} 78% 62%)`,
-    band: `hsl(${(hue + 76) % 360} 82% 72%)`,
-    offsetX: ((h >> 3) % 7) - 3,
-    offsetY: ((h >> 6) % 7) - 3,
-    rotation: (h >> 9) % 180,
-  };
-}
-
-export function seedFor(avatar: string | undefined): string | undefined {
+export function presetFor(avatar: string | undefined): AvatarPreset | undefined {
   if (!avatar?.startsWith("preset:")) return undefined;
-  const seed = avatar.slice("preset:".length);
-  return seed || undefined;
+  return AVATAR_PRESETS.find((entry) => entry.id === avatar.slice("preset:".length));
 }
 
 export function isImageAvatar(avatar: string | undefined): boolean {
