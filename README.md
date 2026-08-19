@@ -102,8 +102,15 @@ resumes the same conversation.
 ### This Mac
 
 Install the latest Remy DMG from [GitHub Releases](https://github.com/padamchopra/remy/releases).
-That is the whole local install: window, daemon, and Node. Open Remy and it
-starts listening on `127.0.0.1`. Claude Code still needs to be on this machine.
+That is the whole local install: window and daemon. Open Remy and it starts
+listening on `127.0.0.1`. Claude Code still needs to be on this machine.
+
+The DMG is not notarized. After you copy Remy into Applications, macOS will
+call it damaged. Clear the quarantine and it opens:
+
+```sh
+xattr -cr /Applications/Remy.app
+```
 
 To reach it from another device, or to keep the daemon up when Remy is quit,
 also run the login-item script from a clone:
