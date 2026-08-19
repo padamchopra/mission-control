@@ -108,7 +108,15 @@ its own process, so the override cannot leak sideways.
   in from another device is `tailscale serve`. Do not widen the bind.
 - **Config lives in the database**, not in env vars or dotfiles — `kv` in
   `~/.remy/remy.db`, read through `server/src/config.ts`. `~/.mission-control`
-  is the legacy directory and is still honoured when `~/.remy` is absent.
+  is the legacy directory and is still honoured when `~/.remy` is absent. A new
+  setting is a key on `Config`, a line in `publicSettings`, and a validated
+  branch in `patchSettings`; the client reads and writes it at
+  `/server/settings`.
+- **Worktrees** Remy creates go in a `.remy` folder — inside the workspace, or
+  under the `worktreeRoot` setting. The folder is hidden with a rule in the
+  repo's `.git/info/exclude`, which is per-clone and never committed, so no
+  tracked `.gitignore` changes. Worktrees already checked out elsewhere
+  (including the older `.claude/worktrees`) are left where they are.
 - **Commit subjects** are a sentence in the imperative, no prefix or scope tag:
   "Store chats in SQLite instead of a file each", "Notarize the Mac DMG for
   Gatekeeper". PRs land squashed with the `(#n)` suffix.

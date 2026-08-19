@@ -148,3 +148,29 @@ export interface ChatDetail {
   live?: boolean;
   error?: string;
 }
+
+/// Settings that belong to a machine rather than a device or a chat. They live
+/// in that server's `remy.db`, so every client attached to it sees the same
+/// values. Mirrors `PublicSettings` in `server/src/config.ts`.
+export interface ServerSettings {
+  preventSleep: "off" | "whileBusy" | "always";
+  defaultCheckout: "main" | "worktree";
+  worktreeBase: "remote" | "local";
+  worktreeRoot: string;
+  defaultModel: string;
+}
+
+/// What a command-line tool on the machine reports about itself.
+export interface ToolStatus {
+  available: boolean;
+  version?: string;
+  authenticated?: boolean;
+  account?: string;
+  error?: string;
+}
+
+export interface Tooling {
+  git: ToolStatus;
+  gh: ToolStatus;
+  claude: ToolStatus;
+}

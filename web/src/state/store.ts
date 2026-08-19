@@ -15,6 +15,8 @@ import type {
   GitWorktree,
   PathSuggestion,
   Server,
+  ServerSettings,
+  Tooling,
   Workspace,
   WorkspaceIconMatch,
 } from "./types";
@@ -60,6 +62,10 @@ interface State {
   openId?: string;
   detail?: ChatDetail;
   detailLoading: boolean;
+  /// This machine's own settings and tool status. Both are read on demand by
+  /// the panes that show them, not on every poll.
+  settings?: ServerSettings;
+  tooling?: Tooling;
   loading: boolean;
   /// Set when every configured server failed, so the UI can say why rather than
   /// showing an empty list as though nothing were running.
@@ -90,6 +96,9 @@ interface State {
     model?: string;
     permissionMode?: string;
   }): Promise<{ id: string; serverId: string }>;
+  loadSettings(): Promise<void>;
+  saveSettings(patch: Partial<ServerSettings>): Promise<void>;
+  loadTooling(): Promise<void>;
   openChat(id: string): Promise<void>;
   closeChat(): void;
   sendMessage(text: string): Promise<void>;
@@ -422,6 +431,31 @@ export const useStore = create<State>((set, get) => ({
     });
     await get().refresh();
     return { id, serverId: server.id };
+  },
+
+  async loadSettings() {
+    const server = localServer(get().servers);
+    if (!server) return;
+    const settings = await transport.request<ServerSettings>(server.id, "/server/settings");
+    set({ settings });
+  },
+
+  async saveSettings(patch) {
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    // The server answers with the whole settings object, so what lands in the
+    // store is what it actually stored rather than what was asked for.
+    const settings = await transport.request<ServerSettings>(server.id, "/server/settings", {
+      method: "PATCH",
+      body: patch,
+    });
+    set({ settings });
+  },
+
+  async loadTooling() {
+    const server = localServer(get().servers);
+    if (!server) return;
+    set({ tooling: await transport.request<Tooling>(server.id, "/server/tooling") });
   },
 
   async openChat(id) {

@@ -138,6 +138,7 @@ export function App() {
   const loading = useStore((s) => s.loading);
   const error = useStore((s) => s.error);
   const start = useStore((s) => s.start);
+  const loadSettings = useStore((s) => s.loadSettings);
   const release = useRelease();
 
   // Opens the connection and holds it for the life of the app.
@@ -146,6 +147,16 @@ export function App() {
   useEffect(() => {
     if (error) toast.error("Can't reach this machine", { description: error });
   }, [error]);
+
+  // The composer starts a chat on this machine's defaults, so they are read as
+  // soon as it answers rather than only when Settings is opened.
+  const anyServerOnline = servers.some((server) => server.online);
+  useEffect(() => {
+    if (!anyServerOnline) return;
+    void loadSettings().catch(() => {
+      // A machine that cannot answer already shows as offline.
+    });
+  }, [anyServerOnline, loadSettings]);
 
   const scoped = useMemo(
     () => (scope ? allChats.filter((chat) => chat.serverId === scope) : allChats),

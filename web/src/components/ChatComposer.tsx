@@ -89,8 +89,11 @@ const CHECKOUTS = [
   { value: "worktree", label: "New worktree", icon: FolderGit2 },
 ] as const;
 
-function worktreeBase(branch?: string | null): string {
-  return `origin/${branch || "main"}`;
+/// What a new worktree starts from. `remote` keeps it current with the default
+/// branch on the remote; `local` follows whatever the main checkout is on.
+function worktreeBase(branch?: string | null, mode?: "remote" | "local"): string {
+  const name = branch || "main";
+  return mode === "local" ? name : `origin/${name}`;
 }
 
 export function ChatComposer({
@@ -108,9 +111,11 @@ export function ChatComposer({
 }) {
   const createChat = useStore((s) => s.createChat);
   const checkoutBranch = useStore((s) => s.checkoutBranch);
+  const settings = useStore((s) => s.settings);
   const [target, setTarget] = useState(workspaces[0]?.id ?? HOME);
   const [serverId, setServerId] = useState(() => preferredServer(servers)?.id ?? "");
   const [model, setModel] = useState("");
+  const [modelPicked, setModelPicked] = useState(false);
   const [permissionMode, setPermissionMode] = useState<(typeof PERMISSIONS)[number]["value"]>("default");
   const [checkout, setCheckout] = useState<(typeof CHECKOUTS)[number]["value"]>("main");
   const [branch, setBranch] = useState<string>();
@@ -144,9 +149,17 @@ export function ChatComposer({
   const branchName = branch ?? mainBranch;
 
   useEffect(() => {
-    setBranch(mainBranch ?? undefined);
-    setCheckout("main");
-  }, [workspace?.id, mainBranch]);
+    if (modelPicked) return;
+    setModel(settings?.defaultModel ?? "");
+  }, [settings?.defaultModel, modelPicked]);
+
+  // Switching workspace re-applies this machine's defaults rather than keeping
+  // the last workspace's branch.
+  useEffect(() => {
+    const mode = settings?.defaultCheckout ?? "main";
+    setCheckout(mode);
+    setBranch(mode === "worktree" ? worktreeBase(mainBranch, settings?.worktreeBase) : mainBranch ?? undefined);
+  }, [workspace?.id, mainBranch, settings?.defaultCheckout, settings?.worktreeBase]);
 
   const pickWorkspace = (value: string) => {
     const id = deviceIdFromValue(value);
@@ -163,7 +176,7 @@ export function ChatComposer({
   const pickCheckout = (value: string) => {
     const next = value as (typeof CHECKOUTS)[number]["value"];
     setCheckout(next);
-    setBranch(next === "worktree" ? worktreeBase(mainBranch) : mainBranch);
+    setBranch(next === "worktree" ? worktreeBase(mainBranch, settings?.worktreeBase) : mainBranch);
   };
 
   const pickDevice = (id: string) => {
@@ -284,7 +297,10 @@ export function ChatComposer({
                   icon={Box}
                   label={modelLabel}
                   value={model}
-                  onChange={setModel}
+                  onChange={(value) => {
+                    setModelPicked(true);
+                    setModel(value);
+                  }}
                   options={MODELS}
                 />
                 <ComposerMenu

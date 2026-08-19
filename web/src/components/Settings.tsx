@@ -1,4 +1,4 @@
-import { Archive, Laptop, Monitor, Plus, Trash2 } from "lucide-react";
+import { Archive, Boxes, Check, GitBranch, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -42,11 +42,12 @@ import { isNewer, type RemyRelease } from "@/lib/release";
 import { transport } from "@/lib/transport";
 import type { TintId } from "@/lib/tints";
 import { cn } from "@/lib/utils";
+import { apiError } from "@/lib/api-error";
 import { useStore } from "@/state/store";
-import type { Server } from "@/state/types";
+import type { Server, ToolStatus } from "@/state/types";
 import { useEffect, useState } from "react";
 
-export type SettingsTab = "general" | "devices" | "archive";
+export type SettingsTab = "general" | "version-control" | "providers" | "devices" | "archive";
 
 export const SETTINGS_SECTIONS: {
   id: SettingsTab;
@@ -54,6 +55,8 @@ export const SETTINGS_SECTIONS: {
   icon: typeof Monitor;
 }[] = [
   { id: "general", label: "General", icon: Monitor },
+  { id: "version-control", label: "Version control", icon: GitBranch },
+  { id: "providers", label: "Providers", icon: Boxes },
   { id: "devices", label: "Devices", icon: Laptop },
   { id: "archive", label: "Archived chats", icon: Archive },
 ];
@@ -81,7 +84,17 @@ export function SettingsPane({
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-5 py-6">
-          {tab === "devices" ? <DevicesPane /> : tab === "archive" ? <ArchivePane /> : <GeneralPane release={release} />}
+          {tab === "devices" ? (
+            <DevicesPane />
+          ) : tab === "archive" ? (
+            <ArchivePane />
+          ) : tab === "version-control" ? (
+            <VersionControlPane />
+          ) : tab === "providers" ? (
+            <ProvidersPane />
+          ) : (
+            <GeneralPane release={release} />
+          )}
         </div>
       </ScrollArea>
     </main>
@@ -147,6 +160,300 @@ function GeneralPane({
         </div>
       </div>
     </div>
+  );
+}
+
+const CHECKOUTS = [
+  { value: "main", label: "Main checkout" },
+  { value: "worktree", label: "New worktree" },
+] as const;
+
+const WORKTREE_BASES = [
+  { value: "remote", label: "Remote default" },
+  { value: "local", label: "Current branch" },
+] as const;
+
+const MODELS = [
+  { value: "default", label: "Claude Code's default" },
+  { value: "opus", label: "Opus" },
+  { value: "sonnet", label: "Sonnet" },
+  { value: "haiku", label: "Haiku" },
+] as const;
+
+/// Settings live on the machine, not on this window, so both panes read them
+/// from the server once and write each change straight back.
+function useServerSettings() {
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const loadSettings = useStore((s) => s.loadSettings);
+  const servers = useStore((s) => s.servers);
+  const online = servers.some((server) => server.online);
+
+  useEffect(() => {
+    if (!online) return;
+    void loadSettings().catch(() => {
+      // The pane shows the machine as unreachable; a toast on top would repeat it.
+    });
+  }, [online, loadSettings]);
+
+  const save = async (patch: Parameters<typeof saveSettings>[0], what: string) => {
+    try {
+      await saveSettings(patch);
+    } catch (caught) {
+      toast.error(`Couldn't change ${what}`, { description: apiError(caught) });
+    }
+  };
+
+  return { settings, online, save };
+}
+
+function VersionControlPane() {
+  const { settings, online, save } = useServerSettings();
+  const tooling = useStore((s) => s.tooling);
+  const loadTooling = useStore((s) => s.loadTooling);
+  const [root, setRoot] = useState("");
+  const [rootDirty, setRootDirty] = useState(false);
+
+  useEffect(() => {
+    if (online) void loadTooling().catch(() => {});
+  }, [online, loadTooling]);
+
+  // Server truth wins until you start typing, so a value changed on another
+  // device does not fight the cursor.
+  useEffect(() => {
+    if (!rootDirty) setRoot(settings?.worktreeRoot ?? "");
+  }, [settings?.worktreeRoot, rootDirty]);
+
+  if (!online) return <Unreachable />;
+  if (!settings) return <p className="text-sm shimmer text-muted-foreground">Reading this machine's settings…</p>;
+
+  const commitRoot = async () => {
+    setRootDirty(false);
+    const wanted = root.trim();
+    if (wanted === settings.worktreeRoot) return;
+    await save({ worktreeRoot: wanted }, "the worktree location");
+    // An empty answer to a non-empty request means the path was refused.
+    if (wanted && !useStore.getState().settings?.worktreeRoot) {
+      toast.error("That isn't a location Remy can use", {
+        description: "Give a full path, like /Volumes/code or ~/worktrees.",
+      });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-7">
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="default-checkout">New chats open in</FieldLabel>
+          <FieldDescription>
+            Where a chat starts when its workspace has worktrees. You can still change it per chat.
+          </FieldDescription>
+        </FieldContent>
+        <Select
+          value={settings.defaultCheckout}
+          onValueChange={(value) => void save({ defaultCheckout: value as "main" | "worktree" }, "that default")}
+        >
+          <SelectTrigger id="default-checkout" size="sm" className="w-44 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {CHECKOUTS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="worktree-base">New worktrees branch from</FieldLabel>
+          <FieldDescription>
+            {settings.worktreeBase === "remote"
+              ? "The remote's copy of the default branch, so a new worktree starts current."
+              : "Whatever the main checkout is on right now."}
+          </FieldDescription>
+        </FieldContent>
+        <Select
+          value={settings.worktreeBase}
+          onValueChange={(value) => void save({ worktreeBase: value as "remote" | "local" }, "that default")}
+        >
+          <SelectTrigger id="worktree-base" size="sm" className="w-44 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {WORKTREE_BASES.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field>
+        <FieldContent>
+          <FieldLabel htmlFor="worktree-root">Worktree location</FieldLabel>
+          <FieldDescription>
+            Remy keeps worktrees in a <code className="font-mono">.remy</code> folder here. Leave it empty to
+            keep each workspace's worktrees inside the workspace. Git ignores the folder without any change to
+            the repo's <code className="font-mono">.gitignore</code>.
+          </FieldDescription>
+        </FieldContent>
+        <Input
+          id="worktree-root"
+          value={root}
+          placeholder="Inside each workspace"
+          spellCheck={false}
+          className="font-mono text-xs"
+          onChange={(event) => {
+            setRootDirty(true);
+            setRoot(event.target.value);
+          }}
+          onBlur={() => void commitRoot()}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            event.currentTarget.blur();
+          }}
+        />
+        <FieldDescription className="font-mono text-xs">
+          {root.trim()
+            ? `${displayPath(root.trim())}/.remy/<repo>/<branch>`
+            : "<workspace>/.remy/<branch>"}
+        </FieldDescription>
+      </Field>
+
+      <div className="flex flex-col gap-2">
+        <p className="text-sm font-medium">On this machine</p>
+        <ToolRow name="git" label="git" status={tooling?.git} />
+        <ToolRow
+          name="gh"
+          label="GitHub CLI"
+          status={tooling?.gh}
+          detail={
+            tooling?.gh.available && !tooling.gh.authenticated
+              ? "Installed, but not signed in — run gh auth login to open pull requests."
+              : tooling?.gh.account
+                ? `Signed in as ${tooling.gh.account}.`
+                : undefined
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function ProvidersPane() {
+  const { settings, online, save } = useServerSettings();
+  const tooling = useStore((s) => s.tooling);
+  const loadTooling = useStore((s) => s.loadTooling);
+
+  useEffect(() => {
+    if (online) void loadTooling().catch(() => {});
+  }, [online, loadTooling]);
+
+  if (!online) return <Unreachable />;
+  if (!settings) return <p className="text-sm shimmer text-muted-foreground">Reading this machine's settings…</p>;
+
+  return (
+    <div className="flex flex-col gap-7">
+      <div className="flex flex-col gap-2">
+        <ToolRow
+          name="claude"
+          label="Claude Code"
+          status={tooling?.claude}
+          detail={
+            tooling?.claude.available
+              ? "Chats run through the copy of Claude Code on this machine."
+              : "Install Claude Code on this machine to start chats."
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          Claude is the only provider Remy runs chats through today.
+        </p>
+      </div>
+
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="default-model">Default model</FieldLabel>
+          <FieldDescription>What a new chat starts on. You can still change it per chat.</FieldDescription>
+        </FieldContent>
+        <Select
+          value={settings.defaultModel || "default"}
+          onValueChange={(value) => void save({ defaultModel: value === "default" ? "" : value }, "the default model")}
+        >
+          <SelectTrigger id="default-model" size="sm" className="w-44 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {MODELS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+    </div>
+  );
+}
+
+function ToolRow({
+  name,
+  label,
+  status,
+  detail,
+}: {
+  name: string;
+  label: string;
+  status?: ToolStatus;
+  detail?: string;
+}) {
+  const ok = status?.available && status.authenticated !== false;
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border px-3.5 py-3">
+      <span
+        className={cn(
+          "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full",
+          status === undefined ? "bg-muted" : ok ? "bg-success/20 text-success-foreground" : "bg-muted",
+        )}
+      >
+        {status === undefined ? null : ok ? <Check className="size-3" /> : <X className="size-3" />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {status === undefined
+            ? "Checking…"
+            : (detail ?? (status.available ? "Ready." : (status.error ?? `Remy can't run ${name} here.`)))}
+        </p>
+      </div>
+      {status?.version && (
+        <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">{status.version}</span>
+      )}
+    </div>
+  );
+}
+
+function Unreachable() {
+  return (
+    <Empty className="border border-dashed">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Laptop />
+        </EmptyMedia>
+        <EmptyTitle>This machine is offline</EmptyTitle>
+        <EmptyDescription>Open Remy on it to change these settings.</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }
 

@@ -40,6 +40,7 @@ import { questionBroker } from "./questions.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
+import { tooling } from "./tooling.js";
 import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
 import {
@@ -221,6 +222,10 @@ const server = createServer(async (req, res) => {
       return json(res, 202, startServerUpdate());
     }
 
+    // What git, gh, and Claude Code report about themselves on this machine.
+    if (url.pathname === "/server/tooling" && req.method === "GET") {
+      return json(res, 200, await tooling());
+    }
     if (url.pathname === "/server/settings" && req.method === "GET") {
       return json(res, 200, { ...publicSettings(), preventSleepSupported: sleepSupported() });
     }
