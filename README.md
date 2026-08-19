@@ -5,22 +5,20 @@ Start a chat in a folder, pick the model and how much Claude may do unasked, and
 drive the turn from this Mac — or from another device on your
 [Tailscale](https://tailscale.com) network.
 
-The work stays on the machine. Remy is a window onto a daemon that already runs
+The work stays on the machine. Remy is a window onto a daemon that runs
 there, not a copy of the repo in the cloud.
 
 ## How it works
 
 ```
-┌──────────────┐   Tailscale or loopback    ┌──────────────────────────────┐
-│  Desktop app │ ◄────────────────────────► │  Machine                     │
-│  (Electron)  │   REST + WebSocket         │  server/ (Node, launchd)     │
-│  web/ UI     │                            │    ├─ Agent SDK chats        │
-└──────────────┘                            │    ├─ workspaces / git       │
-      ▲                                     │    ├─ event registry         │
-      │ ntfy (when desktop is closed)       │    └─ ntfy notifier          │
-      └─────────────────────────────────────│  hooks/ (tmux agents, still) │
-┌──────────────┐                            └──────────────────────────────┘
-│  iOS app     │  pairing + older session remote
+┌──────────────┐   loopback (or Tailscale)  ┌──────────────────────────────┐
+│  Remy.app    │ ◄────────────────────────► │  bundled server (Node)       │
+│  (Electron)  │   REST + WebSocket         │    ├─ Agent SDK chats        │
+│  web/ UI     │                            │    ├─ workspaces / git       │
+└──────────────┘                            │    ├─ event registry         │
+                                            │    └─ ntfy notifier          │
+┌──────────────┐                            │  hooks/ (tmux agents, still) │
+│  iOS app     │  pairing + older session   └──────────────────────────────┘
 └──────────────┘
 ```
 
@@ -28,12 +26,11 @@ there, not a copy of the repo in the cloud.
   (Radix, New York). Add primitives with `npx shadcn@latest add` from `web/`.
   Sidebar: Inbox, Chats, Workspaces, Pull requests, Loops. ⌘K is the palette.
 - **`desktop/`** — a thin Electron shell (`me.padamchopra.Remy`). It owns the
-  window and the tokens; the UI is the same web app. Dev (`npm run dev` /
-  `dev:web`) starts the local daemon if it isn't already running. A packaged
-  Mac DMG is built on push to `main`; it talks to the daemon from `setup.sh`
-  / launchd.
-- **`server/`** — a Node/TypeScript daemon on each machine. Binds to
-  `127.0.0.1` only. Chats are conversations Remy runs itself through the
+  window and the tokens; the UI is the same web app. The Mac DMG ships the UI,
+  the Node daemon, and a Node binary. Opening Remy starts the daemon; quitting
+  Remy stops it. Pushing `main` builds that DMG.
+- **`server/`** — a Node/TypeScript daemon. Binds to `127.0.0.1` only. Chats are
+  conversations Remy runs itself through the
   [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview): the
   server holds the Claude process, keeps the feed in SQLite
   (`~/.remy/remy.db`), streams each turn, and parks tool approvals and questions
@@ -44,7 +41,8 @@ there, not a copy of the repo in the cloud.
   or the machine powers off. Closing the lid can still sleep a MacBook.
 - **`ios/`** — SwiftUI companion (XcodeGen). Pair with a `remy://` link. It still
   speaks the session/tmux remote; chats are the web/desktop product.
-- **`deploy/`** — one setup script (launchd + hooks + `tailscale serve`).
+- **`deploy/`** — optional login-item + Tailscale serve + pairing QR, if you
+  want the daemon without the app open or to reach it from another device.
 
 ## Running it
 
@@ -60,7 +58,7 @@ can be reviewed without a server. Otherwise Vite proxies `/api` to
 `MC_TOKEN`) so the token never reaches the page.
 
 ```sh
-npm run pack:mac     # web + Electron DMG → desktop/release/
+npm run pack:mac     # web + bundled server + Electron DMG → desktop/release/
 npm run shots        # Playwright PNGs of the window
 npm run live-check   # assert the window is showing chats
 ```
@@ -102,7 +100,12 @@ resumes the same conversation.
 
 ### This Mac
 
-For a login-item daemon and tailnet serve:
+Install the latest Remy DMG from [GitHub Releases](https://github.com/padamchopra/remy/releases).
+That is the whole local install: window, daemon, and Node. Open Remy and it
+starts listening on `127.0.0.1`. Claude Code still needs to be on this machine.
+
+To reach it from another device, or to keep the daemon up when Remy is quit,
+also run the login-item script from a clone:
 
 ```sh
 git clone <this-repo> ~/remy
@@ -110,10 +113,10 @@ cd ~/remy
 ./deploy/setup.sh
 ```
 
-That builds the server, installs launchd (`com.example.remy`, auto-start on
-login), registers Claude Code (and Codex) hooks when those CLIs are present,
-exposes the server with `tailscale serve`, and prints a pairing QR. Reprint it
-with `./deploy/show-pairing.sh`.
+That installs launchd (`com.example.remy`, auto-start on login), registers
+Claude Code (and Codex) hooks when those CLIs are present, exposes the server
+with `tailscale serve`, and prints a pairing QR. Reprint it with
+`./deploy/show-pairing.sh`.
 
 The server binds to `127.0.0.1` only. The way in from another device is
 `tailscale serve` (tailnet only). For TLS, enable HTTPS certificates in the
@@ -139,9 +142,9 @@ and survives `xcodegen generate`. Scan the pairing QR from the setup script.
 
 ### Notifications
 
-Pushes go through [ntfy](https://ntfy.sh). Setup generates a random topic. If
-the desktop app is open, banners land there and the phone stays quiet; quit it
-and ntfy takes over within about 30 seconds.
+Pushes go through [ntfy](https://ntfy.sh). The first launch writes a random
+topic. If Remy is open, banners land there. A login-item install (`setup.sh`)
+keeps the daemon up after you quit, so ntfy can still reach a phone.
 
 With hosted `ntfy.sh`, notification text transits their server — kept terse.
 Self-host and set `ntfyServer` in `~/.remy/remy.db` to keep it on your
@@ -159,12 +162,10 @@ loopback or your tailnet, behind a bearer token. See [SECURITY.md](SECURITY.md).
   its own.
 - **Context window.** Transcripts record the model but not always the window
   size. If sessions run a 1M window, set `contextLimit` in `~/.remy/remy.db`.
-- **Repos on a removable volume** (`/Volumes/…`) need Full Disk Access for the
-  server's `node` binary. System Settings → Privacy & Security → Full Disk
-  Access → `readlink -f "$(command -v node)"`, then
-  `launchctl kickstart -k gui/$(id -u)/com.example.remy`.
+- **Repos on a removable volume** (`/Volumes/…`) need Full Disk Access for
+  Remy (System Settings → Privacy & Security → Full Disk Access).
 - **Stay awake** prevents *idle* sleep. Lid-close on a MacBook is a different
   event and can still sleep the machine.
-- **Server updates** from an older install still need a manual `git pull`,
-  `npm ci`, `npm run build`, and launchd restart once; after that, the
-  authenticated update endpoint can do it.
+- **Server updates** from a `setup.sh` / launchd install can use the
+  authenticated update endpoint after one manual `git pull` + rebuild. A DMG
+  install updates by downloading the next Remy release.

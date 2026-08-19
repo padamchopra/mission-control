@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "npm run build && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "pack:mac": "npm run build && electron-builder --mac dmg --publish never"
+    "pack:mac": "node scripts/stage-bundle.mjs && npm run build && electron-builder --mac dmg --publish never"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -33,6 +33,14 @@
       {
         "from": "../web/dist",
         "to": "web"
+      },
+      {
+        "from": "build/server",
+        "to": "server"
+      },
+      {
+        "from": "build/server/node_modules",
+        "to": "server/node_modules"
       }
     ],
     "directories": {
@@ -40,7 +48,7 @@
     },
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "../web/src/assets/remy-mark.png",
+      "icon": "build/icon.png",
       "target": [
         "dmg"
       ],

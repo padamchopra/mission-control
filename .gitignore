@@ -12,4 +12,5 @@ ios/Config/Signing.local.xcconfig
 # Desktop build output
 web/dist/
 desktop/dist/
+desktop/build/
 desktop/release/

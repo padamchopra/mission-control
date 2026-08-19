@@ -12,9 +12,9 @@ import {
 } from "./connection";
 import { ensureLocalServer, isLoopback, localTargetFromConfig, stopSpawnedServer } from "./local-server";
 
-/// The desktop shell. Deliberately thin — it owns the window and nothing else,
-/// the same split T3 Code uses, so the UI stays a plain web app that can be run
-/// and screenshotted in a browser without Electron in the way.
+/// The desktop shell. Deliberately thin — it owns the window, starts the
+/// bundled daemon, and holds the tokens. The UI stays a plain web app that can
+/// be run and screenshotted in a browser without Electron in the way.
 
 const DEV_SERVER = process.env.MC_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER);
