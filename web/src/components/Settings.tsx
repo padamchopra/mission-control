@@ -25,6 +25,7 @@ import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -43,6 +44,13 @@ import { transport } from "@/lib/transport";
 import type { TintId } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { apiError } from "@/lib/api-error";
+import {
+  askToNotify,
+  notificationsEnabled,
+  notifyPermission,
+  setNotificationsEnabled,
+  type NotifyPermission,
+} from "@/lib/notify";
 import { useStore } from "@/state/store";
 import type { Server, ToolStatus } from "@/state/types";
 import { useEffect, useState } from "react";
@@ -152,6 +160,7 @@ function GeneralPane({
           </Button>
         )}
       </div>
+      <NotificationsField />
       <RemyModelField />
       <div className="flex items-start gap-3 rounded-lg border border-border px-3.5 py-3">
         <Monitor className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -161,6 +170,56 @@ function GeneralPane({
         </div>
       </div>
     </div>
+  );
+}
+
+/// Banners for a thread that needs you or has finished. Permission belongs to
+/// the browser and the answer sticks, so the switch says what the browser
+/// decided rather than pretending it can ask again.
+function NotificationsField() {
+  const [on, setOn] = useState(() => notificationsEnabled());
+  const [permission, setPermission] = useState<NotifyPermission>(() => notifyPermission());
+
+  const toggle = async (next: boolean) => {
+    if (!next) {
+      setNotificationsEnabled(false);
+      setOn(false);
+      return;
+    }
+    const answer = await askToNotify();
+    setPermission(answer);
+    if (answer !== "granted") {
+      setNotificationsEnabled(false);
+      setOn(false);
+      toast.error(
+        answer === "unsupported"
+          ? "This browser can't show notifications"
+          : "Your browser is blocking notifications",
+        { description: "Allow them for this site, then turn this back on." },
+      );
+      return;
+    }
+    setNotificationsEnabled(true);
+    setOn(true);
+  };
+
+  return (
+    <Field orientation="horizontal" className="items-center">
+      <FieldContent>
+        <FieldLabel htmlFor="notifications">Notify me</FieldLabel>
+        <FieldDescription>
+          {permission === "denied"
+            ? "Your browser is blocking notifications for this site."
+            : "A banner when a thread needs you or finishes. Clicking it opens that thread."}
+        </FieldDescription>
+      </FieldContent>
+      <Switch
+        id="notifications"
+        checked={on && permission === "granted"}
+        disabled={permission === "unsupported"}
+        onCheckedChange={(next) => void toggle(next)}
+      />
+    </Field>
   );
 }
 

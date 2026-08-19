@@ -117,6 +117,17 @@ async function wireIpc(): Promise<void> {
 
   ipcMain.handle("mc:servers", () => connection?.list() ?? []);
 
+  // Raising the window is the main process's job; the renderer can only focus
+  // the page inside it.
+  ipcMain.handle("mc:focus", () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+    app.focus({ steal: true });
+  });
+
   ipcMain.handle("mc:add-server", (_event, input: { url: string; token: string; name?: string }) => {
     if (!connection) throw new Error("no connection");
     const url = input.url.trim();

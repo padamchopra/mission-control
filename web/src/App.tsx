@@ -40,9 +40,11 @@ import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
 import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
+import { useNotifications } from "@/hooks/use-notifications";
 import { useRelease } from "@/hooks/use-release";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
+import { notificationsEnabled } from "@/lib/notify";
 import { isProjectIconFile } from "@/lib/projects";
 import { WorkspaceIcon } from "@/components/WorkspaceIcon";
 import { tintOf } from "@/lib/tints";
@@ -209,6 +211,10 @@ export function App() {
     setSection("chats");
     setSelected(id);
   };
+
+  // Banners come from the same socket the feed does, so a thread that needs you
+  // says so whether or not this window is the one in front.
+  useNotifications({ enabled: notificationsEnabled(), openThreadId: selected, onOpen: openChat });
 
   const chatCounts = (
     <div className="flex items-center gap-4 text-xs text-muted-foreground">
