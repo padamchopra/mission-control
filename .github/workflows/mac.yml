@@ -48,6 +48,14 @@ jobs:
           chmod 600 "$key_path"
           echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
 
+      - name: Version
+        id: version
+        run: |
+          version="$(node desktop/scripts/stamp-version.mjs)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Stamped $version from run ${GITHUB_RUN_NUMBER}"
+
       - name: Install
         run: npm run install:all
 
@@ -60,10 +68,6 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Version
-        id: version
-        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
       - uses: actions/upload-artifact@v4
         with:
           name: remy-macos
@@ -74,7 +78,9 @@ jobs:
           tag: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           artifacts: desktop/release/*.dmg
+          generateReleaseNotes: true
           allowUpdates: true
+          omitBodyDuringUpdate: true
           replacesArtifacts: true
           makeLatest: true
           token: ${{ secrets.GITHUB_TOKEN }}
