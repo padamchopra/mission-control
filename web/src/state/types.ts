@@ -65,3 +65,86 @@ export interface WorkspaceIconMatch {
   name: string;
   preview?: string;
 }
+
+/// One rendered item in a chat's feed. `kind` picks the renderer; the rest are
+/// populated per kind. Mirrors `ConvEntry` in `server/src/transcript.ts`.
+export interface ConvEntry {
+  id: string;
+  kind: "user" | "assistant" | "thinking" | "tool";
+  text?: string;
+  tool?: string;
+  verb?: string;
+  arg?: string;
+  status?: "ok" | "error";
+  output?: string;
+  file?: string;
+  skill?: string;
+  diff?: ConvDiffLine[];
+  adds?: number;
+  dels?: number;
+  questions?: ConvQuestion[];
+}
+
+export interface ConvDiffLine {
+  kind: "add" | "del" | "ctx";
+  text: string;
+}
+
+export interface ConvQuestion {
+  header?: string;
+  question: string;
+  multiSelect?: boolean;
+  options: ConvQuestionOption[];
+  answer?: string;
+  notes?: string;
+}
+
+export interface ConvQuestionOption {
+  label: string;
+  description?: string;
+  preview?: string;
+  selected?: boolean;
+}
+
+export interface ConvTodo {
+  content: string;
+  status: string;
+}
+
+/// A tool call the chat is blocked on, waiting for you to allow or deny it.
+export interface ChatApproval {
+  requestId: string;
+  tool: string;
+  verb: string;
+  arg: string;
+  title?: string;
+  reason?: string;
+  file?: string;
+  diff?: ConvDiffLine[];
+  plan?: string;
+  allowAlways: boolean;
+}
+
+export interface ChatQuestionRequest {
+  requestId: string;
+  questions: ConvQuestion[];
+}
+
+/// One open chat, as `GET /chats/:id` returns it plus the server it came from.
+export interface ChatDetail {
+  id: string;
+  serverId: string;
+  title: string;
+  cwd: string;
+  model?: string;
+  state: ChatState;
+  action?: string;
+  entries: ConvEntry[];
+  todos: ConvTodo[];
+  approval?: ChatApproval;
+  question?: ChatQuestionRequest;
+  /// True while the chat holds a live Claude process. A cold chat resumes on
+  /// the next message, so this is a hint, not a blocker.
+  live?: boolean;
+  error?: string;
+}

@@ -50,6 +50,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspaceIcon } from "@/components/WorkspaceIcon";
+import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
 import { isProjectIconFile } from "@/lib/projects";
 import { tintOf } from "@/lib/tints";
@@ -585,15 +586,4 @@ function preferredServer(servers: Server[]): Server | undefined {
 function mainPath(workspace?: Workspace): string {
   if (!workspace) return "~";
   return workspace.worktrees.find((entry) => entry.isMain)?.path ?? workspace.path;
-}
-
-function apiError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  try {
-    const parsed = JSON.parse(raw) as { error?: unknown };
-    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error;
-  } catch {
-    // The transport already unwrapped some failures into a plain string.
-  }
-  return raw;
 }

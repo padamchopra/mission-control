@@ -88,10 +88,16 @@ export default defineConfig({
         ws: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
         configure(proxy) {
-          proxy.on("proxyReq", (proxyReq) => {
+          const authorize = (proxyReq: { setHeader(name: string, value: string): void }) => {
             const token = process.env.MC_TOKEN || readHomeConfig()?.token;
             if (token) proxyReq.setHeader("Authorization", `Bearer ${token}`);
-          });
+          };
+          proxy.on("proxyReq", authorize);
+          // A websocket upgrade is a different event, and the server checks the
+          // same bearer header on it. Without this the notify socket is refused,
+          // the page silently loses every live update, and a streaming turn only
+          // appears when the poll next comes round.
+          proxy.on("proxyReqWs", authorize);
         },
       },
     },

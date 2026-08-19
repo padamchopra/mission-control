@@ -35,6 +35,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ChatComposer } from "@/components/ChatComposer";
+import { ChatView } from "@/components/ChatView";
 import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
@@ -119,7 +120,6 @@ export function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
   const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string | null>(null);
-  const [composing, setComposing] = useState(false);
 
   const openSettings = (tab: SettingsTab = "general") => {
     setWorkspaceSettingsId(null);
@@ -175,29 +175,28 @@ export function App() {
         if (view === "settings") {
           event.preventDefault();
           setView("app");
-          return;
-        }
-        if (composing) {
-          event.preventDefault();
-          setComposing(false);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [composing, paletteOpen, view, workspaceSettingsId]);
+  }, [paletteOpen, view, workspaceSettingsId]);
 
   const active = chats.find((chat) => chat.id === selected) ?? null;
   const needsYou = scoped.filter((chat) => chat.state === "needs_input").length;
   const working = scoped.filter((chat) => chat.state === "working").length;
   const anyOnline = servers.some((s) => s.online);
   const openWorkspace = allWorkspaces.find((workspace) => workspace.id === workspaceSettingsId) ?? null;
-  const showComposer =
-    section === "chats" && !loading && servers.length > 0 && (chats.length === 0 || composing);
+  // Chats live in the sidebar, so the main pane is either the chat you opened or
+  // the composer for the next one. There is no list of them here.
+  const canCompose = !loading && !error && servers.length > 0;
 
-  const draftChat = () => {
-    setSelected(null);
-    setComposing(true);
+  const draftChat = () => setSelected(null);
+
+  const openChat = (id: string) => {
+    setWorkspaceSettingsId(null);
+    setSection("chats");
+    setSelected(id);
   };
 
   const chatCounts = (
@@ -249,14 +248,9 @@ export function App() {
           onScope={setScope}
           onSection={(id) => {
             setWorkspaceSettingsId(null);
-            setComposing(false);
             setSection(id as Section);
           }}
-          onSelectChat={(id) => {
-            setSection("chats");
-            setComposing(false);
-            setSelected(id);
-          }}
+          onSelectChat={openChat}
           openSettings={openSettings}
           closeSettings={closeSettings}
           updateAvailable={release.available}
@@ -268,21 +262,15 @@ export function App() {
           <WorkspaceSettings workspace={openWorkspace} onBack={() => setWorkspaceSettingsId(null)} />
         ) : (
           <main className="flex min-w-0 flex-1 flex-col">
-            {showComposer ? (
+            {section === "chats" && active ? (
+              <ChatView key={active.id} chat={active} headerEnd={<NewChatButton onClick={draftChat} />} />
+            ) : section === "chats" && canCompose ? (
               <ChatComposer
                 workspaces={workspaces}
                 servers={scope ? servers.filter((server) => server.id === scope) : servers}
-                onCreated={(id) => {
-                  setComposing(false);
-                  setSelected(id);
-                }}
+                onCreated={(id) => setSelected(id)}
                 onAddWorkspace={() => setAddWorkspaceOpen(true)}
-                headerEnd={
-                  <>
-                    {chatCounts}
-                    <NewChatButton onClick={draftChat} />
-                  </>
-                }
+                headerEnd={chatCounts}
               />
             ) : (
               <>
@@ -292,7 +280,6 @@ export function App() {
               </h1>
               <div className="ml-auto flex items-center gap-4">
                 {(section === "inbox" || section === "chats") && chatCounts}
-                {section === "chats" && <NewChatButton onClick={draftChat} />}
                 {section === "workspaces" && (
                   <Button size="sm" onClick={() => setAddWorkspaceOpen(true)}>
                     <Plus />
@@ -308,7 +295,7 @@ export function App() {
               </div>
             </div>
 
-            {section === "inbox" || section === "chats" ? (
+            {section === "inbox" ? (
               chats.length === 0 ? (
                 <EmptyState
                   section={section}
@@ -325,12 +312,16 @@ export function App() {
                       <Message
                         key={chat.id}
                         className={cn(
-                          "cursor-default rounded-xl border px-3 py-3",
+                          "cursor-pointer rounded-xl border px-3 py-3",
                           active?.id === chat.id ? "border-primary/40" : "hover:bg-accent",
                         )}
-                        onClick={() => {
-                          setComposing(false);
-                          setSelected(chat.id);
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openChat(chat.id)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          openChat(chat.id);
                         }}
                       >
                         <MessageContent className="gap-1.5">
@@ -469,8 +460,7 @@ export function App() {
         chats={scoped}
         onOpenChat={(id) => {
           closeSettings();
-          setSection("chats");
-          setSelected(id);
+          openChat(id);
         }}
         onOpenSection={(id) => {
           closeSettings();
