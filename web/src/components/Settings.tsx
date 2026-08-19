@@ -210,6 +210,13 @@ const WORKTREE_BASES = [
   { value: "local", label: "Current branch" },
 ] as const;
 
+const REPO_UPDATES = [
+  { value: "off", label: "Off" },
+  { value: "hourly", label: "Every hour" },
+  { value: "sixHourly", label: "Every 6 hours" },
+  { value: "daily", label: "Once a day" },
+] as const;
+
 const MODELS = [
   { value: "default", label: "Claude Code's default" },
   { value: "opus", label: "Opus" },
@@ -366,6 +373,8 @@ function VersionControlPane() {
         </FieldDescription>
       </Field>
 
+      <RepoUpdateField />
+
       <div className="flex flex-col gap-2">
         <p className="text-sm font-medium">On this machine</p>
         <ToolRow name="git" label="git" status={tooling?.git} />
@@ -384,6 +393,127 @@ function VersionControlPane() {
       </div>
     </div>
   );
+}
+
+/// How often Remy refreshes the repositories, and what happened last time.
+///
+/// The copy is careful about what this does: fetching is safe on any checkout,
+/// but moving one is not, so a checkout with uncommitted work is fetched and
+/// left exactly as it was.
+function RepoUpdateField() {
+  const { settings, save } = useServerSettings();
+  const run = useStore((s) => s.repoRun);
+  const loadRepoRun = useStore((s) => s.loadRepoRun);
+  const updateRepos = useStore((s) => s.updateRepos);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void loadRepoRun().catch(() => {});
+  }, [loadRepoRun]);
+
+  const now = async () => {
+    setBusy(true);
+    try {
+      await updateRepos();
+      toast.success("Repositories are up to date.");
+    } catch (caught) {
+      toast.error("Couldn't update the repositories", { description: apiError(caught) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!settings) return null;
+  const updated = run?.repos.filter((repo) => repo.result === "updated").length ?? 0;
+  const skipped = run?.repos.filter((repo) => repo.result === "dirty").length ?? 0;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="repo-update">Keep repositories current</FieldLabel>
+          <FieldDescription>
+            Fetches every repository on this machine, and fast-forwards a main checkout when that is safe. A
+            checkout with uncommitted work is fetched and left alone.
+          </FieldDescription>
+        </FieldContent>
+        <Select
+          value={settings.repoUpdate}
+          onValueChange={(value) =>
+            void save({ repoUpdate: value as typeof settings.repoUpdate }, "how often repositories update")
+          }
+        >
+          <SelectTrigger id="repo-update" size="sm" className="w-44 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {REPO_UPDATES.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <div className="flex items-center gap-3">
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+          {run
+            ? `Last run ${when(run.at)} · ${updated} updated, ${run.repos.length - updated} left as they were${
+                skipped ? ` (${skipped} had changes)` : ""
+              }`
+            : "Not run yet."}
+        </p>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void now()}>
+          {busy ? "Updating…" : "Update now"}
+        </Button>
+      </div>
+
+      {run && run.repos.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {run.repos.map((repo) => (
+            <div key={repo.path} className="flex items-baseline gap-2 text-xs">
+              <span className="min-w-0 truncate font-medium">{repo.workspace}</span>
+              <span className="text-muted-foreground">{repo.detail ?? REPO_RESULT[repo.result]}</span>
+              {repo.result === "updated" && (
+                <Badge variant="success" className="ml-auto">
+                  Updated
+                </Badge>
+              )}
+              {repo.result === "failed" && (
+                <Badge variant="destructive" className="ml-auto">
+                  Failed
+                </Badge>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const REPO_RESULT: Record<string, string> = {
+  updated: "Moved forward",
+  current: "Already current",
+  dirty: "Has uncommitted changes",
+  "no-upstream": "Tracks no remote",
+  diverged: "Has local commits",
+  detached: "Not on a branch",
+  failed: "Git refused",
+};
+
+/// A timestamp as someone would say it out loud.
+function when(at: number): string {
+  const seconds = Math.round((Date.now() - at) / 1000);
+  if (seconds < 90) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric" });
 }
 
 function ProvidersPane() {

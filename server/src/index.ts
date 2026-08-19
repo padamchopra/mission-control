@@ -41,6 +41,7 @@ import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { tooling } from "./tooling.js";
+import { lastUpdateRun, syncRepoUpdateSchedule, updateRepositories } from "./repo-update.js";
 import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
 import {
@@ -233,7 +234,18 @@ const server = createServer(async (req, res) => {
       const body = await readJson(req);
       const settings = patchSettings(body);
       syncSleepAssertion();
+      // Turning the schedule off has to stop the timer now, not at its next tick.
+      syncRepoUpdateSchedule();
       return json(res, 200, { ...settings, preventSleepSupported: sleepSupported() });
+    }
+
+    // Refreshing repositories: what the schedule does, and what the button in
+    // Settings does when you would rather not wait for it.
+    if (url.pathname === "/server/repo-update" && req.method === "GET") {
+      return json(res, 200, { run: lastUpdateRun() ?? null });
+    }
+    if (url.pathname === "/server/repo-update" && req.method === "POST") {
+      return json(res, 200, { run: await updateRepositories() });
     }
 
     // Composer quick replies, shared across every client connected to this server.
@@ -959,4 +971,5 @@ setSleepBusyCheck(() =>
   listChats().some((chat) => chat.state === "working" || chat.state === "needs_input"),
 );
 syncSleepAssertion();
+syncRepoUpdateSchedule();
 startLoopScheduler(pushSessionList);

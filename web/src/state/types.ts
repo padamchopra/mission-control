@@ -164,6 +164,20 @@ export interface ServerSettings {
   /// What Remy runs its own small jobs on, as opposed to what your chats think
   /// with. Kept cheap on purpose.
   remyModel: string;
+  repoUpdate: "off" | "hourly" | "sixHourly" | "daily";
+}
+
+/// What one repository did the last time Remy refreshed them.
+export interface RepoOutcome {
+  workspace: string;
+  path: string;
+  result: "updated" | "current" | "dirty" | "no-upstream" | "diverged" | "detached" | "failed";
+  detail?: string;
+}
+
+export interface UpdateRun {
+  at: number;
+  repos: RepoOutcome[];
 }
 
 /// What a command-line tool on the machine reports about itself.

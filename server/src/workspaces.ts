@@ -107,7 +107,7 @@ function gitDirFor(worktreePath: string): string | null {
 
 // Dirty state of a worktree, computed WITHOUT chdir'ing into it (so git's
 // getcwd() never touches an EINTR-prone external volume). Conservative on error.
-async function worktreeDirty(worktreePath: string): Promise<boolean> {
+export async function worktreeDirty(worktreePath: string): Promise<boolean> {
   const gitDir = gitDirFor(worktreePath);
   try {
     const args = gitDir

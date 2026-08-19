@@ -32,6 +32,9 @@ export interface Config {
   worktreeRoot: string;
   /// The model a new chat starts with. Empty is Claude Code's own default.
   defaultModel: string;
+  /// How often Remy refreshes the repositories it knows about. `off` never
+  /// does, which is the setting for anyone who wants git touched only by them.
+  repoUpdate: RepoUpdateEvery;
   /// The model Remy runs its own small jobs on — naming a chat, and whatever
   /// else comes to need a model later. Separate from `defaultModel`, which is
   /// what your chats think with: this one should stay cheap.
@@ -41,10 +44,20 @@ export interface Config {
 export type PreventSleepMode = "off" | "whileBusy" | "always";
 export type CheckoutMode = "main" | "worktree";
 export type WorktreeBase = "remote" | "local";
+export type RepoUpdateEvery = "off" | "hourly" | "sixHourly" | "daily";
 
 const SLEEP_MODES: PreventSleepMode[] = ["off", "whileBusy", "always"];
 const CHECKOUT_MODES: CheckoutMode[] = ["main", "worktree"];
 const WORKTREE_BASES: WorktreeBase[] = ["remote", "local"];
+const REPO_UPDATES: RepoUpdateEvery[] = ["off", "hourly", "sixHourly", "daily"];
+
+/// How long between refreshes, or nothing when they are off.
+export function repoUpdateInterval(every: RepoUpdateEvery): number | undefined {
+  if (every === "hourly") return 60 * 60_000;
+  if (every === "sixHourly") return 6 * 60 * 60_000;
+  if (every === "daily") return 24 * 60 * 60_000;
+  return undefined;
+}
 /// Only the aliases Claude Code accepts on the command line. A free-string
 /// model would fail at spawn time, long after the picker said it was fine.
 const MODELS = ["", "opus", "sonnet", "haiku"];
@@ -85,6 +98,7 @@ function load(): Config {
     worktreeRoot: worktreeRootPath(parsed.worktreeRoot),
     defaultModel: oneOf(MODELS, parsed.defaultModel, ""),
     remyModel: oneOf(MODELS, parsed.remyModel, "haiku"),
+    repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
   };
   setKv("config", config);
   return config;
@@ -99,6 +113,7 @@ export interface PublicSettings {
   worktreeRoot: string;
   defaultModel: string;
   remyModel: string;
+  repoUpdate: RepoUpdateEvery;
 }
 
 export function publicSettings(): PublicSettings {
@@ -109,6 +124,7 @@ export function publicSettings(): PublicSettings {
     worktreeRoot: config.worktreeRoot,
     defaultModel: config.defaultModel,
     remyModel: config.remyModel,
+    repoUpdate: config.repoUpdate,
   };
 }
 
@@ -138,6 +154,9 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
   if (patch.remyModel !== undefined) {
     set("remyModel", oneOf(MODELS, patch.remyModel, config.remyModel));
+  }
+  if (patch.repoUpdate !== undefined) {
+    set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));
   }
 
   if (touched) setKv("config", config);

@@ -17,6 +17,7 @@ import type {
   Server,
   ServerSettings,
   Tooling,
+  UpdateRun,
   Workspace,
   WorkspaceIconMatch,
 } from "./types";
@@ -67,6 +68,7 @@ interface State {
   /// the panes that show them, not on every poll.
   settings?: ServerSettings;
   tooling?: Tooling;
+  repoRun?: UpdateRun;
   loading: boolean;
   /// Set when every configured server failed, so the UI can say why rather than
   /// showing an empty list as though nothing were running.
@@ -100,6 +102,8 @@ interface State {
   loadSettings(): Promise<void>;
   saveSettings(patch: Partial<ServerSettings>): Promise<void>;
   loadTooling(): Promise<void>;
+  loadRepoRun(): Promise<void>;
+  updateRepos(): Promise<void>;
   openChat(id: string): Promise<void>;
   closeChat(): void;
   sendMessage(text: string): Promise<void>;
@@ -457,6 +461,26 @@ export const useStore = create<State>((set, get) => ({
     const server = localServer(get().servers);
     if (!server) return;
     set({ tooling: await transport.request<Tooling>(server.id, "/server/tooling") });
+  },
+
+  async loadRepoRun() {
+    const server = localServer(get().servers);
+    if (!server) return;
+    const body = await transport.request<{ run?: UpdateRun | null }>(server.id, "/server/repo-update");
+    set({ repoRun: body.run ?? undefined });
+  },
+
+  async updateRepos() {
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    const body = await transport.request<{ run?: UpdateRun }>(server.id, "/server/repo-update", {
+      method: "POST",
+      body: {},
+    });
+    set({ repoRun: body.run });
+    // A fetch can leave a workspace on a different commit, and a fast-forward
+    // certainly does.
+    await get().refresh();
   },
 
   async openChat(id) {
