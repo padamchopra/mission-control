@@ -52,6 +52,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Bind the address the docs actually give people. Vite's default resolves
+    // to IPv6 loopback alone here, so `http://127.0.0.1:5173` refused the
+    // connection and the browser showed its own error page. Still loopback:
+    // this is never reachable from the network.
+    host: "127.0.0.1",
     // No live reloading. Editing Remy in Remy meant the page yanked itself out
     // from under whatever was on screen on every save; reload it yourself when
     // you want to see a change.
