@@ -169,8 +169,10 @@ loopback or your tailnet, behind a bearer token. See [SECURITY.md](SECURITY.md).
 
 macOS will not open a GitHub download unless Apple has notarized it. The
 `Mac` workflow on `main` signs with a Developer ID and notarizes before
-it attaches the DMG to the GitHub release. Without the secrets below, that
-job fails on purpose so an unsigned build never ships.
+it publishes a new GitHub release. The tag is `{major}.{minor}.{run}` from
+`package.json` plus the workflow run number (`v0.1.5`, `v0.1.6`, …), so
+each merge to `main` shows up as its own release. Without the secrets below,
+that job fails on purpose so an unsigned build never ships.
 
 1. Enrol in the [Apple Developer Program](https://developer.apple.com/programs/).
 2. In Keychain Access, create a **Developer ID Application** certificate,
@@ -189,8 +191,8 @@ job fails on purpose so an unsigned build never ships.
    | `APPLE_API_ISSUER` | the Issuer UUID |
    | `APPLE_TEAM_ID` | 10-character Team ID |
 
-5. Push to `main` (or run the **Mac** workflow). The release DMG is then
-   double-clickable.
+5. Push to `main` (or run the **Mac** workflow). Each run publishes a new
+   release; the DMG is then double-clickable.
 
 ## Notes
 
