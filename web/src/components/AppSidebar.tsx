@@ -335,8 +335,16 @@ function ThreadRow({
         <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{plainText(chat.preview)}</span>
       )}
 
+      {/* The place is what you read; the marks are what you glance at, so they
+          hold the right edge rather than crowding the name. */}
       <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className="min-w-0 truncate">{place}</span>
+        <span className="min-w-0 flex-1 truncate">{place}</span>
+        {elapsed && (
+          <span className="flex shrink-0 items-center gap-1 tabular-nums">
+            <Clock className="size-3" />
+            {elapsed}
+          </span>
+        )}
         <ProviderMark model={chat.model} />
         {server && (
           <Tooltip>
@@ -345,12 +353,6 @@ function ThreadRow({
             </TooltipTrigger>
             <TooltipContent>{server.name}</TooltipContent>
           </Tooltip>
-        )}
-        {elapsed && (
-          <span className="ml-auto flex shrink-0 items-center gap-1 tabular-nums">
-            <Clock className="size-3" />
-            {elapsed}
-          </span>
         )}
       </span>
     </SidebarMenuButton>

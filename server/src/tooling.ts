@@ -67,6 +67,21 @@ export function readGhAuth(output: string): { authenticated: boolean; account?: 
   return { authenticated: /Logged in to/.test(output) };
 }
 
+/// The GitHub account this machine is signed in as, which is what a branch
+/// someone else reads should be prefixed with. Absent when `gh` is missing or
+/// signed out, and the caller falls back to Remy's own name.
+export async function githubLogin(): Promise<string | undefined> {
+  try {
+    const { stdout } = await exec("gh", ["api", "user", "--jq", ".login"], { cwd: homedir(), timeout: 8_000 });
+    const login = stdout.trim();
+    // A branch name has to survive `git check-ref-format`, and a login is the
+    // one part of it Remy does not choose.
+    return /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(login) ? login : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function tooling(): Promise<Tooling> {
   const [git, gh, claude] = await Promise.all([
     probe("git", ["--version"]),

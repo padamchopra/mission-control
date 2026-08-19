@@ -40,7 +40,7 @@ import { questionBroker } from "./questions.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
-import { tooling } from "./tooling.js";
+import { githubLogin, tooling } from "./tooling.js";
 import { lastUpdateRun, syncRepoUpdateSchedule, updateRepositories } from "./repo-update.js";
 import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
@@ -972,4 +972,13 @@ setSleepBusyCheck(() =>
 );
 syncSleepAssertion();
 syncRepoUpdateSchedule();
+
+// Seed the branch prefix once, from whoever this machine is signed in as. Remy
+// names itself when `gh` cannot say, so a branch always carries a prefix.
+if (!config.worktreeBranchPrefix) {
+  void githubLogin().then((login) => {
+    if (config.worktreeBranchPrefix) return;
+    patchSettings({ worktreeBranchPrefix: login ?? "remy" });
+  });
+}
 startLoopScheduler(pushSessionList);

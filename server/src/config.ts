@@ -32,6 +32,10 @@ export interface Config {
   worktreeRoot: string;
   /// The model a new chat starts with. Empty is Claude Code's own default.
   defaultModel: string;
+  /// What Remy puts in front of a branch it creates for a worktree. Seeded
+  /// from the GitHub login at boot, so a branch someone else sees says who
+  /// made it.
+  worktreeBranchPrefix: string;
   /// How often Remy refreshes the repositories it knows about. `off` never
   /// does, which is the setting for anyone who wants git touched only by them.
   repoUpdate: RepoUpdateEvery;
@@ -87,6 +91,20 @@ export function worktreeRootPath(value: unknown): string {
   return isAbsolute(expanded) ? expanded.replace(/\/+$/, "") : "";
 }
 
+/// A prefix has to survive `git check-ref-format`: no spaces, no leading or
+/// trailing slash, none of the characters git reserves. Undefined when nothing
+/// usable is left.
+export function branchPrefix(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value
+    .trim()
+    .replace(/[\s~^:?*[\\]+/g, "-")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^[/.]+|[/.]+$/g, "")
+    .slice(0, 40);
+  return cleaned || undefined;
+}
+
 function load(): Config {
   const parsed = getKv<Partial<Config> & { preventSleepWhileBusy?: boolean }>("config") ?? {};
   const config: Config = {
@@ -102,6 +120,7 @@ function load(): Config {
     defaultModel: oneOf(MODELS, parsed.defaultModel, ""),
     remyModel: oneOf(REMY_MODELS, parsed.remyModel, "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
+    worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
   };
   setKv("config", config);
   return config;
@@ -117,6 +136,7 @@ export interface PublicSettings {
   defaultModel: string;
   remyModel: string;
   repoUpdate: RepoUpdateEvery;
+  worktreeBranchPrefix: string;
 }
 
 export function publicSettings(): PublicSettings {
@@ -128,6 +148,7 @@ export function publicSettings(): PublicSettings {
     defaultModel: config.defaultModel,
     remyModel: config.remyModel,
     repoUpdate: config.repoUpdate,
+    worktreeBranchPrefix: config.worktreeBranchPrefix,
   };
 }
 
@@ -160,6 +181,11 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
   if (patch.repoUpdate !== undefined) {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));
+  }
+  if (patch.worktreeBranchPrefix !== undefined) {
+    // An unusable prefix falls back to Remy's own name rather than producing a
+    // branch git will refuse to create.
+    set("worktreeBranchPrefix", branchPrefix(patch.worktreeBranchPrefix) ?? "remy");
   }
 
   if (touched) setKv("config", config);

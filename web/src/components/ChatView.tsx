@@ -489,14 +489,18 @@ function ToolEntry({ entry }: { entry: ConvEntry }) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-1.5 rounded-lg border px-3 py-2 text-xs",
+        // `min-w-0` so this can shrink inside the feed's column: without it a
+        // long command sets the width and the whole thread scrolls sideways.
+        "flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-lg border px-3 py-2 text-xs",
         failed ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/40",
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
         <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">{entry.verb ?? entry.tool ?? "Tool"}</span>
-        {entry.arg && <span className="truncate font-mono text-muted-foreground">{entry.arg}</span>}
+        {entry.arg && (
+          <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{entry.arg}</span>
+        )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {typeof entry.adds === "number" && entry.adds > 0 && (
             <span className="font-mono text-success-foreground">+{entry.adds}</span>
@@ -509,7 +513,9 @@ function ToolEntry({ entry }: { entry: ConvEntry }) {
       </div>
       {entry.diff && entry.diff.length > 0 && <Diff lines={entry.diff} />}
       {entry.output && (
-        <pre className="max-h-56 overflow-auto whitespace-pre-wrap text-muted-foreground">
+        // Tool output is paths and ref names — long runs with nothing to break
+        // on — so it breaks anywhere rather than pushing the card wider.
+        <pre className="max-h-56 overflow-auto break-all whitespace-pre-wrap text-muted-foreground">
           {entry.output}
         </pre>
       )}
