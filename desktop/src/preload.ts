@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld("remy", {
   /// own, but only the main process can raise the window itself.
   focus: (): Promise<void> => ipcRenderer.invoke("mc:focus"),
 
+  /// Captures the window to a PNG on the desktop, and answers with its path.
+  snapshot: (): Promise<string> => ipcRenderer.invoke("mc:snapshot"),
+
   onStatus: (handler: (serverId: string, online: boolean, error?: string) => void) => {
     const listener = (_event: unknown, serverId: string, online: boolean, error?: string) =>
       handler(serverId, online, error);

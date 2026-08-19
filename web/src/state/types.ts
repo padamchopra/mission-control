@@ -167,6 +167,9 @@ export interface ServerSettings {
   /// with. Kept cheap on purpose.
   remyModel: string;
   repoUpdate: "off" | "hourly" | "sixHourly" | "daily";
+  worktreeBranchPrefix: string;
+  /// Your face: empty for the default, `preset:<id>`, or a `data:` URL.
+  avatar: string;
 }
 
 /// What one repository did the last time Remy refreshed them.

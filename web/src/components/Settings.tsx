@@ -1,4 +1,4 @@
-import { Archive, Boxes, Check, Folder, GitBranch, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Archive, Boxes, Check, Folder, GitBranch, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -54,10 +54,20 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { ClaudeMark } from "@/components/ClaudeMark";
+import { AvatarFrom, PresetAvatar } from "@/components/UserAvatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { PaneHeader } from "@/components/PaneHeader";
 import { PathPickerDialog } from "@/components/PathPicker";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
+import { AVATAR_PRESETS, isImageAvatar, readAvatarFile } from "@/lib/avatars";
 import {
   askToNotify,
   notificationsEnabled,
@@ -67,7 +77,7 @@ import {
 } from "@/lib/notify";
 import { useStore } from "@/state/store";
 import type { Server, ToolStatus } from "@/state/types";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export type SettingsTab = "general" | "version-control" | "providers" | "devices" | "archive";
 
@@ -178,6 +188,7 @@ function GeneralPane({
           </Button>
         )}
       </div>
+      <AvatarField />
       <NotificationsField />
       <RemyModelField />
       <div className="flex items-start gap-3 rounded-lg border border-border px-3 py-2.5">
@@ -188,6 +199,110 @@ function GeneralPane({
         </div>
       </div>
     </div>
+  );
+}
+
+/// The face on your messages. Presets are drawn in the app; a picture is
+/// resized and cropped square here before it is stored, so a settings row never
+/// holds a photo straight off a phone.
+function AvatarField() {
+  const { settings, save } = useServerSettings();
+  const [open, setOpen] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+
+  if (!settings) return null;
+  const avatar = settings.avatar ?? "";
+
+  const choose = (next: string) => {
+    void save({ avatar: next }, "your avatar");
+    setOpen(false);
+  };
+
+  const upload = async (picked: File | undefined) => {
+    if (!picked) return;
+    try {
+      choose(await readAvatarFile(picked));
+    } catch (caught) {
+      toast.error("Couldn't use that image", {
+        description: caught instanceof Error ? caught.message : "Try a different one.",
+      });
+    }
+  };
+
+  return (
+    <Field orientation="horizontal" className="items-center">
+      <FieldContent>
+        <FieldLabel>Your avatar</FieldLabel>
+        <FieldDescription className="text-xs">
+          Shown on your messages in a thread.
+        </FieldDescription>
+      </FieldContent>
+      <div className="flex shrink-0 items-center gap-2">
+        <AvatarFrom avatar={avatar} />
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+          Change
+        </Button>
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Your avatar</DialogTitle>
+            <DialogDescription>Pick one, or use a picture of your own.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-5 gap-2">
+            <button
+              type="button"
+              aria-label="Default"
+              onClick={() => choose("")}
+              className={cn(
+                "flex items-center justify-center rounded-lg border p-1.5",
+                avatar ? "border-transparent hover:bg-accent" : "border-primary",
+              )}
+            >
+              <PresetAvatar />
+            </button>
+            {AVATAR_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                aria-label={preset.label}
+                onClick={() => choose(`preset:${preset.id}`)}
+                className={cn(
+                  "flex items-center justify-center rounded-lg border p-1.5",
+                  avatar === `preset:${preset.id}` ? "border-primary" : "border-transparent hover:bg-accent",
+                )}
+              >
+                <PresetAvatar preset={preset} />
+              </button>
+            ))}
+          </div>
+
+          <DialogFooter className="sm:justify-between">
+            <input
+              ref={file}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                void upload(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+            <Button type="button" variant="outline" size="sm" onClick={() => file.current?.click()}>
+              <ImagePlus />
+              Use a picture
+            </Button>
+            {isImageAvatar(avatar) && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => choose("")}>
+                Remove picture
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Field>
   );
 }
 

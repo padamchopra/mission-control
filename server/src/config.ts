@@ -32,6 +32,9 @@ export interface Config {
   worktreeRoot: string;
   /// The model a new chat starts with. Empty is Claude Code's own default.
   defaultModel: string;
+  /// The face on your messages: empty for the default, `preset:<id>` for one
+  /// of the built-in ones, or a `data:` URL for a picture you chose.
+  avatar: string;
   /// What Remy puts in front of a branch it creates for a worktree. Seeded
   /// from the GitHub login at boot, so a branch someone else sees says who
   /// made it.
@@ -91,6 +94,22 @@ export function worktreeRootPath(value: unknown): string {
   return isAbsolute(expanded) ? expanded.replace(/\/+$/, "") : "";
 }
 
+/// A picture small enough to live in a settings row. Anything bigger is a
+/// mistake rather than an avatar, and the client resizes before sending.
+const MAX_AVATAR_BYTES = 96 * 1024;
+
+/// Either one of the built-in faces or an image someone chose. A `data:` URL is
+/// the only kind of image accepted: a remote one would phone out from a window
+/// that otherwise never does.
+export function avatarValue(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (/^preset:[a-z0-9-]{1,32}$/.test(trimmed)) return trimmed;
+  if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(trimmed)) return "";
+  return trimmed.length > MAX_AVATAR_BYTES ? "" : trimmed;
+}
+
 /// A prefix has to survive `git check-ref-format`: no spaces, no leading or
 /// trailing slash, none of the characters git reserves. Undefined when nothing
 /// usable is left.
@@ -121,6 +140,7 @@ function load(): Config {
     remyModel: oneOf(REMY_MODELS, parsed.remyModel, "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
     worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
+    avatar: avatarValue(parsed.avatar),
   };
   setKv("config", config);
   return config;
@@ -137,6 +157,7 @@ export interface PublicSettings {
   remyModel: string;
   repoUpdate: RepoUpdateEvery;
   worktreeBranchPrefix: string;
+  avatar: string;
 }
 
 export function publicSettings(): PublicSettings {
@@ -149,6 +170,7 @@ export function publicSettings(): PublicSettings {
     remyModel: config.remyModel,
     repoUpdate: config.repoUpdate,
     worktreeBranchPrefix: config.worktreeBranchPrefix,
+    avatar: config.avatar,
   };
 }
 
@@ -181,6 +203,9 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
   if (patch.repoUpdate !== undefined) {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));
+  }
+  if (patch.avatar !== undefined) {
+    set("avatar", avatarValue(patch.avatar));
   }
   if (patch.worktreeBranchPrefix !== undefined) {
     // An unusable prefix falls back to Remy's own name rather than producing a

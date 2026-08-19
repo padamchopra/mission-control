@@ -51,6 +51,8 @@ interface Bridge {
   onStatus(handler: (serverId: string, online: boolean, error?: string) => void): () => void;
   /// Raises the desktop window. Absent in a browser, and on an older shell.
   focus?(): Promise<void>;
+  /// Captures the window to a file, and answers with where it went.
+  snapshot?(): Promise<string>;
   addServer(input: {
     url: string;
     token: string;

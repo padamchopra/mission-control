@@ -8,7 +8,6 @@ import {
   Copy,
   GitBranch,
   Square,
-  User,
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,6 +34,7 @@ import {
 import { ComposerMenu } from "@/components/ComposerMenu";
 import { PaneHeader } from "@/components/PaneHeader";
 import { ClaudeMark } from "@/components/ClaudeMark";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Markdown } from "@/components/Markdown";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -364,12 +364,11 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
   if (entry.kind === "user") {
     return (
       <Message align="end">
-        <MessageAvatar className={cn(!lead && "invisible")}>
-          <Avatar size="sm">
-            <AvatarFallback className="bg-primary/15 text-primary">
-              <User className="size-3" />
-            </AvatarFallback>
-          </Avatar>
+        {/* The slot is its own muted disc at `min-w-8`. A smaller avatar inside
+            leaves that disc showing as a ring, so the avatar fills it and the
+            slot carries no colour of its own. */}
+        <MessageAvatar className={cn("bg-transparent", !lead && "invisible")}>
+          <UserAvatar />
         </MessageAvatar>
         <MessageContent>
           {lead && <MessageHeader>You</MessageHeader>}
@@ -433,10 +432,10 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
 /// gives the mark its circle and keeps it from stretching.
 function ClaudeAvatar({ lead }: { lead: boolean }) {
   return (
-    <MessageAvatar className={cn(!lead && "invisible")}>
-      <Avatar size="sm">
+    <MessageAvatar className={cn("bg-transparent", !lead && "invisible")}>
+      <Avatar>
         <AvatarFallback className="bg-claude/15 text-claude">
-          <ClaudeMark className="size-3" />
+          <ClaudeMark className="size-4" />
         </AvatarFallback>
       </Avatar>
     </MessageAvatar>
