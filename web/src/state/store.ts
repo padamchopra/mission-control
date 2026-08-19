@@ -110,6 +110,7 @@ interface State {
   answerApproval(requestId: string, decision: "allow" | "allowAlways" | "deny"): Promise<void>;
   answerQuestion(requestId: string, answers: Record<string, unknown>): Promise<void>;
   interrupt(): Promise<void>;
+  setChatOptions(patch: { model?: string | null; permissionMode?: string }): Promise<void>;
 }
 
 /// How often to poll. Long while pushes are arriving, short while they aren't.
@@ -547,6 +548,29 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  async setChatOptions(patch) {
+    const detail = get().detail;
+    if (!detail) return;
+    // The server answers with the chat as it now stands, and retires the Claude
+    // process so the next message starts under the new settings.
+    const body = await transport.request<{ chat?: RawChatDetail }>(
+      detail.serverId,
+      `/chats/${encodeURIComponent(detail.id)}`,
+      { method: "PATCH", body: patch },
+    );
+    const chat = body.chat;
+    if (!chat) return;
+    set((current) => ({
+      detail:
+        current.detail?.id === detail.id
+          ? { ...current.detail, model: chat.model, permissionMode: chat.permissionMode }
+          : current.detail,
+      chats: current.chats.map((entry) =>
+        entry.id === detail.id ? { ...entry, model: chat.model } : entry,
+      ),
+    }));
+  },
+
   async interrupt() {
     const detail = get().detail;
     if (!detail) return;
@@ -577,6 +601,7 @@ interface ChatFrame {
 }
 
 interface RawChatDetail extends RawChat {
+  permissionMode?: string;
   entries?: ConvEntry[];
   todos?: ConvTodo[];
   approval?: ChatApproval | null;
@@ -593,6 +618,7 @@ function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
     title: raw.title,
     cwd: raw.cwd,
     model: raw.model,
+    permissionMode: raw.permissionMode,
     state: raw.state ?? "idle",
     action: raw.action ?? undefined,
     entries: raw.entries ?? [],

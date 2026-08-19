@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, CircleAlert, Square, Wrench } from "lucide-react";
+import { ArrowUp, Box, Check, CircleAlert, GitBranch, Square, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -18,15 +18,19 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
+  InputGroupText,
   InputGroupTextarea,
 } from "@/components/ui/input-group";
 import { Message, MessageContent } from "@/components/ui/message";
+import { ComposerMenu } from "@/components/ComposerMenu";
 import { Markdown } from "@/components/Markdown";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiError } from "@/lib/api-error";
+import { MODELS, PERMISSIONS, modelLabel, permissionOf } from "@/lib/chat-options";
+import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { workspaceForPath } from "@/lib/projects";
 import { cn } from "@/lib/utils";
@@ -46,6 +50,7 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
   const answerApproval = useStore((s) => s.answerApproval);
   const answerQuestion = useStore((s) => s.answerQuestion);
   const interrupt = useStore((s) => s.interrupt);
+  const setChatOptions = useStore((s) => s.setChatOptions);
 
   const workspaces = useStore((s) => s.workspaces);
   const servers = useStore((s) => s.servers);
@@ -69,6 +74,16 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
   // machine instead.
   const workspace = workspaces[workspaceForPath(chat.cwd, workspaces)];
   const server = servers.find((entry) => entry.id === chat.serverId);
+  const DeviceIcon = deviceIcon(server?.icon);
+  // The checkout this thread runs in, which is what names its branch. A thread
+  // started in a subdirectory still belongs to the deepest checkout above it,
+  // and a checkout Remy added detached has no branch to name at all.
+  const tree =
+    workspace?.worktrees.find((entry) => entry.path === chat.cwd)
+    ?? [...(workspace?.worktrees ?? [])]
+      .sort((a, b) => b.path.length - a.path.length)
+      .find((entry) => chat.cwd.startsWith(`${entry.path}/`));
+  const branch = tree ? (tree.branch ?? "detached") : undefined;
 
   // The store may still hold the chat that was open a moment ago, so paint from
   // the list row until the fetch for this one lands.
@@ -91,6 +106,16 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
     } finally {
       setBusy(false);
       textareaRef.current?.focus();
+    }
+  };
+
+  const permission = permissionOf(open?.permissionMode);
+
+  const setOption = async (patch: { model?: string | null; permissionMode?: string }, what: string) => {
+    try {
+      await setChatOptions(patch);
+    } catch (caught) {
+      toast.error(`Couldn't change the ${what}`, { description: apiError(caught) });
     }
   };
 
@@ -228,6 +253,40 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
               >
                 <ArrowUp />
               </InputGroupButton>
+            </InputGroupAddon>
+            <InputGroupAddon align="block-end" className="border-t">
+              <ComposerMenu
+                icon={Box}
+                label={modelLabel(open?.model)}
+                value={open?.model ?? ""}
+                disabled={!open || working}
+                title={working ? "The model changes once this turn is done." : undefined}
+                onChange={(value) => void setOption({ model: value || null }, "model")}
+                options={MODELS}
+              />
+              <ComposerMenu
+                icon={permission.icon}
+                label={permission.label}
+                value={permission.value}
+                disabled={!open || working}
+                title={working ? "Permissions change once this turn is done." : undefined}
+                onChange={(value) => void setOption({ permissionMode: value }, "permission mode")}
+                options={PERMISSIONS}
+              />
+              <div className="ml-auto flex min-w-0 items-center gap-1">
+                {/* Where a thread runs is fixed when it starts, so these read
+                    rather than offer. */}
+                <InputGroupText title={displayPath(chat.cwd)}>
+                  <DeviceIcon />
+                  {server?.name ?? "This machine"}
+                </InputGroupText>
+                {branch && (
+                  <InputGroupText title={displayPath(chat.cwd)} className="min-w-0">
+                    <GitBranch />
+                    <span className="max-w-40 truncate">{branch}</span>
+                  </InputGroupText>
+                )}
+              </div>
             </InputGroupAddon>
           </InputGroup>
         </form>

@@ -140,6 +140,8 @@ export interface ChatDetail {
   title: string;
   cwd: string;
   model?: string;
+  /// How much this thread may do unasked. Changeable, unlike where it runs.
+  permissionMode?: string;
   state: ChatState;
   action?: string;
   entries: ConvEntry[];
