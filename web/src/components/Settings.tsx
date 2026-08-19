@@ -176,7 +176,8 @@ function RemyModelField() {
       <FieldContent>
         <FieldLabel htmlFor="remy-model">Remy's own model</FieldLabel>
         <FieldDescription>
-          Runs the small jobs Remy does for itself, starting with naming a thread. Your threads are unaffected.
+          Names a thread from your first message, and whatever else Remy comes to do for itself. Your threads
+          think with their own model.
         </FieldDescription>
       </FieldContent>
       <Select
@@ -188,7 +189,7 @@ function RemyModelField() {
         </SelectTrigger>
         <SelectContent align="end">
           <SelectGroup>
-            {MODELS.map((option) => (
+            {REMY_MODELS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
@@ -215,6 +216,14 @@ const REPO_UPDATES = [
   { value: "hourly", label: "Every hour" },
   { value: "sixHourly", label: "Every 6 hours" },
   { value: "daily", label: "Once a day" },
+] as const;
+
+const REMY_MODELS = [
+  { value: "haiku", label: "Haiku" },
+  { value: "sonnet", label: "Sonnet" },
+  { value: "opus", label: "Opus" },
+  { value: "default", label: "Claude Code's default" },
+  { value: "off", label: "Off" },
 ] as const;
 
 const MODELS = [

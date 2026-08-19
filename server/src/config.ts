@@ -35,9 +35,10 @@ export interface Config {
   /// How often Remy refreshes the repositories it knows about. `off` never
   /// does, which is the setting for anyone who wants git touched only by them.
   repoUpdate: RepoUpdateEvery;
-  /// The model Remy runs its own small jobs on — naming a chat, and whatever
+  /// The model Remy runs its own small jobs on — naming a thread, and whatever
   /// else comes to need a model later. Separate from `defaultModel`, which is
-  /// what your chats think with: this one should stay cheap.
+  /// what your threads think with: this one should stay cheap. `off` declines
+  /// them altogether.
   remyModel: string;
 }
 
@@ -61,6 +62,8 @@ export function repoUpdateInterval(every: RepoUpdateEvery): number | undefined {
 /// Only the aliases Claude Code accepts on the command line. A free-string
 /// model would fail at spawn time, long after the picker said it was fine.
 const MODELS = ["", "opus", "sonnet", "haiku"];
+/// Remy's own jobs can also be declined outright, which a thread's model cannot.
+const REMY_MODELS = ["off", ...MODELS];
 
 function preventSleepMode(value: unknown, legacyBusy?: unknown): PreventSleepMode {
   if (SLEEP_MODES.includes(value as PreventSleepMode)) return value as PreventSleepMode;
@@ -97,7 +100,7 @@ function load(): Config {
     worktreeBase: oneOf(WORKTREE_BASES, parsed.worktreeBase, "remote"),
     worktreeRoot: worktreeRootPath(parsed.worktreeRoot),
     defaultModel: oneOf(MODELS, parsed.defaultModel, ""),
-    remyModel: oneOf(MODELS, parsed.remyModel, "haiku"),
+    remyModel: oneOf(REMY_MODELS, parsed.remyModel, "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
   };
   setKv("config", config);
@@ -153,7 +156,7 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
     set("defaultModel", oneOf(MODELS, patch.defaultModel, config.defaultModel));
   }
   if (patch.remyModel !== undefined) {
-    set("remyModel", oneOf(MODELS, patch.remyModel, config.remyModel));
+    set("remyModel", oneOf(REMY_MODELS, patch.remyModel, config.remyModel));
   }
   if (patch.repoUpdate !== undefined) {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));

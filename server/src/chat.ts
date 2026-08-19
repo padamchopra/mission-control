@@ -24,6 +24,7 @@ import {
   trimEntries,
 } from "./chat-storage.js";
 import { config } from "./config.js";
+import { suggestTitle } from "./namer.js";
 import { broadcast, sendNotification } from "./notify.js";
 import { syncSleepAssertion } from "./sleep.js";
 import {
@@ -329,9 +330,13 @@ class Chat {
   async send(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (this.record.entries.length === 0 && this.record.title === "New chat") {
+    const first = this.record.entries.length === 0;
+    if (first && this.record.title === "New chat") {
       this.record.title = titleFrom(trimmed);
     }
+    // A better name is worth having but not worth waiting for, so it runs
+    // alongside the turn and lands whenever it lands.
+    if (first) void this.rename(trimmed);
     this.append({ id: `u-${randomUUID()}`, kind: "user", text: clip(trimmed, MAX_TEXT) });
     this.record.error = undefined;
     // A prompt typed while Claude is blocked on a permission is queued behind
@@ -420,6 +425,23 @@ class Chat {
     if (!this.live || this.state !== "idle") return;
     if (nowMs() - this.lastActivity < IDLE_SHUTDOWN_MS) return;
     this.stop();
+  }
+
+  /// Replaces the first-line title with one the naming model wrote. Only ever
+  /// touches a title nobody has changed in the meantime — yours wins.
+  private async rename(request: string): Promise<void> {
+    const before = this.record.title;
+    const suggested = await suggestTitle(request, config.remyModel);
+    if (!suggested || this.deleted) return;
+    if (this.record.title !== before) return;
+    if (suggested === before) return;
+    this.record.title = suggested;
+    this.record.updatedAt = nowMs();
+    this.persist();
+    // stateFields carries the title, so an open thread renames itself without
+    // refetching, and the list picks it up from the same frame.
+    this.push();
+    broadcast({ type: "chats" });
   }
 
   // ── the SDK session ──────────────────────────────────────────────────────
