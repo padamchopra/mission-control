@@ -16,7 +16,6 @@ export function UserAvatar({ className }: { className?: string }) {
 /// The same face, from a value rather than the setting — for previewing one you
 /// have not chosen yet.
 export function AvatarFrom({ avatar, className }: { avatar: string; className?: string }) {
-  const preset = presetFor(avatar);
   if (avatar.startsWith("data:image/")) {
     return (
       <Avatar className={className}>
@@ -27,15 +26,25 @@ export function AvatarFrom({ avatar, className }: { avatar: string; className?: 
       </Avatar>
     );
   }
-  return <PresetAvatar preset={preset} className={className} />;
+  return <PresetAvatar preset={presetFor(avatar)} className={className} />;
 }
 
 export function PresetAvatar({ preset, className }: { preset?: AvatarPreset; className?: string }) {
-  const Icon = preset?.icon ?? User;
+  if (!preset) {
+    return (
+      <Avatar className={className}>
+        <AvatarFallback className="bg-primary/15 text-primary">
+          <User className="size-4" />
+        </AvatarFallback>
+      </Avatar>
+    );
+  }
   return (
     <Avatar className={className}>
-      <AvatarFallback className={cn(preset?.className ?? "bg-primary/15 text-primary")}>
-        <Icon className="size-4" />
+      {/* The emoji carries the colour; the disc is behind it, so the fallback
+          sets no text colour of its own. */}
+      <AvatarFallback className={cn("text-base leading-none", preset.className)}>
+        <span aria-hidden="true">{preset.emoji}</span>
       </AvatarFallback>
     </Avatar>
   );

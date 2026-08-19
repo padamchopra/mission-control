@@ -1,39 +1,34 @@
-import {
-  Anchor,
-  Bird,
-  Bot,
-  Cat,
-  Flame,
-  Ghost,
-  Rocket,
-  Sprout,
-  type LucideIcon,
-} from "lucide-react";
-
 /// Faces for your own messages.
 ///
 /// The built-in ones are drawn here rather than fetched: this window talks to
-/// loopback and nothing else, so an avatar service is not an option, and a
-/// glyph on a colour is cheap, legible at 32px, and never a broken image.
+/// loopback and nothing else, so an avatar service is not an option. An emoji
+/// on a saturated disc is full colour at any size, needs no asset, and looks
+/// like somebody rather than like an icon.
 
 export interface AvatarPreset {
   id: string;
   label: string;
-  icon: LucideIcon;
-  /// Tailwind classes for the disc. Written out rather than composed, so each
-  /// one can be read as the thing it looks like.
+  emoji: string;
+  /// The disc behind it. Written out per preset so each can be read as the
+  /// thing it looks like.
   className: string;
 }
 
 export const AVATAR_PRESETS: AvatarPreset[] = [
-  { id: "ghost", label: "Ghost", icon: Ghost, className: "bg-violet-500/20 text-violet-300" },
-  { id: "rocket", label: "Rocket", icon: Rocket, className: "bg-orange-500/20 text-orange-300" },
-  { id: "cat", label: "Cat", icon: Cat, className: "bg-amber-500/20 text-amber-300" },
-  { id: "bird", label: "Bird", icon: Bird, className: "bg-sky-500/20 text-sky-300" },
-  { id: "bot", label: "Bot", icon: Bot, className: "bg-emerald-500/20 text-emerald-300" },
-  { id: "flame", label: "Flame", icon: Flame, className: "bg-rose-500/20 text-rose-300" },
-  { id: "sprout", label: "Sprout", icon: Sprout, className: "bg-lime-500/20 text-lime-300" },
-  { id: "anchor", label: "Anchor", icon: Anchor, className: "bg-cyan-500/20 text-cyan-300" },
+  { id: "alien", label: "Alien", emoji: "👾", className: "bg-gradient-to-br from-violet-500 to-fuchsia-600" },
+  { id: "fox", label: "Fox", emoji: "🦊", className: "bg-gradient-to-br from-orange-400 to-red-500" },
+  { id: "octopus", label: "Octopus", emoji: "🐙", className: "bg-gradient-to-br from-pink-400 to-rose-600" },
+  { id: "unicorn", label: "Unicorn", emoji: "🦄", className: "bg-gradient-to-br from-fuchsia-400 to-purple-600" },
+  { id: "frog", label: "Frog", emoji: "🐸", className: "bg-gradient-to-br from-lime-400 to-emerald-600" },
+  { id: "cactus", label: "Cactus", emoji: "🌵", className: "bg-gradient-to-br from-emerald-400 to-teal-600" },
+  { id: "pizza", label: "Pizza", emoji: "🍕", className: "bg-gradient-to-br from-amber-400 to-orange-600" },
+  { id: "ufo", label: "UFO", emoji: "🛸", className: "bg-gradient-to-br from-sky-400 to-indigo-600" },
+  { id: "fire", label: "Fire", emoji: "🔥", className: "bg-gradient-to-br from-yellow-400 to-red-600" },
+  { id: "wave", label: "Wave", emoji: "🌊", className: "bg-gradient-to-br from-cyan-400 to-blue-600" },
+  { id: "bolt", label: "Bolt", emoji: "⚡", className: "bg-gradient-to-br from-yellow-300 to-amber-500" },
+  { id: "brain", label: "Brain", emoji: "🧠", className: "bg-gradient-to-br from-rose-300 to-pink-500" },
+  { id: "ghost", label: "Ghost", emoji: "👻", className: "bg-gradient-to-br from-slate-300 to-slate-500" },
+  { id: "robot", label: "Robot", emoji: "🤖", className: "bg-gradient-to-br from-zinc-400 to-slate-600" },
 ];
 
 export function presetFor(avatar: string | undefined): AvatarPreset | undefined {

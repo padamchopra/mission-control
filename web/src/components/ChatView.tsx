@@ -81,6 +81,15 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
     textareaRef.current?.focus();
   }, [chat.id]);
 
+  // The textarea is sized to what is in it: `scrollHeight` after a reset is the
+  // height the content wants, and the class caps how far that can go.
+  useEffect(() => {
+    const box = textareaRef.current;
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${box.scrollHeight}px`;
+  }, [text]);
+
   // Which project this chat is in, so the breadcrumb reads as a place rather
   // than a path. A chat started in `~` belongs to no workspace and wears the
   // machine instead.
@@ -226,9 +235,11 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
         </div>
       </ScrollFeed>
 
-      <div className="shrink-0 border-t border-border px-5 py-4">
+      <div className="shrink-0 border-t border-border px-5 py-3">
         <form
-          className="mx-auto w-full max-w-3xl"
+          // The toolbar drops labels by how wide the composer is, not the
+          // window: the sidebar takes a fixed slice, so the two differ.
+          className="@container mx-auto w-full max-w-3xl"
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
@@ -240,7 +251,10 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
               aria-label="Message"
               placeholder="Reply, or ask for the next change."
               value={text}
-              className="min-h-20"
+              // Two lines at rest, growing with what you write. The reply box
+              // sits under the thread it belongs to, so idle height is space
+              // taken from the conversation.
+              className="max-h-56 min-h-11 resize-none"
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -248,25 +262,9 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
                 void submit();
               }}
             />
-            <InputGroupAddon align="block-end">
-              {working && (
-                <InputGroupButton type="button" onClick={() => void stop()}>
-                  <Square />
-                  Stop
-                </InputGroupButton>
-              )}
-              <InputGroupButton
-                type="submit"
-                variant="default"
-                size="icon-sm"
-                className="ml-auto rounded-full"
-                disabled={!text.trim() || busy}
-                aria-label="Send"
-              >
-                <ArrowUp />
-              </InputGroupButton>
-            </InputGroupAddon>
-            <InputGroupAddon align="block-end" className="border-t">
+            {/* One row, not two: the settings and the send button are the same
+                strip of chrome. */}
+            <InputGroupAddon align="block-end" className="gap-1">
               <ComposerMenu
                 icon={Box}
                 label={modelLabel(open?.model)}
@@ -285,19 +283,36 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
                 onChange={(value) => void setOption({ permissionMode: value }, "permission mode")}
                 options={PERMISSIONS}
               />
+
               <div className="ml-auto flex min-w-0 items-center gap-1">
                 {/* Where a thread runs is fixed when it starts, so these read
                     rather than offer. */}
-                <InputGroupText title={displayPath(chat.cwd)}>
+                <InputGroupText title={displayPath(chat.cwd)} className="hidden @md:flex">
                   <DeviceIcon />
                   {server?.name ?? "This machine"}
                 </InputGroupText>
                 {branch && (
-                  <InputGroupText title={displayPath(chat.cwd)} className="min-w-0">
+                  <InputGroupText title={displayPath(chat.cwd)} className="hidden min-w-0 @sm:flex">
                     <GitBranch />
-                    <span className="max-w-40 truncate">{branch}</span>
+                    <span className="max-w-32 truncate">{branch}</span>
                   </InputGroupText>
                 )}
+                {working && (
+                  <InputGroupButton type="button" onClick={() => void stop()}>
+                    <Square />
+                    Stop
+                  </InputGroupButton>
+                )}
+                <InputGroupButton
+                  type="submit"
+                  variant="default"
+                  size="icon-sm"
+                  className="rounded-full"
+                  disabled={!text.trim() || busy}
+                  aria-label="Send"
+                >
+                  <ArrowUp />
+                </InputGroupButton>
               </div>
             </InputGroupAddon>
           </InputGroup>
