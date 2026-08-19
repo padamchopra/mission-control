@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { App } from "./App";
-import "./dev-reload";
 import "./index.css";
 
 if (window.remy || window.missionControl) {

@@ -40,6 +40,10 @@ npm run dev   # Electron, pointed at the same Vite server
 **UI changes** — leave Remy.app open or quit it; either way the page is your
 local `web/`.
 
+The page does not live-reload. Refresh the browser when you want to see a
+change: editing Remy while watching Remy meant every save yanked the window out
+from under whatever was on screen.
+
 **Server changes** (`server/`) — quit Remy.app first, then `npm run dev:web`
 again so the clone's daemon starts. Two processes cannot both own port 8420.
 
