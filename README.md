@@ -28,8 +28,8 @@ there, not a copy of the repo in the cloud.
 - **`desktop/`** — a thin Electron shell (`me.padamchopra.Remy`). It owns the
   window and the tokens; the UI is the same web app. The Mac DMG ships the UI
   and the daemon. Opening Remy starts the daemon with Electron's Node; quitting
-  Remy stops it. Chats use the Claude Code already on this Mac. Pushing `main`
-  builds that DMG.
+  Remy stops it. Chats use the Claude Code already on this Mac. A nightly
+  workflow builds that DMG.
 - **`server/`** — a Node/TypeScript daemon. Binds to `127.0.0.1` only. Chats are
   conversations Remy runs itself through the
   [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview): the
@@ -168,10 +168,12 @@ loopback or your tailnet, behind a bearer token. See [SECURITY.md](SECURITY.md).
 ## Publishing a Mac build
 
 macOS will not open a GitHub download unless Apple has notarized it. The
-`Mac` workflow on `main` signs with a Developer ID and notarizes before
-it publishes a new GitHub release. The tag is `{major}.{minor}.{run}` from
-`package.json` plus the workflow run number (`v0.1.5`, `v0.1.6`, …), so
-each merge to `main` shows up as its own release. Without the secrets below,
+`Mac` workflow signs with a Developer ID and notarizes before
+it publishes a new GitHub release. It runs at 00:05 UTC each night, and on
+demand from the Actions tab when a merge is worth shipping sooner. The tag is
+`{major}.{minor}.{run}` from `package.json` plus the workflow run number
+(`v0.1.5`, `v0.1.6`, …), so each run shows up as its own release.
+Without the secrets below,
 that job fails on purpose so an unsigned build never ships.
 
 1. Enrol in the [Apple Developer Program](https://developer.apple.com/programs/).
@@ -191,8 +193,8 @@ that job fails on purpose so an unsigned build never ships.
    | `APPLE_API_ISSUER` | the Issuer UUID |
    | `APPLE_TEAM_ID` | 10-character Team ID |
 
-5. Push to `main` (or run the **Mac** workflow). Each run publishes a new
-   release; the DMG is then double-clickable.
+5. Wait for the nightly, or run the **Mac** workflow from the Actions tab.
+   Each run publishes a new release; the DMG is then double-clickable.
 
 ## Notes
 

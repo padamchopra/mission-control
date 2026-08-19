@@ -55,7 +55,7 @@ Skip `VITE_MC_FIXTURE=1`; that is fake data, not your real state.
 | `ios/` | SwiftUI companion (XcodeGen). Still speaks the older session/tmux remote. |
 | `deploy/` | Optional launchd login item, Claude/Codex hooks, `tailscale serve`, pairing QR. |
 | `.agents/skills/` | House rules — read the relevant one before touching that area. |
-| `.github/workflows/mac.yml` | Signs, notarizes, and releases the DMG on every push to `main`. |
+| `.github/workflows/mac.yml` | Signs, notarizes, and releases the DMG. Runs nightly at 00:05 UTC, or on demand — merging to `main` no longer ships a build. |
 
 `web/vite.config.ts` is doing more than it looks: it spawns the local daemon if
 one is not up, proxies `/api` to it, and injects the bearer token from
