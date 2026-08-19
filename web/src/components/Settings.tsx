@@ -39,12 +39,23 @@ import { IconPicker } from "@/components/IconPicker";
 import { DEVICE_ICON_IDS, deviceIcon, type DeviceIconId } from "@/lib/devices";
 import { hostLabel, parsePairingLink } from "@/lib/pairing";
 import { displayPath } from "@/lib/path";
+import { workspaceForPath } from "@/lib/projects";
 import { isNewer, type RemyRelease } from "@/lib/release";
 import { transport } from "@/lib/transport";
 import type { TintId } from "@/lib/tints";
 import { cn } from "@/lib/utils";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import { ClaudeMark } from "@/components/ClaudeMark";
 import { PathPickerDialog } from "@/components/PathPicker";
+import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
 import {
   askToNotify,
@@ -470,6 +481,7 @@ function VersionControlPane() {
 /// left exactly as it was.
 function RepoUpdateField() {
   const { settings, save } = useServerSettings();
+  const workspaces = useStore((s) => s.workspaces);
   const run = useStore((s) => s.repoRun);
   const loadRepoRun = useStore((s) => s.loadRepoRun);
   const updateRepos = useStore((s) => s.updateRepos);
@@ -483,9 +495,9 @@ function RepoUpdateField() {
     setBusy(true);
     try {
       await updateRepos();
-      toast.success("Repositories are up to date.");
+      toast.success("Workspaces are up to date.");
     } catch (caught) {
-      toast.error("Couldn't update the repositories", { description: apiError(caught) });
+      toast.error("Couldn't sync the workspaces", { description: apiError(caught) });
     } finally {
       setBusy(false);
     }
@@ -499,15 +511,15 @@ function RepoUpdateField() {
     <div className="flex flex-col gap-3">
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
-          <FieldLabel htmlFor="repo-update">Keep repositories current</FieldLabel>
+          <FieldLabel htmlFor="repo-update">Sync workspaces</FieldLabel>
           <FieldDescription className="text-xs">
-            Fetches everything. Fast-forwards a main checkout only when it is clean.
+            Fetches every workspace. Fast-forwards a main checkout only when it is clean.
           </FieldDescription>
         </FieldContent>
         <Select
           value={settings.repoUpdate}
           onValueChange={(value) =>
-            void save({ repoUpdate: value as typeof settings.repoUpdate }, "how often repositories update")
+            void save({ repoUpdate: value as typeof settings.repoUpdate }, "how often workspaces sync")
           }
         >
           <SelectTrigger id="repo-update" size="sm" className="w-44 shrink-0">
@@ -539,24 +551,34 @@ function RepoUpdateField() {
       </div>
 
       {run && run.repos.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {run.repos.map((repo) => (
-            <div key={repo.path} className="flex items-baseline gap-2 text-xs">
-              <span className="min-w-0 truncate font-medium">{repo.workspace}</span>
-              <span className="text-muted-foreground">{repo.detail ?? REPO_RESULT[repo.result]}</span>
-              {repo.result === "updated" && (
-                <Badge variant="success" className="ml-auto">
-                  Updated
-                </Badge>
-              )}
-              {repo.result === "failed" && (
-                <Badge variant="destructive" className="ml-auto">
-                  Failed
-                </Badge>
-              )}
-            </div>
-          ))}
-        </div>
+        <ItemGroup className="gap-1">
+          {run.repos.map((repo) => {
+            const workspace = workspaces[workspaceForPath(repo.path, workspaces)];
+            return (
+              <Item key={repo.path} variant="muted" size="sm" className="gap-2.5">
+                <ItemMedia>
+                  <WorkspaceMark home={!workspace} workspace={workspace} size="sm" />
+                </ItemMedia>
+                <ItemContent className="gap-0.5">
+                  <ItemTitle>{workspace?.name ?? repo.workspace}</ItemTitle>
+                  <ItemDescription className="text-xs">
+                    {repo.detail ?? REPO_RESULT[repo.result]}
+                  </ItemDescription>
+                </ItemContent>
+                {repo.result === "updated" && (
+                  <ItemActions>
+                    <Badge variant="success">Updated</Badge>
+                  </ItemActions>
+                )}
+                {repo.result === "failed" && (
+                  <ItemActions>
+                    <Badge variant="destructive">Failed</Badge>
+                  </ItemActions>
+                )}
+              </Item>
+            );
+          })}
+        </ItemGroup>
       )}
     </div>
   );
@@ -657,30 +679,34 @@ function ToolRow({
 }) {
   const ok = status?.available && status.authenticated !== false;
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-border px-3 py-2.5">
-      <span
-        className={cn(
-          "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full",
-          status === undefined ? "bg-muted" : ok ? "bg-success/20 text-success-foreground" : "bg-muted",
+    <Item variant="outline" size="sm" className="gap-2.5">
+      <ItemMedia>
+        {mark ?? (
+          <span
+            className={cn(
+              "flex size-4 items-center justify-center rounded-full",
+              status === undefined ? "bg-muted" : ok ? "bg-success/20 text-success-foreground" : "bg-muted",
+            )}
+          >
+            {status === undefined ? null : ok ? <Check className="size-3" /> : <X className="size-3" />}
+          </span>
         )}
-      >
-        {status === undefined ? null : ok ? <Check className="size-3" /> : <X className="size-3" />}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 text-sm font-medium">
-          {mark}
-          {label}
-        </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+      </ItemMedia>
+      <ItemContent className="gap-0.5">
+        <ItemTitle>{label}</ItemTitle>
+        <ItemDescription className="text-xs">
           {status === undefined
             ? "Checking…"
             : (detail ?? (status.available ? "Ready." : (status.error ?? `Remy can't run ${name} here.`)))}
-        </p>
-      </div>
-      {status?.version && (
-        <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">{status.version}</span>
-      )}
-    </div>
+        </ItemDescription>
+      </ItemContent>
+      <ItemActions className="gap-2">
+        {status !== undefined && !ok && <Badge variant="secondary">Not ready</Badge>}
+        {status?.version && (
+          <span className="font-mono text-xs text-muted-foreground tabular-nums">{status.version}</span>
+        )}
+      </ItemActions>
+    </Item>
   );
 }
 
