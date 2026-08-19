@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { ChevronDown, ChevronLeft, MessagesSquare, Plus, Settings2 } from "lucide-react";
+import { ArrowUpCircle, ChevronDown, ChevronLeft, Plus, Settings2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +45,7 @@ export function AppSidebar({
   onSelectChat,
   openSettings,
   closeSettings,
+  updateAvailable,
 }: {
   view: "app" | "settings";
   settingsTab: SettingsTab;
@@ -61,6 +62,7 @@ export function AppSidebar({
   onSelectChat: (id: string) => void;
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
+  updateAvailable?: boolean;
 }) {
   const scopeServer = servers.find((server) => server.id === scope);
   const anyOnline = servers.some((server) => server.online);
@@ -89,6 +91,7 @@ export function AppSidebar({
                         <Icon />
                         <span>{label}</span>
                       </SidebarMenuButton>
+                      {id === "general" && updateAvailable && <SidebarMenuBadge>1</SidebarMenuBadge>}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
@@ -210,11 +213,11 @@ export function AppSidebar({
       <SidebarFooter>
         <SidebarSeparator />
         <SidebarMenu>
-          {view !== "settings" && (
+          {view !== "settings" && updateAvailable && (
             <SidebarMenuItem>
-              <SidebarMenuButton>
-                <MessagesSquare />
-                <span>Archived chats</span>
+              <SidebarMenuButton onClick={() => openSettings("general")}>
+                <ArrowUpCircle />
+                <span>Update available</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}

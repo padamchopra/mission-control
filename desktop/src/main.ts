@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
-import { hostname as osHostname } from "node:os";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir, hostname as osHostname } from "node:os";
 import { join } from "node:path";
 import {
   Connection,
@@ -11,12 +12,41 @@ import {
 } from "./connection";
 import { ensureLocalServer, isLoopback, localTargetFromConfig, stopSpawnedServer } from "./local-server";
 
-/// The desktop shell. Deliberately thin — it owns the window and nothing else,
-/// the same split T3 Code uses, so the UI stays a plain web app that can be run
-/// and screenshotted in a browser without Electron in the way.
+/// The desktop shell. Deliberately thin — it owns the window, starts the
+/// bundled daemon, and holds the tokens. The UI stays a plain web app that can
+/// be run and screenshotted in a browser without Electron in the way.
 
 const DEV_SERVER = process.env.MC_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER);
+
+const LEGACY_USER_DATA = [
+  join(homedir(), "Library/Application Support/remy-desktop"),
+  join(homedir(), "Library/Application Support/Mission Control"),
+];
+
+function migrateUserData(): string {
+  const current = app.getPath("userData");
+  const db = join(current, "remy.db");
+  if (existsSync(db)) return current;
+  mkdirSync(current, { recursive: true });
+  for (const dir of LEGACY_USER_DATA) {
+    const from = join(dir, "remy.db");
+    if (!existsSync(from)) continue;
+    copyFileSync(from, db);
+    break;
+  }
+  return current;
+}
+
+function webIndex(): string {
+  if (app.isPackaged) return join(process.resourcesPath, "web/index.html");
+  return join(__dirname, "../../web/dist/index.html");
+}
+
+function serverDir(): string {
+  if (app.isPackaged) return join(process.resourcesPath, "server");
+  return join(__dirname, "../../server");
+}
 
 let connection: Connection | undefined;
 
@@ -50,11 +80,13 @@ function withBuiltinLocal(existing: ServerConfig[], local: ServerConfig): Server
 }
 
 async function wireIpc(): Promise<void> {
-  const configPath = serversFile(app.getPath("userData"));
+  const configPath = serversFile(migrateUserData());
   let servers = loadServers(configPath);
   const envUrl = process.env.MC_SERVER_URL;
   if (!envUrl || isLoopback(envUrl)) {
-    const target = await ensureLocalServer(join(__dirname, "../../server"), localTargetFromConfig());
+    const target = await ensureLocalServer(serverDir(), localTargetFromConfig(), {
+      electronNode: app.isPackaged,
+    });
     if (target.token) {
       servers = withBuiltinLocal(servers, {
         id: "local",
@@ -80,6 +112,8 @@ async function wireIpc(): Promise<void> {
   connection.on("status", (serverId: string, online: boolean, error?: string) =>
     send("mc:status", serverId, online, error),
   );
+
+  ipcMain.handle("app:info", () => ({ version: app.getVersion(), name: app.getName() }));
 
   ipcMain.handle("mc:servers", () => connection?.list() ?? []);
 
@@ -180,12 +214,13 @@ function createWindow(): void {
   if (isDev) {
     void window.loadURL(DEV_SERVER!);
   } else {
-    void window.loadFile(join(__dirname, "../../web/dist/index.html"));
+    void window.loadFile(webIndex());
   }
 }
 
+void app.setName("Remy");
+
 void app.whenReady().then(async () => {
-  app.setName("Remy");
   await wireIpc();
   createWindow();
   app.on("activate", () => {

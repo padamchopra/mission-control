@@ -15,7 +15,7 @@ Use a primitive from `web/src/components/ui` for every control. If it is missing
 
 This project is Radix, not Base. Toast is `sonner` (`toast()` from `sonner`, `<Toaster />` from `@/components/ui/sonner`). Do not add the Base `toast` component.
 
-Composed screens (`Palette`, `AddWorkspace`, `Settings`, `AppSidebar`) assemble those primitives. They are not a substitute for a primitive that already exists.
+Composed screens (`Palette`, `AddWorkspace`, `Settings`, `AppSidebar`, `ChatComposer`) assemble those primitives. They are not a substitute for a primitive that already exists.
 
 A custom `div`/`button` control is the last resort, only after no shadcn primitive can do the job.
 
@@ -55,7 +55,10 @@ The reference for a searchable, keyboard-driven list is `web/src/components/Pale
 | Transient status | `toast()` from `sonner` |
 | Loading text | `shimmer` class from `shadcn/tailwind.css` |
 | Modal | `Dialog` (`esc` closes) |
-| Menu | `DropdownMenu` |
+| Menu | `DropdownMenu` (selected is a trailing `Check`, not a left radio) |
+| Form dropdown | `Select` |
+| Labeled setting row | `Field` |
+| Chat compose | `InputGroup` + `Textarea` (`ChatComposer`) |
 | Tabs | `Tabs` |
 | Confirm / submit | `Button` in a focusable dialog |
 
@@ -70,3 +73,5 @@ In a path picker, Enter fills the highlighted folder so you can keep going. ⌘E
 If the primitive cannot own a shortcut, bind it and show it with `Kbd` / `KbdGroup` next to the action, matching the palette footer.
 
 Do not ship a click-only list, picker, or toolbar when the same job exists as a shadcn primitive with keys.
+
+After the control is on the page, follow `qa` and click it in the running preview. A snapshot of the default paint is not a test.

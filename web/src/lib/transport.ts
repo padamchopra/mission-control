@@ -39,6 +39,8 @@ interface ListedServer {
 
 interface Bridge {
   platform: string;
+  version?: string;
+  info?: () => Promise<{ version: string; name: string }>;
   servers(): Promise<ListedServer[]>;
   request(
     serverId: string,

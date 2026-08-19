@@ -25,6 +25,7 @@ import {
 } from "./chat-storage.js";
 import { config } from "./config.js";
 import { broadcast, sendNotification } from "./notify.js";
+import { syncSleepAssertion } from "./sleep.js";
 import {
   applyAnswers,
   applyNotes,
@@ -53,9 +54,20 @@ import { uploadRoot } from "./uploads.js";
 // answered here rather than by driving a cursor.
 
 export type ChatState = "idle" | "working" | "needs_input" | "error";
-export type ChatPermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
+export type ChatPermissionMode =
+  | "default"
+  | "auto"
+  | "acceptEdits"
+  | "plan"
+  | "bypassPermissions";
 
-const PERMISSION_MODES: ChatPermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+const PERMISSION_MODES: ChatPermissionMode[] = [
+  "default",
+  "auto",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+];
 
 /// A tool call Claude is blocked on. Mirrors the shape of a tool entry so the
 /// client can render the pending card with the same vocabulary as the feed.
@@ -853,6 +865,7 @@ class Chat {
   push(): void {
     if (this.deleted) return;
     broadcast({ type: "chat", chatId: this.record.id, ...this.stateFields() });
+    syncSleepAssertion();
   }
 
   persist(): void {
@@ -901,6 +914,13 @@ export function getChat(id: string): ChatDetail | undefined {
   return chats.get(id)?.detail();
 }
 
+function expandChatCwd(raw: string): string {
+  const trimmed = raw.trim() || "~";
+  if (trimmed === "~") return homedir();
+  if (trimmed.startsWith("~/")) return join(homedir(), trimmed.slice(2));
+  return trimmed;
+}
+
 export function createChat(input: {
   cwd: string;
   title?: string;
@@ -909,8 +929,8 @@ export function createChat(input: {
 }): ChatSummary {
   // Refuse loudly rather than running a conversation this server cannot keep.
   assertChatStorage();
-  const cwd = input.cwd.trim();
-  if (!cwd || !existsSync(cwd)) throw new Error("that directory does not exist on this machine");
+  const cwd = expandChatCwd(input.cwd);
+  if (!existsSync(cwd)) throw new Error("that directory does not exist on this machine");
   // Fail here rather than on the first message, so a host without Claude Code
   // says so while the chat is still being created.
   agentCommand("claude");
@@ -985,6 +1005,7 @@ export function deleteChat(id: string): void {
   chats.delete(id);
   removeChat(id);
   broadcast({ type: "chats" });
+  syncSleepAssertion();
 }
 
 export function stopChat(id: string): void {
