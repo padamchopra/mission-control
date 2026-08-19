@@ -2,13 +2,6 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Box, Check, ChevronDown, Folder, FolderGit2, GitBranch } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -36,6 +29,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ComposerMenu } from "@/components/ComposerMenu";
+import { PaneHeader } from "@/components/PaneHeader";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { MODELS, PERMISSIONS, modelLabel, permissionOf, type PermissionValue } from "@/lib/chat-options";
 import { apiError } from "@/lib/api-error";
@@ -199,10 +193,10 @@ export function ChatComposer({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
+      <PaneHeader
+        crumbs={[
+          {
+            label: (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" variant="ghost" size="sm" className="h-auto gap-1.5 px-1">
@@ -212,15 +206,13 @@ export function ChatComposer({
                 </DropdownMenuTrigger>
                 <WorkspaceMenu {...picker} />
               </DropdownMenu>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="font-medium">New thread</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        {headerEnd ? <div className="ml-auto flex items-center gap-4">{headerEnd}</div> : null}
-      </div>
+            ),
+          },
+          { label: "New thread" },
+        ]}
+      >
+        {headerEnd}
+      </PaneHeader>
 
       <div className="flex min-h-0 flex-1 items-center justify-center p-6">
         <div className="flex w-full max-w-2xl flex-col gap-8">

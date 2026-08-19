@@ -111,6 +111,8 @@ interface State {
   answerQuestion(requestId: string, answers: Record<string, unknown>): Promise<void>;
   interrupt(): Promise<void>;
   setChatOptions(patch: { model?: string | null; permissionMode?: string }): Promise<void>;
+  archiveThread(id: string): Promise<void>;
+  deleteThread(id: string): Promise<void>;
 }
 
 /// How often to poll. Long while pushes are arriving, short while they aren't.
@@ -546,6 +548,23 @@ export const useStore = create<State>((set, get) => ({
       method: "POST",
       body: { requestId, answers },
     });
+  },
+
+  async archiveThread(id) {
+    const chat = get().chats.find((entry) => entry.id === id);
+    if (!chat) return;
+    await transport.request(chat.serverId, `/chats/${encodeURIComponent(id)}/archive`, {
+      method: "POST",
+      body: {},
+    });
+    await get().refresh();
+  },
+
+  async deleteThread(id) {
+    const chat = get().chats.find((entry) => entry.id === id);
+    if (!chat) return;
+    await transport.request(chat.serverId, `/chats/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await get().refresh();
   },
 
   async setChatOptions(patch) {

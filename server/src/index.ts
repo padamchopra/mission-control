@@ -337,6 +337,30 @@ const server = createServer(async (req, res) => {
           return json(res, 404, { error: (error as Error).message || "no such chat" });
         }
       }
+      // Keeping the conversation and dropping the thread. A turn still running
+      // would be archived half-written, so it is refused rather than caught.
+      if (req.method === "POST" && parts[2] === "archive") {
+        const chat = getChat(id);
+        if (!chat) return json(res, 404, { error: "no such chat" });
+        if (chat.state === "working" || chat.state === "needs_input") {
+          return json(res, 409, { error: "this thread is still running" });
+        }
+        const archive = archiveChat({
+          session: chat.title,
+          agent: "claude",
+          cwd: chat.cwd,
+          conversation: {
+            available: true,
+            agent: "claude",
+            title: chat.title,
+            model: chat.model,
+            todos: chat.todos,
+            entries: chat.entries,
+          },
+        });
+        deleteChat(id);
+        return json(res, 200, { archive });
+      }
       if (req.method === "POST" && parts[2] === "message") {
         const body = await readJson(req);
         try {

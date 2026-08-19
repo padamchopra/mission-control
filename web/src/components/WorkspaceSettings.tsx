@@ -10,14 +10,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EditableName } from "@/components/EditableName";
@@ -29,6 +21,7 @@ import { PROJECT_ICON_IDS, isProjectIcon, isProjectIconFile, projectIcon } from 
 import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { PaneHeader } from "@/components/PaneHeader";
 import { useStore } from "@/state/store";
 import type { Server, Workspace } from "@/state/types";
 
@@ -65,23 +58,12 @@ export function WorkspaceSettings({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center border-b border-border px-5 py-4">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Button type="button" variant="ghost" size="sm" className="h-auto px-1" onClick={onBack}>
-                  Workspaces
-                </Button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="font-semibold">{workspace.name}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
+      <PaneHeader
+        crumbs={[
+          { label: "Workspaces", onClick: onBack },
+          { label: workspace.name },
+        ]}
+      />
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-5 py-6">
           <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-3">

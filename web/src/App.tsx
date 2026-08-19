@@ -36,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { AppSidebar } from "@/components/AppSidebar";
 import { ChatComposer } from "@/components/ChatComposer";
 import { ChatView } from "@/components/ChatView";
+import { PaneHeader } from "@/components/PaneHeader";
 import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
@@ -127,7 +128,6 @@ export function App() {
   // an open palette, an open dialog — stays in React state.
   const [location, navigate] = useAppLocation();
   const { route } = location;
-  const scope = location.device ?? null;
   const section = sectionOf(route) as Section;
   const view = route.name === "settings" ? "settings" : "app";
   const settingsTab: SettingsTab = route.name === "settings" ? route.tab : "general";
@@ -137,7 +137,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
 
-  const go = (next: Route, replace = false) => navigate({ route: next, device: location.device }, replace);
+  const go = (next: Route, replace = false) => navigate({ route: next }, replace);
 
   const openSettings = (tab: SettingsTab = "general") => go({ name: "settings", tab });
 
@@ -171,18 +171,14 @@ export function App() {
     });
   }, [anyServerOnline, loadSettings]);
 
-  const scoped = useMemo(
-    () => (scope ? allChats.filter((chat) => chat.serverId === scope) : allChats),
-    [allChats, scope],
-  );
+  // Every device at once: that a thread runs somewhere else is what the row's
+  // device mark says, not something to filter the list down to.
+  const scoped = allChats;
   const chats = useMemo(
     () => (section === "inbox" ? scoped.filter((chat) => chat.state === "needs_input") : scoped),
     [scoped, section],
   );
-  const workspaces = useMemo(
-    () => (scope ? allWorkspaces.filter((workspace) => workspace.serverId === scope) : allWorkspaces),
-    [allWorkspaces, scope],
-  );
+  const workspaces = allWorkspaces;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -278,15 +274,12 @@ export function App() {
           view={view}
           settingsTab={settingsTab}
           section={section}
-          scope={scope}
           selected={selected}
           servers={servers}
-          chats={allChats}
           scoped={scoped}
           workspaces={allWorkspaces}
           needsYou={needsYou}
           sections={SECTIONS}
-          onScope={(id) => navigate({ route, device: id ?? undefined })}
           onSection={(id) => go(routeForSection(id as Section))}
           onSelectChat={openChat}
           openSettings={openSettings}
@@ -305,33 +298,28 @@ export function App() {
             ) : section === "chats" && canCompose ? (
               <ChatComposer
                 workspaces={workspaces}
-                servers={scope ? servers.filter((server) => server.id === scope) : servers}
+                servers={servers}
                 onCreated={(id) => go({ name: "threads", threadId: id })}
                 onAddWorkspace={() => setAddWorkspaceOpen(true)}
                 headerEnd={chatCounts}
               />
             ) : (
               <>
-            <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
-              <h1 className="text-xl font-semibold tracking-tight">
-                {SECTIONS.find((s) => s.id === section)?.label}
-              </h1>
-              <div className="ml-auto flex items-center gap-4">
-                {(section === "inbox" || section === "chats") && chatCounts}
-                {section === "workspaces" && (
-                  <Button size="sm" onClick={() => setAddWorkspaceOpen(true)}>
-                    <Plus />
-                    Add workspace
-                  </Button>
-                )}
-                {section === "loops" && (
-                  <Button size="sm">
-                    <Plus />
-                    New loop
-                  </Button>
-                )}
-              </div>
-            </div>
+            <PaneHeader crumbs={[{ label: SECTIONS.find((s) => s.id === section)?.label ?? "" }]}>
+              {(section === "inbox" || section === "chats") && chatCounts}
+              {section === "workspaces" && (
+                <Button size="sm" onClick={() => setAddWorkspaceOpen(true)}>
+                  <Plus />
+                  Add workspace
+                </Button>
+              )}
+              {section === "loops" && (
+                <Button size="sm">
+                  <Plus />
+                  New loop
+                </Button>
+              )}
+            </PaneHeader>
 
             {section === "inbox" ? (
               chats.length === 0 ? (

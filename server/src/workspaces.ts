@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { config } from "./config.js";
 import { db, runTransaction } from "./db.js";
 import { findProjectFiles } from "./discovery.js";
@@ -609,6 +609,32 @@ async function excludeFromRepository(workspacePath: string, rule: string): Promi
   const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
   mkdirSync(dirname(excludePath), { recursive: true });
   writeFileSync(excludePath, `${existing}${separator}${rule}\n`);
+}
+
+/// Puts a branch on a worktree Remy left detached, once there is a name for it.
+///
+/// A worktree started from a remote ref has no branch — `git worktree add
+/// --detach` is what keeps it from claiming one before anybody knows what the
+/// work is. This claims it afterwards.
+///
+/// Refuses anything that is not Remy's own detached worktree: a checkout you
+/// made, or one already on a branch, is never moved.
+export async function nameDetachedWorktree(cwd: string, branch: string): Promise<boolean> {
+  if (!branch || !cwd.includes(`${sep}.remy${sep}`)) return false;
+  try {
+    await exec("git", ["check-ref-format", "--branch", branch], { cwd: homedir() });
+    // A branch here means someone already named it, including a previous run.
+    const { stdout } = await exec("git", ["-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: homedir() })
+      .catch(() => ({ stdout: "" }));
+    if (stdout.trim()) return false;
+    await exec("git", ["-C", cwd, "switch", "-c", branch], { cwd: homedir(), timeout: 30_000 });
+    invalidateWorkspacesCache();
+    return true;
+  } catch {
+    // A name already taken, or a worktree that moved underneath us. The thread
+    // keeps working; it simply stays detached.
+    return false;
+  }
 }
 
 export function isLegacyManagedWorktreePath(workspacePath: string, worktreePath: string): boolean {

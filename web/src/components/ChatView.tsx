@@ -12,14 +12,8 @@ import {
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Card } from "@/components/ui/card";
@@ -39,6 +33,7 @@ import {
   MessageHeader,
 } from "@/components/ui/message";
 import { ComposerMenu } from "@/components/ComposerMenu";
+import { PaneHeader } from "@/components/PaneHeader";
 import { ClaudeMark } from "@/components/ClaudeMark";
 import { Markdown } from "@/components/Markdown";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
@@ -146,10 +141,10 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
-        <Breadcrumb className="min-w-0">
-          <BreadcrumbList className="flex-nowrap">
-            <BreadcrumbItem className="min-w-0">
+      <PaneHeader
+        crumbs={[
+          {
+            label: (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="flex min-w-0 items-center gap-1.5">
@@ -160,20 +155,14 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
                 {/* The path is what the name stands for, so it stays one hover away. */}
                 <TooltipContent className="font-mono">{displayPath(chat.cwd)}</TooltipContent>
               </Tooltip>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem className="min-w-0">
-              <BreadcrumbPage className="max-w-[46ch] truncate font-medium">
-                {open?.title ?? chat.title}
-              </BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          <StateBadge state={state} action={open?.action} />
-          {headerEnd}
-        </div>
-      </div>
+            ),
+          },
+          { label: open?.title ?? chat.title },
+        ]}
+      >
+        <StateBadge state={state} action={open?.action} />
+        {headerEnd}
+      </PaneHeader>
 
       <ScrollFeed chatId={chat.id} count={entries.length} working={working} className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-5 py-6">
@@ -375,8 +364,12 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
   if (entry.kind === "user") {
     return (
       <Message align="end">
-        <MessageAvatar className={cn("bg-primary/15 text-primary", !lead && "invisible")}>
-          <User className="size-3.5" />
+        <MessageAvatar className={cn(!lead && "invisible")}>
+          <Avatar size="sm">
+            <AvatarFallback className="bg-primary/15 text-primary">
+              <User className="size-3" />
+            </AvatarFallback>
+          </Avatar>
         </MessageAvatar>
         <MessageContent>
           {lead && <MessageHeader>You</MessageHeader>}
@@ -436,10 +429,16 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
   );
 }
 
+/// `MessageAvatar` is the slot; `Avatar` is what goes in it, which is what
+/// gives the mark its circle and keeps it from stretching.
 function ClaudeAvatar({ lead }: { lead: boolean }) {
   return (
-    <MessageAvatar className={cn("bg-claude/15 text-claude", !lead && "invisible")}>
-      <ClaudeMark className="size-3.5" />
+    <MessageAvatar className={cn(!lead && "invisible")}>
+      <Avatar size="sm">
+        <AvatarFallback className="bg-claude/15 text-claude">
+          <ClaudeMark className="size-3" />
+        </AvatarFallback>
+      </Avatar>
     </MessageAvatar>
   );
 }

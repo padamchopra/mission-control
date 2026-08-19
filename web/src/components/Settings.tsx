@@ -54,6 +54,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { ClaudeMark } from "@/components/ClaudeMark";
+import { PaneHeader } from "@/components/PaneHeader";
 import { PathPickerDialog } from "@/components/PathPicker";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
@@ -101,9 +102,7 @@ export function SettingsPane({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-baseline gap-3 border-b border-border px-5 py-4">
-        <h1 className="text-xl font-semibold tracking-tight">{section.label}</h1>
-      </div>
+      <PaneHeader crumbs={[{ label: "Settings" }, { label: section.label }]} />
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-5 py-6">
           {tab === "devices" ? (
@@ -987,9 +986,6 @@ function DeviceCard({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <EditableName value={server.name} label="device name" onCommit={(name) => void onUpdate({ name })} />
-            <Badge variant={server.online ? "success" : "secondary"}>
-              {server.online ? "Connected" : "Offline"}
-            </Badge>
           </span>
           <span className="block truncate text-xs text-muted-foreground">
             {server.local ? "This machine" : `${server.code} · ${hostLabel(server.url)}`}

@@ -24,7 +24,7 @@ import {
   trimEntries,
 } from "./chat-storage.js";
 import { config } from "./config.js";
-import { suggestTitle } from "./namer.js";
+import { suggestName } from "./namer.js";
 import { broadcast, sendNotification } from "./notify.js";
 import { syncSleepAssertion } from "./sleep.js";
 import {
@@ -47,6 +47,7 @@ import {
   type ConvTodo,
 } from "./transcript.js";
 import { uploadRoot } from "./uploads.js";
+import { nameDetachedWorktree } from "./workspaces.js";
 
 // Chats are conversations Remy owns end to end: the server runs
 // Claude through the Agent SDK, keeps the transcript itself, and streams it to
@@ -427,19 +428,35 @@ class Chat {
     this.stop();
   }
 
-  /// Replaces the first-line title with one the naming model wrote. Only ever
-  /// touches a title nobody has changed in the meantime — yours wins.
+  /// Replaces the first-line title with one the naming model wrote, and puts a
+  /// branch on the worktree if this thread is running in one Remy left
+  /// detached. Only ever touches a title nobody has changed in the meantime —
+  /// yours wins.
   private async rename(request: string): Promise<void> {
     const before = this.record.title;
-    const suggested = await suggestTitle(request, config.remyModel);
+    const suggested = await suggestName(request, config.remyModel);
     if (!suggested || this.deleted) return;
-    if (this.record.title !== before) return;
-    if (suggested === before) return;
-    this.record.title = suggested;
-    this.record.updatedAt = nowMs();
-    this.persist();
+
+    // The branch is claimed even when the title has since been changed by hand:
+    // one is about the work, the other is about the list.
+    let branched = false;
+    if (suggested.branch) {
+      const prefix = config.worktreeBranchPrefix;
+      branched = await nameDetachedWorktree(
+        this.record.cwd,
+        prefix ? `${prefix}/${suggested.branch}` : suggested.branch,
+      );
+    }
+
+    const renamed = this.record.title === before && suggested.title !== before;
+    if (renamed) {
+      this.record.title = suggested.title;
+      this.record.updatedAt = nowMs();
+      this.persist();
+    }
+    if (!renamed && !branched) return;
     // stateFields carries the title, so an open thread renames itself without
-    // refetching, and the list picks it up from the same frame.
+    // refetching; `chats` is what makes a client re-read the worktrees.
     this.push();
     broadcast({ type: "chats" });
   }
