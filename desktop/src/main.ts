@@ -84,7 +84,9 @@ async function wireIpc(): Promise<void> {
   let servers = loadServers(configPath);
   const envUrl = process.env.MC_SERVER_URL;
   if (!envUrl || isLoopback(envUrl)) {
-    const target = await ensureLocalServer(serverDir(), localTargetFromConfig());
+    const target = await ensureLocalServer(serverDir(), localTargetFromConfig(), {
+      electronNode: app.isPackaged,
+    });
     if (target.token) {
       servers = withBuiltinLocal(servers, {
         id: "local",

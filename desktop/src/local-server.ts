@@ -69,13 +69,8 @@ async function reachable(target: LocalTarget): Promise<boolean> {
 
 let spawned: ChildProcess | undefined;
 
-function bundledNode(serverDir: string): string | undefined {
-  const binary = join(serverDir, "bin/node");
-  return existsSync(binary) ? binary : undefined;
-}
-
 /// GUI apps inherit a tiny PATH. Claude, git, gh, and Homebrew live outside it.
-function serverEnv(): NodeJS.ProcessEnv {
+function serverEnv(electronNode: boolean): NodeJS.ProcessEnv {
   const home = homedir();
   const path = [
     join(home, ".local/bin"),
@@ -88,21 +83,25 @@ function serverEnv(): NodeJS.ProcessEnv {
     ...process.env,
     PATH: path,
     LANG: process.env.LANG || process.env.LC_ALL || "en_US.UTF-8",
+    ...(electronNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
   };
 }
 
-function nodeBinary(serverDir: string): string {
-  const bundled = bundledNode(serverDir);
-  if (bundled) return bundled;
-  // Electron's binary cannot load node-pty built for Node. Dev uses PATH node.
+function nodeCommand(electronNode: boolean): string {
+  if (electronNode) return process.execPath;
+  // Unpackaged Electron cannot load node-pty built for Node. Dev uses PATH node.
   if (process.versions.electron) return "node";
   return process.execPath;
 }
 
 /// The desktop window is useless without the daemon on this machine. A packaged
-/// app ships the server and a Node binary in extraResources; launchd is optional.
-/// If something already holds the port, this returns immediately.
-export async function ensureLocalServer(serverDir: string, target: LocalTarget): Promise<LocalTarget> {
+/// app ships the server next to the UI and runs it with Electron's Node, the
+/// same way T3 Code does. Claude itself stays the one already on this Mac.
+export async function ensureLocalServer(
+  serverDir: string,
+  target: LocalTarget,
+  options: { electronNode?: boolean } = {},
+): Promise<LocalTarget> {
   if (!isLoopback(target.url)) return target;
   if (await reachable(target)) return { ...target, token: readHomeConfig()?.token || target.token };
 
@@ -111,10 +110,11 @@ export async function ensureLocalServer(serverDir: string, target: LocalTarget):
     if (!existsSync(join(serverDir, "package.json"))) return target;
     await execFile("npm", ["run", "build"], { cwd: serverDir });
   }
-  spawned = spawn(nodeBinary(serverDir), [entry], {
+  const electronNode = Boolean(options.electronNode);
+  spawned = spawn(nodeCommand(electronNode), [entry], {
     cwd: serverDir,
     stdio: "inherit",
-    env: serverEnv(),
+    env: serverEnv(electronNode),
   });
   spawned.on("error", (error) => {
     console.warn("remy: failed to spawn local server", error);

@@ -12,7 +12,7 @@ there, not a copy of the repo in the cloud.
 
 ```
 ┌──────────────┐   loopback (or Tailscale)  ┌──────────────────────────────┐
-│  Remy.app    │ ◄────────────────────────► │  bundled server (Node)       │
+│  Remy.app    │ ◄────────────────────────► │  bundled server              │
 │  (Electron)  │   REST + WebSocket         │    ├─ Agent SDK chats        │
 │  web/ UI     │                            │    ├─ workspaces / git       │
 └──────────────┘                            │    ├─ event registry         │
@@ -26,9 +26,10 @@ there, not a copy of the repo in the cloud.
   (Radix, New York). Add primitives with `npx shadcn@latest add` from `web/`.
   Sidebar: Inbox, Chats, Workspaces, Pull requests, Loops. ⌘K is the palette.
 - **`desktop/`** — a thin Electron shell (`me.padamchopra.Remy`). It owns the
-  window and the tokens; the UI is the same web app. The Mac DMG ships the UI,
-  the Node daemon, and a Node binary. Opening Remy starts the daemon; quitting
-  Remy stops it. Pushing `main` builds that DMG.
+  window and the tokens; the UI is the same web app. The Mac DMG ships the UI
+  and the daemon. Opening Remy starts the daemon with Electron's Node; quitting
+  Remy stops it. Chats use the Claude Code already on this Mac. Pushing `main`
+  builds that DMG.
 - **`server/`** — a Node/TypeScript daemon. Binds to `127.0.0.1` only. Chats are
   conversations Remy runs itself through the
   [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview): the
@@ -58,7 +59,7 @@ can be reviewed without a server. Otherwise Vite proxies `/api` to
 `MC_TOKEN`) so the token never reaches the page.
 
 ```sh
-npm run pack:mac     # web + bundled server + Electron DMG → desktop/release/
+npm run pack:mac     # web + daemon + Electron DMG → desktop/release/
 npm run shots        # Playwright PNGs of the window
 npm run live-check   # assert the window is showing chats
 ```
