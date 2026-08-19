@@ -101,6 +101,12 @@ its own process, so the override cannot leak sideways.
 
 - **Comments** explain why, not what, and use `///` on exported declarations in
   TypeScript. Match the density of the file you are in; the codebase is sparse.
+- **Where the window is lives in the URL**, as a hash route — `#/threads/<id>`,
+  `#/settings/<tab>`, `#/workspaces/<id>`, with `?device=<id>` for the scope.
+  Electron loads the build from `file://`, where a path a server never sees
+  cannot survive a reload, so the hash is what both surfaces can agree on.
+  `web/src/lib/route.ts` parses and formats them; only genuinely transient
+  state (an open palette or dialog) stays in React.
 - **No shell strings.** The server reaches `git`, `gh`, and `tmux` through
   `execFile` with an argument array. Never build a command line, never
   interpolate a path or a branch name into one.

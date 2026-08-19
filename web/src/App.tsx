@@ -41,11 +41,13 @@ import { AddWorkspaceDialog } from "@/components/AddWorkspace";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
 import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
 import { useNotifications } from "@/hooks/use-notifications";
+import { useAppLocation } from "@/hooks/use-location";
 import { useRelease } from "@/hooks/use-release";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { notificationsEnabled } from "@/lib/notify";
 import { isProjectIconFile } from "@/lib/projects";
+import { sectionOf, type Route } from "@/lib/route";
 import { WorkspaceIcon } from "@/components/WorkspaceIcon";
 import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
@@ -54,6 +56,12 @@ import type { ChatState } from "@/state/types";
 import remyMark from "@/assets/remy-mark.png";
 
 type Section = "inbox" | "chats" | "workspaces" | "prs" | "loops";
+
+function routeForSection(section: Section): Route {
+  if (section === "chats") return { name: "threads" };
+  if (section === "workspaces") return { name: "workspaces" };
+  return { name: section };
+}
 
 const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
@@ -114,25 +122,28 @@ const EMPTY: Record<
 };
 
 export function App() {
-  const [section, setSection] = useState<Section>("chats");
-  const [scope, setScope] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  // Everywhere you can be is in the URL, so a reload lands back on it and the
+  // back button walks where you have been. Only what is genuinely transient —
+  // an open palette, an open dialog — stays in React state.
+  const [location, navigate] = useAppLocation();
+  const { route } = location;
+  const scope = location.device ?? null;
+  const section = sectionOf(route) as Section;
+  const view = route.name === "settings" ? "settings" : "app";
+  const settingsTab: SettingsTab = route.name === "settings" ? route.tab : "general";
+  const selected = route.name === "threads" ? (route.threadId ?? null) : null;
+  const workspaceSettingsId = route.name === "workspaces" ? (route.workspaceId ?? null) : null;
+
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [view, setView] = useState<"app" | "settings">("app");
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
-  const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string | null>(null);
 
-  const openSettings = (tab: SettingsTab = "general") => {
-    setWorkspaceSettingsId(null);
-    setSettingsTab(tab);
-    setView("settings");
-  };
+  const go = (next: Route, replace = false) => navigate({ route: next, device: location.device }, replace);
 
-  const closeSettings = () => {
-    setWorkspaceSettingsId(null);
-    setView("app");
-  };
+  const openSettings = (tab: SettingsTab = "general") => go({ name: "settings", tab });
+
+  // Settings is a place you came from somewhere, but the somewhere is not
+  // recorded, so leaving it goes to the threads the app opens on.
+  const closeSettings = () => go({ name: "threads" });
 
   const servers = useStore((s) => s.servers);
   const allChats = useStore((s) => s.chats);
@@ -182,18 +193,18 @@ export function App() {
       if (event.key === "Escape" && !paletteOpen) {
         if (workspaceSettingsId) {
           event.preventDefault();
-          setWorkspaceSettingsId(null);
+          go({ name: "workspaces" });
           return;
         }
         if (view === "settings") {
           event.preventDefault();
-          setView("app");
+          closeSettings();
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen, view, workspaceSettingsId]);
+  });
 
   const active = chats.find((chat) => chat.id === selected) ?? null;
   const needsYou = scoped.filter((chat) => chat.state === "needs_input").length;
@@ -204,17 +215,29 @@ export function App() {
   // the composer for the next one. There is no list of them here.
   const canCompose = !loading && !error && servers.length > 0;
 
-  const draftChat = () => setSelected(null);
+  const draftChat = () => go({ name: "threads" });
 
-  const openChat = (id: string) => {
-    setWorkspaceSettingsId(null);
-    setSection("chats");
-    setSelected(id);
-  };
+  const openChat = (id: string) => go({ name: "threads", threadId: id });
 
   // Banners come from the same socket the feed does, so a thread that needs you
   // says so whether or not this window is the one in front.
   useNotifications({ enabled: notificationsEnabled(), openThreadId: selected, onOpen: openChat });
+
+  // Opening with no hash writes the one it resolved to, so the address bar
+  // says where you are from the first paint.
+  useEffect(() => {
+    if (!window.location.hash) navigate(location, true);
+    // Once, on mount: afterwards the hash is whatever navigation made it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A thread can be deleted from another window, or the URL can name one that
+  // never existed. Fall back to the composer rather than showing an empty pane.
+  useEffect(() => {
+    if (!selected || loading) return;
+    if (allChats.some((chat) => chat.id === selected)) return;
+    go({ name: "threads" }, true);
+  }, [selected, loading, allChats]);
 
   const chatCounts = (
     <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -263,11 +286,8 @@ export function App() {
           workspaces={allWorkspaces}
           needsYou={needsYou}
           sections={SECTIONS}
-          onScope={setScope}
-          onSection={(id) => {
-            setWorkspaceSettingsId(null);
-            setSection(id as Section);
-          }}
+          onScope={(id) => navigate({ route, device: id ?? undefined })}
+          onSection={(id) => go(routeForSection(id as Section))}
           onSelectChat={openChat}
           openSettings={openSettings}
           closeSettings={closeSettings}
@@ -277,7 +297,7 @@ export function App() {
         {view === "settings" ? (
           <SettingsPane tab={settingsTab} release={release} />
         ) : openWorkspace ? (
-          <WorkspaceSettings workspace={openWorkspace} onBack={() => setWorkspaceSettingsId(null)} />
+          <WorkspaceSettings workspace={openWorkspace} onBack={() => go({ name: "workspaces" })} />
         ) : (
           <main className="flex min-w-0 flex-1 flex-col">
             {section === "chats" && active ? (
@@ -286,7 +306,7 @@ export function App() {
               <ChatComposer
                 workspaces={workspaces}
                 servers={scope ? servers.filter((server) => server.id === scope) : servers}
-                onCreated={(id) => setSelected(id)}
+                onCreated={(id) => go({ name: "threads", threadId: id })}
                 onAddWorkspace={() => setAddWorkspaceOpen(true)}
                 headerEnd={chatCounts}
               />
@@ -389,11 +409,11 @@ export function App() {
                         key={workspace.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => setWorkspaceSettingsId(workspace.id)}
+                        onClick={() => go({ name: "workspaces", workspaceId: workspace.id })}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            setWorkspaceSettingsId(workspace.id);
+                            go({ name: "workspaces", workspaceId: workspace.id });
                           }
                         }}
                         className="cursor-pointer gap-0 py-0 shadow-none hover:bg-accent"
@@ -476,14 +496,8 @@ export function App() {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         chats={scoped}
-        onOpenChat={(id) => {
-          closeSettings();
-          openChat(id);
-        }}
-        onOpenSection={(id) => {
-          closeSettings();
-          setSection(id as Section);
-        }}
+        onOpenChat={openChat}
+        onOpenSection={(id) => go(routeForSection(id as Section))}
         sections={SECTIONS}
       />
     </div>
