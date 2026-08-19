@@ -1,6 +1,17 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Box, Check, CircleAlert, GitBranch, Square, Wrench } from "lucide-react";
+import {
+  ArrowUp,
+  Box,
+  Check,
+  CircleAlert,
+  Copy,
+  GitBranch,
+  Sparkles,
+  Square,
+  User,
+  Wrench,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,7 +32,13 @@ import {
   InputGroupText,
   InputGroupTextarea,
 } from "@/components/ui/input-group";
-import { Message, MessageContent } from "@/components/ui/message";
+import {
+  Message,
+  MessageAvatar,
+  MessageContent,
+  MessageFooter,
+  MessageHeader,
+} from "@/components/ui/message";
 import { ComposerMenu } from "@/components/ComposerMenu";
 import { Markdown } from "@/components/Markdown";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
@@ -173,7 +190,13 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
               </EmptyHeader>
             </Empty>
           ) : (
-            entries.map((entry) => <Entry key={entry.id} entry={entry} />)
+            entries.map((entry, index) => (
+              <Entry
+                key={entry.id}
+                entry={entry}
+                lead={index === 0 || speaker(entries[index - 1]) !== speaker(entry)}
+              />
+            ))
           )}
 
           {approval && (
@@ -339,14 +362,32 @@ function ScrollFeed({
   );
 }
 
-function Entry({ entry }: { entry: ConvEntry }) {
+/// Who an entry belongs to. Everything Claude does — its prose, its thinking,
+/// its tool calls — is one side of the conversation.
+function speaker(entry: ConvEntry): "you" | "claude" {
+  return entry.kind === "user" ? "you" : "claude";
+}
+
+/// `lead` marks the first entry of a run. Only that one wears the avatar and
+/// the name; the rest keep the column so the run stays aligned, and say nothing
+/// a reader already knows.
+function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
   if (entry.kind === "user") {
     return (
       <Message align="end">
+        <MessageAvatar className={cn("bg-primary/15 text-primary", !lead && "invisible")}>
+          <User className="size-3.5" />
+        </MessageAvatar>
         <MessageContent>
+          {lead && <MessageHeader>You</MessageHeader>}
           <Bubble align="end">
             <BubbleContent className="whitespace-pre-wrap">{entry.text}</BubbleContent>
           </Bubble>
+          {entry.text && (
+            <MessageFooter className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
+              <CopyPrompt text={entry.text} />
+            </MessageFooter>
+          )}
         </MessageContent>
       </Message>
     );
@@ -355,7 +396,11 @@ function Entry({ entry }: { entry: ConvEntry }) {
   if (entry.kind === "assistant") {
     return (
       <Message>
+        <ClaudeAvatar lead={lead} />
         <MessageContent>
+          {/* The provider, not the model: which Claude answered is a setting of
+              the thread, and it is on the toolbar. */}
+          {lead && <MessageHeader>Claude</MessageHeader>}
           <Bubble variant="ghost">
             <BubbleContent>
               <Markdown text={entry.text ?? ""} />
@@ -369,7 +414,9 @@ function Entry({ entry }: { entry: ConvEntry }) {
   if (entry.kind === "thinking") {
     return (
       <Message>
+        <ClaudeAvatar lead={lead} />
         <MessageContent>
+          {lead && <MessageHeader>Claude</MessageHeader>}
           <Bubble variant="ghost">
             <BubbleContent className="text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground italic">
               {entry.text}
@@ -380,7 +427,61 @@ function Entry({ entry }: { entry: ConvEntry }) {
     );
   }
 
-  return <ToolEntry entry={entry} />;
+  // Tool work is Claude's too, so it lines up under the same avatar column
+  // rather than starting at the edge of the feed.
+  return (
+    <div className="pl-10">
+      <ToolEntry entry={entry} />
+    </div>
+  );
+}
+
+function ClaudeAvatar({ lead }: { lead: boolean }) {
+  return (
+    <MessageAvatar className={cn("bg-muted text-muted-foreground", !lead && "invisible")}>
+      <Sparkles className="size-3.5" />
+    </MessageAvatar>
+  );
+}
+
+/// Puts a prompt back on the clipboard, for saying nearly the same thing again.
+/// The tick is the confirmation — a toast for every copy would be louder than
+/// the action deserves.
+function CopyPrompt({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // A browser that refuses the clipboard says nothing useful, so say the
+      // one thing that helps.
+      toast.error("Couldn't copy that", { description: "Your browser blocked clipboard access." });
+    }
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Copy prompt"
+          onClick={() => void copy()}
+        >
+          {copied ? <Check /> : <Copy />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? "Copied" : "Copy prompt"}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function ToolEntry({ entry }: { entry: ConvEntry }) {
