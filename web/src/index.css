@@ -195,6 +195,14 @@ html.electron {
   ::selection {
     background: color-mix(in srgb, var(--primary) 40%, transparent);
   }
+
+  /* Radix puts a positioned wrapper around a tooltip. Making only the tooltip
+     click-through is not enough — the wrapper still covers the thing being
+     described, so hovering a row's icon would swallow the next click on that
+     row. Scoped to tooltips: menus and popovers are meant to be clicked. */
+  [data-radix-popper-content-wrapper]:has(> [data-slot="tooltip-content"]) {
+    pointer-events: none;
+  }
 }
 
 @layer utilities {

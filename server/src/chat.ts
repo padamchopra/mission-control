@@ -126,6 +126,9 @@ export interface ChatSummary {
   state: ChatState;
   action?: string;
   preview?: string;
+  /// When the chat started the run it is in, if it is in one. Absent once it
+  /// settles, so a client never shows a clock for a chat that is done.
+  workingSince?: number;
   context?: ContextUsage;
   turns: number;
   costUsd?: number;
@@ -233,7 +236,11 @@ function str(value: unknown): string | undefined {
 
 class Chat {
   record: ChatRecord;
-  state: ChatState = "idle";
+  private currentState: ChatState = "idle";
+  /// When the current run of work began, so a client can say how long a chat
+  /// has been at it. A turn that stops to ask you something is still the same
+  /// run, so this survives `needs_input` and clears only when the chat settles.
+  workingSince?: number;
   action?: string;
   approval?: ChatApproval;
   question?: ChatQuestionRequest;
@@ -269,6 +276,20 @@ class Chat {
     return this.live !== undefined;
   }
 
+  get state(): ChatState {
+    return this.currentState;
+  }
+
+  /// Every transition runs through here so the "how long" clock is kept by the
+  /// one place that knows a run started, rather than by each of the dozen
+  /// callers that move the state.
+  set state(next: ChatState) {
+    if (next === this.currentState) return;
+    const busy = next === "working" || next === "needs_input";
+    this.workingSince = busy ? (this.workingSince ?? nowMs()) : undefined;
+    this.currentState = next;
+  }
+
   summary(): ChatSummary {
     const lastText = [...this.record.entries]
       .reverse()
@@ -284,6 +305,7 @@ class Chat {
       state: this.state,
       action: this.action,
       preview: lastText?.text ? clip(lastText.text, 140) : undefined,
+      workingSince: this.workingSince,
       context: this.record.context,
       turns: this.record.turns,
       costUsd: this.record.costUsd,
@@ -851,6 +873,7 @@ class Chat {
     return {
       state: this.state,
       action: this.action ?? null,
+      workingSince: this.workingSince ?? null,
       approval: this.approval ?? null,
       question: this.question ?? null,
       todos: this.record.todos,

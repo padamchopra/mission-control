@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
-import { ArrowUpCircle, ChevronDown, ChevronLeft, Plus, Settings2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowUpCircle, ChevronDown, ChevronLeft, Clock, Plus, Settings2, Sparkles } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,12 +23,15 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SETTINGS_SECTIONS, type SettingsTab } from "@/components/Settings";
+import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { deviceIcon, type DeviceIconId } from "@/lib/devices";
-import { displayPath } from "@/lib/path";
+import { displayPath, plainText } from "@/lib/path";
+import { workspaceForPath } from "@/lib/projects";
 import { tintOf, type TintId } from "@/lib/tints";
 import { cn } from "@/lib/utils";
-import type { Chat, ChatState, Server } from "@/state/types";
+import type { Chat, ChatState, Server, Workspace } from "@/state/types";
 
 export function AppSidebar({
   view,
@@ -38,6 +42,7 @@ export function AppSidebar({
   servers,
   chats,
   scoped,
+  workspaces,
   needsYou,
   sections,
   onScope,
@@ -55,6 +60,7 @@ export function AppSidebar({
   servers: Server[];
   chats: Chat[];
   scoped: Chat[];
+  workspaces: Workspace[];
   needsYou: number;
   sections: { id: string; label: string; icon: ComponentType<{ className?: string }> }[];
   onScope: (id: string | null) => void;
@@ -66,6 +72,7 @@ export function AppSidebar({
 }) {
   const scopeServer = servers.find((server) => server.id === scope);
   const anyOnline = servers.some((server) => server.online);
+  const now = useTicker(scoped.some((chat) => chat.workingSince));
 
   return (
     <Sidebar collapsible="none" className="border-r border-sidebar-border">
@@ -187,19 +194,14 @@ export function AppSidebar({
                   ) : (
                     scoped.map((chat) => (
                       <SidebarMenuItem key={chat.id}>
-                        <SidebarMenuButton
-                          isActive={selected === chat.id}
-                          className="h-auto items-start py-1.5"
-                          onClick={() => onSelectChat(chat.id)}
-                        >
-                          <StateDot state={chat.state} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate">{chat.title}</span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {[chat.model, displayPath(chat.cwd)].filter(Boolean).join(" · ")}
-                            </span>
-                          </span>
-                        </SidebarMenuButton>
+                        <ThreadRow
+                          chat={chat}
+                          active={selected === chat.id}
+                          workspace={workspaces[workspaceForPath(chat.cwd, workspaces)]}
+                          server={servers.find((entry) => entry.id === chat.serverId)}
+                          now={now}
+                          onSelect={() => onSelectChat(chat.id)}
+                        />
                       </SidebarMenuItem>
                     ))
                   )}
@@ -236,11 +238,12 @@ export function AppSidebar({
   );
 }
 
-function StateDot({ state }: { state: ChatState }) {
+function StateDot({ state, className }: { state: ChatState; className?: string }) {
   return (
     <span
       className={cn(
         "mt-1.5 size-1.5 shrink-0 rounded-full",
+        className,
         state === "needs_input" && "bg-warning",
         state === "working" && "bg-info",
         state === "error" && "bg-destructive",
@@ -293,4 +296,102 @@ function DeviceRow({
       </span>
     </DropdownMenuItem>
   );
+}
+
+/// One thread in the list: what it is, where it runs, and what it is doing.
+function ThreadRow({
+  chat,
+  active,
+  workspace,
+  server,
+  now,
+  onSelect,
+}: {
+  chat: Chat;
+  active: boolean;
+  workspace?: Workspace;
+  server?: Server;
+  now: number;
+  onSelect: () => void;
+}) {
+  const DeviceIcon = deviceIcon(server?.icon);
+  const place = workspace?.name ?? displayPath(chat.cwd);
+  const elapsed = chat.workingSince ? since(chat.workingSince, now) : undefined;
+
+  return (
+    <SidebarMenuButton
+      isActive={active}
+      className="h-auto flex-col items-stretch gap-1 py-2"
+      onClick={onSelect}
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        <StateDot state={chat.state} className="mt-0" />
+        <WorkspaceMark home={!workspace} workspace={workspace} server={server} size="sm" />
+        <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+      </span>
+
+      {chat.preview && (
+        <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{plainText(chat.preview)}</span>
+      )}
+
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate">{place}</span>
+        <ProviderMark model={chat.model} />
+        {server && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DeviceIcon className="size-3 shrink-0" />
+            </TooltipTrigger>
+            <TooltipContent>{server.name}</TooltipContent>
+          </Tooltip>
+        )}
+        {elapsed && (
+          <span className="ml-auto flex shrink-0 items-center gap-1 tabular-nums">
+            <Clock className="size-3" />
+            {elapsed}
+          </span>
+        )}
+      </span>
+    </SidebarMenuButton>
+  );
+}
+
+/// Which model the thread runs on. Claude is the only provider today, so the
+/// glyph stands for it and the label names the model when one was picked.
+function ProviderMark({ model }: { model?: string }) {
+  const label = model ? model[0].toUpperCase() + model.slice(1) : "Default";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="flex shrink-0 items-center gap-0.5">
+          <Sparkles className="size-3" />
+          {model && <span>{label}</span>}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Claude · {label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/// A clock that only runs while something on screen needs it, so an idle
+/// sidebar re-renders no more than the data does.
+function useTicker(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  return now;
+}
+
+/// How long a thread has been at it, at a glance. Seconds while that is the
+/// interesting number, then minutes, then hours.
+export function since(start: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - start) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }

@@ -41,6 +41,7 @@ interface RawChat {
   model?: string;
   preview?: string;
   updatedAt?: number;
+  workingSince?: number | null;
 }
 
 interface RawWorkspace {
@@ -548,6 +549,7 @@ interface ChatFrame {
   live?: boolean;
   error?: string | null;
   updatedAt?: number;
+  workingSince?: number | null;
 }
 
 interface RawChatDetail extends RawChat {
@@ -588,6 +590,8 @@ function applyChatFrame(current: State, frame: ChatFrame): Partial<State> {
           state: frame.state ?? chat.state,
           title: frame.title ?? chat.title,
           updatedAt: frame.updatedAt ?? chat.updatedAt,
+          workingSince:
+            frame.workingSince === undefined ? chat.workingSince : (frame.workingSince ?? undefined),
         }
       : chat,
   );
@@ -638,6 +642,7 @@ function toChat(raw: RawChat, serverId: string): Chat {
     model: raw.model,
     preview: raw.preview,
     updatedAt: raw.updatedAt ?? 0,
+    workingSince: raw.workingSince ?? undefined,
   };
 }
 

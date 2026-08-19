@@ -254,6 +254,7 @@ export function App() {
           servers={servers}
           chats={allChats}
           scoped={scoped}
+          workspaces={allWorkspaces}
           needsYou={needsYou}
           sections={SECTIONS}
           onScope={setScope}

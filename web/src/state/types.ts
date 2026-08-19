@@ -28,6 +28,9 @@ export interface Chat {
   model?: string;
   preview?: string;
   updatedAt: number;
+  /// When the current run of work began. Absent once the chat settles, so a
+  /// row only shows a clock while there is something to time.
+  workingSince?: number;
 }
 
 export interface GitWorktree {
