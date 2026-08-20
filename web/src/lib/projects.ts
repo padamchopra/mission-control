@@ -40,6 +40,16 @@ export function projectIcon(id: ProjectIconId | string | null | undefined): Luci
   return PROJECT_ICONS[id && isProjectIcon(id) ? id : "folder"];
 }
 
+/// Where a project is checked out on this machine, if it is at all. A project
+/// spans devices; a workspace is one device's copy of it, so this is empty on a
+/// machine that has not cloned the repo.
+export function localWorkspace<W extends { id: string }>(
+  project: { workspaceIds: string[] },
+  workspaces: W[],
+): W | undefined {
+  return workspaces.find((workspace) => project.workspaceIds.includes(workspace.id));
+}
+
 /// The workspace a path belongs to. A chat runs in a checkout — the primary one
 /// or one of its worktrees — so every known path is considered and the longest
 /// match wins, which keeps a worktree from being read as its parent repo.

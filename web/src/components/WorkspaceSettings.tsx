@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,10 +12,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EditableName } from "@/components/EditableName";
 import { IconPicker } from "@/components/IconPicker";
 import { WorkspaceFileIcon } from "@/components/WorkspaceIcon";
+import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { PROJECT_ICON_IDS, isProjectIcon, isProjectIconFile, projectIcon } from "@/lib/projects";
@@ -24,6 +28,72 @@ import { toast } from "sonner";
 import { PaneHeader } from "@/components/PaneHeader";
 import { useStore } from "@/state/store";
 import type { Server, Workspace } from "@/state/types";
+
+/// The letters in front of this workspace's ticket keys.
+///
+/// Changing it re-keys every ticket the workspace already has, because a key is
+/// the ticket's number behind this slug rather than a string written down when
+/// the ticket was made.
+function TicketSlugField({ workspace }: { workspace: Workspace }) {
+  const projects = useStore((s) => s.projects);
+  const loadBoard = useStore((s) => s.loadBoard);
+  const saveProject = useStore((s) => s.saveProject);
+  const tickets = useStore((s) => s.tickets);
+
+  useEffect(() => {
+    void loadBoard().catch(() => {
+      // The board is a nicety on this pane; the rest of it works without one.
+    });
+  }, [loadBoard]);
+
+  const project = projects.find((entry) => entry.workspaceIds.includes(workspace.id));
+  const [draft, setDraft] = useState("");
+  useEffect(() => setDraft(project?.keyPrefix ?? ""), [project?.keyPrefix]);
+
+  if (!project) return null;
+  const count = tickets.filter((ticket) => ticket.projectId === project.id).length;
+
+  const commit = () => {
+    const next = draft.trim().toUpperCase();
+    if (!next || next === project.keyPrefix) {
+      setDraft(project.keyPrefix);
+      return;
+    }
+    void saveProject(project.id, { keyPrefix: next }).catch((error) => {
+      setDraft(project.keyPrefix);
+      toast.error("Couldn't change the slug", { description: apiError(error) });
+    });
+  };
+
+  return (
+    <Field orientation="horizontal" className="items-center">
+      <FieldContent>
+        <FieldLabel htmlFor="ticket-slug">Ticket slug</FieldLabel>
+        <FieldDescription className="text-xs">
+          {count > 0
+            ? `In front of every ticket here. Changing it re-keys all ${count}.`
+            : "In front of every ticket here."}
+        </FieldDescription>
+      </FieldContent>
+      <Input
+        id="ticket-slug"
+        value={draft}
+        maxLength={6}
+        aria-label="Ticket slug"
+        className="w-28 shrink-0 text-center font-mono uppercase"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setDraft(project.keyPrefix);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </Field>
+  );
+}
 
 export function devicesForWorkspace(workspace: Workspace, all: Workspace[], servers: Server[]): Server[] {
   const related = all.filter((entry) =>
@@ -93,6 +163,8 @@ export function WorkspaceSettings({
               <p className="truncate font-mono text-xs text-muted-foreground">{displayPath(workspace.path)}</p>
             </div>
           </div>
+
+          <TicketSlugField workspace={workspace} />
 
           <div className="flex flex-col gap-2">
             <p className="px-1 text-xs font-medium text-muted-foreground">Devices</p>

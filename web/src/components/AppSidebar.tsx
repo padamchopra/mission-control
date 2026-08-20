@@ -1,6 +1,6 @@
 import type { ComponentProps, ComponentType } from "react";
 import { useEffect, useState } from "react";
-import { Archive, ArrowUpCircle, ChevronLeft, Clock, Settings2, Trash2 } from "lucide-react";
+import { Archive, ArrowUpCircle, ChevronLeft, Clock, GitBranch, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -34,6 +34,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SETTINGS_SECTIONS, type SettingsTab } from "@/components/Settings";
 import { ClaudeMark } from "@/components/ClaudeMark";
@@ -44,7 +45,7 @@ import { apiError } from "@/lib/api-error";
 import { workspaceForPath } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
-import type { Chat, ChatState, Server, Workspace } from "@/state/types";
+import type { Chat, ChatState, Server, Ticket, Workspace } from "@/state/types";
 
 export function AppSidebar({
   view,
@@ -58,6 +59,8 @@ export function AppSidebar({
   sections,
   onSection,
   onSelectChat,
+  onOpenTicket,
+  onOpenWorkspace,
   openSettings,
   closeSettings,
   updateAvailable,
@@ -73,6 +76,8 @@ export function AppSidebar({
   sections: { id: string; label: string; icon: ComponentType<{ className?: string }> }[];
   onSection: (id: string) => void;
   onSelectChat: (id: string) => void;
+  onOpenTicket: (key: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
   updateAvailable?: boolean;
@@ -151,6 +156,8 @@ export function AppSidebar({
                               server={servers.find((entry) => entry.id === chat.serverId)}
                               now={now}
                               onSelect={() => onSelectChat(chat.id)}
+                              onOpenTicket={onOpenTicket}
+                              onOpenWorkspace={onOpenWorkspace}
                             />
                           </ContextMenuTrigger>
                           <ThreadMenu chat={chat} />
@@ -285,6 +292,8 @@ function ThreadRow({
   server,
   now,
   onSelect,
+  onOpenTicket,
+  onOpenWorkspace,
   ...trigger
 }: {
   chat: Chat;
@@ -293,24 +302,51 @@ function ThreadRow({
   server?: Server;
   now: number;
   onSelect: () => void;
+  onOpenTicket: (key: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   // `ContextMenuTrigger asChild` hands its ref and handlers down; without
   // spreading them onto the button, right-click never reaches the menu.
 } & ComponentProps<"button">) {
   const DeviceIcon = deviceIcon(server?.icon);
   const place = workspace?.name ?? displayPath(chat.cwd);
   const elapsed = chat.workingSince ? since(chat.workingSince, now) : undefined;
+  const tickets = useStore((s) => s.tickets);
+  const ticket = tickets.find((entry) => entry.threads.some((link) => link.chatId === chat.id));
 
-  return (
+  const row = (
     <SidebarMenuButton
       {...trigger}
       isActive={active}
       className="h-auto flex-col items-stretch gap-1 py-2"
       onClick={onSelect}
     >
-      {/* Project first, as an eyebrow, so you place the thread before you read it. */}
-      <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-normal leading-none text-muted-foreground">
+      {/* Where the thread lives, and what it is answering — an eyebrow above
+          the title, so you place the row before you read it. */}
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-none font-normal text-muted-foreground">
         <WorkspaceMark home={!workspace} workspace={workspace} server={server} size="sm" />
-        <span className="min-w-0 truncate">{place}</span>
+        <span className="min-w-0 flex-1 truncate">{place}</span>
+        {ticket && (
+          // A key, not a button: this row is already a button, and one inside
+          // another is not markup a browser will honour. The click is stopped
+          // here so opening the ticket does not also open the thread.
+          <span
+            role="link"
+            tabIndex={0}
+            className="shrink-0 rounded font-mono text-[10px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenTicket(ticket.key);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              event.stopPropagation();
+              onOpenTicket(ticket.key);
+            }}
+          >
+            {ticket.key}
+          </span>
+        )}
       </span>
 
       <span className="flex min-w-0 items-center gap-1.5">
@@ -322,15 +358,18 @@ function ThreadRow({
         <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{plainText(chat.preview)}</span>
       )}
 
-      {/* Marks stay on the right edge so they don't compete with the title. */}
-      <span className="flex min-w-0 items-center justify-end gap-1.5 text-[11px] font-normal text-muted-foreground">
+      {/* Marks, not words, so they don't compete with the title. What the
+          thread thinks with opens the line and where it runs closes it, so
+          neither edge is left standing empty. */}
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
+        <ProviderMark model={chat.model} />
+        <span className="flex-1" />
         {elapsed && (
           <span className="flex shrink-0 items-center gap-1 tabular-nums">
             <Clock className="size-3" />
             {elapsed}
           </span>
         )}
-        <ProviderMark model={chat.model} />
         {server && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -341,6 +380,89 @@ function ThreadRow({
         )}
       </span>
     </SidebarMenuButton>
+  );
+
+  // The row is narrow and truncates; hovering says the whole of it — the full
+  // title, which machine and workspace it runs in, its branch and its ticket.
+  return (
+    <HoverCard openDelay={450}>
+      <HoverCardTrigger asChild>{row}</HoverCardTrigger>
+      <HoverCardContent side="right" align="start" className="w-72">
+        <ThreadContext
+          chat={chat}
+          workspace={workspace}
+          server={server}
+          ticket={ticket}
+          onOpenTicket={onOpenTicket}
+          onOpenWorkspace={onOpenWorkspace}
+        />
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+/// Everything the sidebar row had to truncate.
+function ThreadContext({
+  chat,
+  workspace,
+  server,
+  ticket,
+  onOpenTicket,
+  onOpenWorkspace,
+}: {
+  chat: Chat;
+  workspace?: Workspace;
+  server?: Server;
+  ticket?: Ticket;
+  onOpenTicket: (key: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
+}) {
+  const DeviceIcon = deviceIcon(server?.icon);
+  const branch = workspace?.worktrees.find((tree) => tree.path === chat.cwd)?.branch;
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <p className="text-sm leading-snug font-medium">{chat.title}</p>
+      <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+        {server && (
+          <span className="flex items-center gap-1.5">
+            <DeviceIcon className="size-3.5 shrink-0" />
+            {server.name}
+          </span>
+        )}
+        {workspace ? (
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded text-left hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={() => onOpenWorkspace(workspace.id)}
+          >
+            <WorkspaceMark home={false} workspace={workspace} server={server} size="sm" />
+            {workspace.name}
+          </button>
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <WorkspaceMark home workspace={undefined} server={server} size="sm" />
+            {displayPath(chat.cwd)}
+          </span>
+        )}
+        {branch && (
+          <span className="flex items-center gap-1.5 font-mono break-all">
+            <GitBranch className="size-3.5 shrink-0" />
+            {branch}
+          </span>
+        )}
+      </div>
+      {ticket && (
+        <button
+          type="button"
+          className="flex flex-col gap-0.5 rounded border-t border-border pt-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={() => onOpenTicket(ticket.key)}
+        >
+          <span className="font-mono text-[11px] text-muted-foreground">{ticket.key}</span>
+          <span className="text-xs leading-snug hover:underline">{ticket.title}</span>
+        </button>
+      )}
+    </div>
   );
 }
 

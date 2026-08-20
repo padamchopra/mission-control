@@ -32,6 +32,10 @@ export interface Config {
   worktreeRoot: string;
   /// The model a new chat starts with. Empty is Claude Code's own default.
   defaultModel: string;
+  /// What a new agent thinks with unless it says otherwise. Threads run on the
+  /// Claude Agent SDK today, so `codex` is a value the board can hold rather
+  /// than one a thread can run on yet.
+  defaultProvider: string;
   /// The face on your messages: empty for the default, `preset:<id>` for one
   /// of the built-in ones, or a `data:` URL for a picture you chose.
   avatar: string;
@@ -42,6 +46,11 @@ export interface Config {
   /// How often Remy refreshes the repositories it knows about. `off` never
   /// does, which is the setting for anyone who wants git touched only by them.
   repoUpdate: RepoUpdateEvery;
+  /// What a new agent's commits are signed with by default. `off` inherits
+  /// this machine's git identity, `author` credits the agent while leaving you
+  /// as the committer, and `full` makes it both. Attribution only — a git
+  /// identity says who wrote a commit, never proves it.
+  defaultGitIdentity: GitIdentity;
   /// The model Remy runs its own small jobs on — naming a thread, and whatever
   /// else comes to need a model later. Separate from `defaultModel`, which is
   /// what your threads think with: this one should stay cheap. `off` declines
@@ -53,11 +62,13 @@ export type PreventSleepMode = "off" | "whileBusy" | "always";
 export type CheckoutMode = "main" | "worktree";
 export type WorktreeBase = "remote" | "local";
 export type RepoUpdateEvery = "off" | "hourly" | "sixHourly" | "daily";
+export type GitIdentity = "off" | "author" | "full";
 
 const SLEEP_MODES: PreventSleepMode[] = ["off", "whileBusy", "always"];
 const CHECKOUT_MODES: CheckoutMode[] = ["main", "worktree"];
 const WORKTREE_BASES: WorktreeBase[] = ["remote", "local"];
 const REPO_UPDATES: RepoUpdateEvery[] = ["off", "hourly", "sixHourly", "daily"];
+const GIT_IDENTITIES: GitIdentity[] = ["off", "author", "full"];
 
 /// How long between refreshes, or nothing when they are off.
 export function repoUpdateInterval(every: RepoUpdateEvery): number | undefined {
@@ -69,6 +80,7 @@ export function repoUpdateInterval(every: RepoUpdateEvery): number | undefined {
 /// Only the aliases Claude Code accepts on the command line. A free-string
 /// model would fail at spawn time, long after the picker said it was fine.
 const MODELS = ["", "opus", "sonnet", "haiku"];
+export const PROVIDERS = ["claude", "codex"];
 /// Remy's own jobs can also be declined outright, which a thread's model cannot.
 const REMY_MODELS = ["off", ...MODELS];
 
@@ -137,8 +149,10 @@ function load(): Config {
     worktreeBase: oneOf(WORKTREE_BASES, parsed.worktreeBase, "remote"),
     worktreeRoot: worktreeRootPath(parsed.worktreeRoot),
     defaultModel: oneOf(MODELS, parsed.defaultModel, ""),
+    defaultProvider: oneOf(PROVIDERS, parsed.defaultProvider, "claude"),
     remyModel: oneOf(REMY_MODELS, parsed.remyModel, "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
+    defaultGitIdentity: oneOf(GIT_IDENTITIES, parsed.defaultGitIdentity, "author"),
     worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
     avatar: avatarValue(parsed.avatar),
   };
@@ -154,10 +168,12 @@ export interface PublicSettings {
   worktreeBase: WorktreeBase;
   worktreeRoot: string;
   defaultModel: string;
+  defaultProvider: string;
   remyModel: string;
   repoUpdate: RepoUpdateEvery;
   worktreeBranchPrefix: string;
   avatar: string;
+  defaultGitIdentity: GitIdentity;
 }
 
 export function publicSettings(): PublicSettings {
@@ -167,10 +183,12 @@ export function publicSettings(): PublicSettings {
     worktreeBase: config.worktreeBase,
     worktreeRoot: config.worktreeRoot,
     defaultModel: config.defaultModel,
+    defaultProvider: config.defaultProvider,
     remyModel: config.remyModel,
     repoUpdate: config.repoUpdate,
     worktreeBranchPrefix: config.worktreeBranchPrefix,
     avatar: config.avatar,
+    defaultGitIdentity: config.defaultGitIdentity,
   };
 }
 
@@ -198,11 +216,17 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   if (patch.defaultModel !== undefined) {
     set("defaultModel", oneOf(MODELS, patch.defaultModel, config.defaultModel));
   }
+  if (patch.defaultProvider !== undefined) {
+    set("defaultProvider", oneOf(PROVIDERS, patch.defaultProvider, config.defaultProvider));
+  }
   if (patch.remyModel !== undefined) {
     set("remyModel", oneOf(REMY_MODELS, patch.remyModel, config.remyModel));
   }
   if (patch.repoUpdate !== undefined) {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));
+  }
+  if (patch.defaultGitIdentity !== undefined) {
+    set("defaultGitIdentity", oneOf(GIT_IDENTITIES, patch.defaultGitIdentity, config.defaultGitIdentity));
   }
   if (patch.avatar !== undefined) {
     set("avatar", avatarValue(patch.avatar));

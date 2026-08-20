@@ -13,6 +13,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { agentCommand } from "./agent.js";
+import { getAgent, gitIdentityEnv, type Agent } from "./agents.js";
 import {
   assertChatStorage,
   chatStorageError,
@@ -46,6 +47,7 @@ import {
   type ConvQuestion,
   type ConvTodo,
 } from "./transcript.js";
+import { forgetChat, syncTicketFromThread } from "./tickets.js";
 import { uploadRoot } from "./uploads.js";
 import { nameDetachedWorktree } from "./workspaces.js";
 
@@ -109,6 +111,9 @@ interface ChatRecord {
   createdAt: number;
   updatedAt: number;
   claudeSessionId?: string;
+  /// The persona this thread runs as, if it was started as one. Decides the
+  /// instructions appended to the preset and the name on its commits.
+  agentId?: string;
   entries: ConvEntry[];
   todos: ConvTodo[];
   context?: ContextUsage;
@@ -123,6 +128,7 @@ export interface ChatSummary {
   cwd: string;
   model?: string;
   permissionMode: ChatPermissionMode;
+  agentId?: string;
   createdAt: number;
   updatedAt: number;
   state: ChatState;
@@ -174,11 +180,14 @@ export function permissionMode(value: unknown, fallback: ChatPermissionMode = "d
 /// launchd hands the server a stripped PATH. Claude's own Bash tool inherits it,
 /// so without this a chat would fail on `git`, `gh`, or `node` while the same
 /// command works in a tmux session started from a login shell.
-function agentEnvironment(): NodeJS.ProcessEnv {
+export function agentEnvironment(agent?: Agent): NodeJS.ProcessEnv {
   const extra = ["/opt/homebrew/bin", "/usr/local/bin", join(homedir(), ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
   const current = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const merged = [...new Set([...current, ...extra])].join(delimiter);
-  return { ...process.env, PATH: merged };
+  // Git reads its identity from the environment ahead of any config file, so an
+  // agent signs its own commits without a line being written to ~/.gitconfig or
+  // to the repository — and two agents committing in one worktree stay distinct.
+  return { ...process.env, PATH: merged, ...gitIdentityEnv(agent) };
 }
 
 /// The SDK takes the prompt as an async iterable, which is what keeps one Claude
@@ -290,6 +299,13 @@ class Chat {
     const busy = next === "working" || next === "needs_input";
     this.workingSince = busy ? (this.workingSince ?? nowMs()) : undefined;
     this.currentState = next;
+    // A ticket following this thread moves with it, but only between In
+    // progress and Needs input — see `syncTicketFromThread`.
+    try {
+      syncTicketFromThread(this.record.id, next);
+    } catch (error) {
+      console.error(`chat ${this.record.id} could not update its ticket:`, error);
+    }
   }
 
   summary(): ChatSummary {
@@ -302,6 +318,7 @@ class Chat {
       cwd: this.record.cwd,
       model: this.record.model,
       permissionMode: this.record.permissionMode,
+      ...(this.record.agentId ? { agentId: this.record.agentId } : {}),
       createdAt: this.record.createdAt,
       updatedAt: this.record.updatedAt,
       state: this.state,
@@ -466,10 +483,17 @@ class Chat {
   private async start(): Promise<{ query: Query; queue: PromptQueue }> {
     if (this.live) return this.live;
     const queue = new PromptQueue();
+    const agent = this.record.agentId ? getAgent(this.record.agentId) : undefined;
+    const agentInstructions = agent?.instructions.trim();
     const options: Options = {
       cwd: this.record.cwd,
       pathToClaudeCodeExecutable: agentCommand("claude"),
-      systemPrompt: { type: "preset", preset: "claude_code" },
+      // The persona layers onto the Claude Code preset rather than replacing it,
+      // and `settingSources` below still brings the user's own CLAUDE.md and
+      // skills — an agent has a character, not a different rulebook.
+      systemPrompt: agentInstructions
+        ? { type: "preset" as const, preset: "claude_code" as const, append: agentInstructions }
+        : { type: "preset" as const, preset: "claude_code" as const },
       // The user's own Claude Code configuration — settings, permissions,
       // CLAUDE.md, skills — so a chat behaves like their terminal sessions.
       settingSources: ["user", "project", "local"],
@@ -481,7 +505,7 @@ class Chat {
       ...(this.record.claudeSessionId ? { resume: this.record.claudeSessionId } : {}),
       includePartialMessages: true,
       canUseTool: (tool, input, callbackOptions) => this.canUseTool(tool, input, callbackOptions),
-      env: agentEnvironment(),
+      env: agentEnvironment(agent),
       // Uploaded media is referenced by path in the message that carries it;
       // granting the upload directory keeps reading it from prompting.
       additionalDirectories: [uploadRoot],
@@ -988,6 +1012,7 @@ export function createChat(input: {
   title?: string;
   model?: string;
   permissionMode?: unknown;
+  agentId?: string;
 }): ChatSummary {
   // Refuse loudly rather than running a conversation this server cannot keep.
   assertChatStorage();
@@ -996,12 +1021,18 @@ export function createChat(input: {
   // Fail here rather than on the first message, so a host without Claude Code
   // says so while the chat is still being created.
   agentCommand("claude");
+  // An agent brings its own model and permission mode, and anything the caller
+  // asked for explicitly still wins over them.
+  const agent = input.agentId ? getAgent(input.agentId) : undefined;
+  if (input.agentId && !agent) throw new Error("no such agent");
+  const model = input.model || agent?.model;
   const record: ChatRecord = {
     id: randomUUID(),
     title: input.title?.trim() || "New chat",
     cwd,
-    ...(input.model ? { model: input.model } : {}),
-    permissionMode: permissionMode(input.permissionMode),
+    ...(model ? { model } : {}),
+    ...(agent ? { agentId: agent.id } : {}),
+    permissionMode: permissionMode(input.permissionMode, agent?.permissionMode ?? "default"),
     createdAt: nowMs(),
     updatedAt: nowMs(),
     entries: [],
@@ -1062,6 +1093,7 @@ export function chatCwd(id: string): string {
 
 export function deleteChat(id: string): void {
   const chat = mustGet(id);
+  forgetChat(id);
   chat.stop();
   chat.markDeleted();
   chats.delete(id);

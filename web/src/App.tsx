@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  SquareKanban,
   SquarePen,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,6 +40,8 @@ import { ChatView } from "@/components/ChatView";
 import { PaneHeader } from "@/components/PaneHeader";
 import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
+import { Board } from "@/components/Board";
+import { MissingTicket, TicketView } from "@/components/TicketView";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
 import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
 import { useNotifications } from "@/hooks/use-notifications";
@@ -56,11 +59,12 @@ import { useStore } from "@/state/store";
 import type { ChatState } from "@/state/types";
 import remyMark from "@/assets/remy-mark.png";
 
-type Section = "inbox" | "chats" | "workspaces" | "prs" | "loops";
+type Section = "inbox" | "chats" | "workspaces" | "board" | "prs" | "loops";
 
 function routeForSection(section: Section): Route {
   if (section === "chats") return { name: "threads" };
   if (section === "workspaces") return { name: "workspaces" };
+  if (section === "board") return { name: "board" };
   return { name: section };
 }
 
@@ -68,6 +72,7 @@ const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "chats", label: "Threads", icon: MessagesSquare },
   { id: "workspaces", label: "Workspaces", icon: Folder },
+  { id: "board", label: "Board", icon: SquareKanban },
   { id: "prs", label: "Pull requests", icon: GitPullRequest },
   { id: "loops", label: "Loops", icon: RefreshCw },
 ];
@@ -108,6 +113,14 @@ const EMPTY: Record<
     action: "workspace",
     icon: Folder,
   },
+  board: {
+    // The board pane draws its own empty states, which know whether the gap is
+    // a missing project or an empty column.
+    title: "Nothing on the board",
+    detail: "Add a workspace to plan work in it.",
+    action: "workspace",
+    icon: SquareKanban,
+  },
   prs: {
     title: "No pull requests",
     detail: "Open a PR from a workspace on this machine.",
@@ -131,6 +144,7 @@ export function App() {
   const section = sectionOf(route) as Section;
   const view = route.name === "settings" ? "settings" : "app";
   const settingsTab: SettingsTab = route.name === "settings" ? route.tab : "general";
+  const settingsItem = route.name === "settings" ? route.item : undefined;
   const selected = route.name === "threads" ? (route.threadId ?? null) : null;
   const workspaceSettingsId = route.name === "workspaces" ? (route.workspaceId ?? null) : null;
 
@@ -152,6 +166,8 @@ export function App() {
   const error = useStore((s) => s.error);
   const start = useStore((s) => s.start);
   const loadSettings = useStore((s) => s.loadSettings);
+  const tickets = useStore((s) => s.tickets);
+  const loadBoard = useStore((s) => s.loadBoard);
   const release = useRelease();
 
   // Opens the connection and holds it for the life of the app.
@@ -170,6 +186,15 @@ export function App() {
       // A machine that cannot answer already shows as offline.
     });
   }, [anyServerOnline, loadSettings]);
+
+  // The sidebar puts a ticket key on every thread that has one, so the board is
+  // read once a machine answers rather than only on the board's own route.
+  useEffect(() => {
+    if (!anyServerOnline) return;
+    void loadBoard().catch(() => {
+      // An unreachable machine already shows as offline.
+    });
+  }, [anyServerOnline, loadBoard]);
 
   // Every device at once: that a thread runs somewhere else is what the row's
   // device mark says, not something to filter the list down to.
@@ -207,6 +232,8 @@ export function App() {
   const working = scoped.filter((chat) => chat.state === "working").length;
   const anyOnline = servers.some((s) => s.online);
   const openWorkspace = allWorkspaces.find((workspace) => workspace.id === workspaceSettingsId) ?? null;
+  // Tickets are addressed by key, which is what someone pastes into a message.
+  const openTicket = route.name === "ticket" ? tickets.find((ticket) => ticket.key === route.key) : undefined;
   // Chats live in the sidebar, so the main pane is either the chat you opened or
   // the composer for the next one. There is no list of them here.
   const canCompose = !loading && !error && servers.length > 0;
@@ -282,19 +309,54 @@ export function App() {
           sections={SECTIONS}
           onSection={(id) => go(routeForSection(id as Section))}
           onSelectChat={openChat}
+          onOpenTicket={(key) => go({ name: "ticket", key })}
+          onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
           openSettings={openSettings}
           closeSettings={closeSettings}
           updateAvailable={release.available}
         />
 
         {view === "settings" ? (
-          <SettingsPane tab={settingsTab} release={release} />
+          <SettingsPane
+            tab={settingsTab}
+            item={settingsItem}
+            // Replaced rather than pushed: picking down a list is not a place
+            // the back button should have to walk through one row at a time.
+            onSelectItem={(item) => go({ name: "settings", tab: settingsTab, ...(item ? { item } : {}) }, true)}
+            release={release}
+          />
+        ) : route.name === "board" ? (
+          <Board
+            scope={route.scope}
+            onScope={(scope) => go({ name: "board", ...(scope ? { scope } : {}) }, true)}
+            onOpenTicket={(key) => go({ name: "ticket", key })}
+            onAddWorkspace={() => setAddWorkspaceOpen(true)}
+          />
+        ) : route.name === "ticket" ? (
+          openTicket ? (
+            <TicketView
+              key={openTicket.id}
+              ticket={openTicket}
+              onBack={() => go({ name: "board" })}
+              onOpenTicket={(key) => go({ name: "ticket", key })}
+              onOpenThread={openChat}
+              onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
+              onOpenAgent={(handle) => go({ name: "settings", tab: "agents", item: handle })}
+            />
+          ) : (
+            <MissingTicket ticketKey={route.key} onBack={() => go({ name: "board" })} />
+          )
         ) : openWorkspace ? (
           <WorkspaceSettings workspace={openWorkspace} onBack={() => go({ name: "workspaces" })} />
         ) : (
           <main className="flex min-w-0 flex-1 flex-col">
             {section === "chats" && active ? (
-              <ChatView key={active.id} chat={active} headerEnd={<NewChatButton onClick={draftChat} />} />
+              <ChatView
+                key={active.id}
+                chat={active}
+                onOpenTicket={(key) => go({ name: "ticket", key })}
+                headerEnd={<NewChatButton onClick={draftChat} />}
+              />
             ) : section === "chats" && canCompose ? (
               <ChatComposer
                 workspaces={workspaces}

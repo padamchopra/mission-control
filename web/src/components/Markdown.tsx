@@ -1,7 +1,14 @@
-import { memo } from "react";
+import { Fragment, memo, useMemo, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+
+/// Someone the text may name, and where clicking their name goes.
+export interface Mention {
+  handle: string;
+  label: string;
+  onOpen?: () => void;
+}
 
 const COMPONENTS: Components = {
   p: ({ children }) => <p className="wrap-break-word whitespace-pre-wrap">{children}</p>,
@@ -55,6 +62,53 @@ const COMPONENTS: Components = {
     ) : null,
 };
 
+/// `@handle` in a run of text, wrapped as a chip.
+///
+/// Done on the rendered children rather than on the source, so a handle inside
+/// a code fence or a link stays the literal text it was written as.
+function chip(text: string, mentions: Mention[], key: string): ReactNode {
+  const pattern = new RegExp(`@(${mentions.map((m) => escape(m.handle)).join("|")})\\b`, "g");
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const mention = mentions.find((entry) => entry.handle === match[1])!;
+    if (match.index > last) out.push(text.slice(last, match.index));
+    out.push(
+      <button
+        key={`${key}-${match.index}`}
+        type="button"
+        disabled={!mention.onOpen}
+        className="rounded bg-primary/15 px-1 font-medium text-primary disabled:cursor-text focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        onClick={mention.onOpen}
+      >
+        @{mention.label}
+      </button>,
+    );
+    last = match.index + match[0].length;
+  }
+  if (last === 0) return text;
+  if (last < text.length) out.push(text.slice(last));
+  return <Fragment key={key}>{out}</Fragment>;
+}
+
+function escape(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function withMentions(mentions: Mention[]): Components {
+  const decorate = (children: ReactNode): ReactNode =>
+    Array.isArray(children)
+      ? children.map((child, index) => (typeof child === "string" ? chip(child, mentions, String(index)) : child))
+      : typeof children === "string"
+        ? chip(children, mentions, "0")
+        : children;
+  return {
+    ...COMPONENTS,
+    p: ({ children }) => <p className="wrap-break-word whitespace-pre-wrap">{decorate(children)}</p>,
+    li: ({ children }) => <li className="wrap-break-word">{decorate(children)}</li>,
+  };
+}
+
 /// Claude answers in markdown, so the feed renders it rather than showing the
 /// `##` and backticks raw.
 ///
@@ -65,13 +119,21 @@ const COMPONENTS: Components = {
 export const Markdown = memo(function Markdown({
   text,
   className,
+  mentions,
 }: {
   text: string;
   className?: string;
+  /// When given, `@handle` for anyone in this list renders as a chip that opens
+  /// them. Everything else keeps the `@` it was typed with.
+  mentions?: Mention[];
 }) {
+  const components = useMemo(
+    () => (mentions?.length ? withMentions(mentions) : COMPONENTS),
+    [mentions],
+  );
   return (
     <div className={cn("flex flex-col gap-3 text-sm leading-relaxed", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>
     </div>

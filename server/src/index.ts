@@ -1,9 +1,32 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
+import { answerMentions } from "./mentions.js";
 import { config, patchSettings, publicSettings } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
+import { createAgent, deleteAgent, getAgent, listAgents, seedPresetAgents, updateAgent } from "./agents.js";
 import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
+import { deviceId } from "./board-log.js";
+import {
+  adoptWorkspace,
+  listProjects,
+  syncProjectBindings,
+  updateProject,
+} from "./projects.js";
+import {
+  commentOnTicket,
+  createTicket,
+  deleteTicket,
+  getTicket,
+  linkThread,
+  listTickets,
+  moveTicket,
+  setTicketStatus,
+  ticketActivity,
+  ticketForChat,
+  unlinkThread,
+  updateTicket,
+} from "./tickets.js";
 import {
   chatsUnavailable,
   createChat,
@@ -298,6 +321,194 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { timeline: await pullRequestTimeline(repository, number) });
     }
 
+    // ── the board ───────────────────────────────────────────────────────────
+    // Tickets, agents and projects are folds of `board_log`, so every write
+    // here appends an event and reprojects rather than touching a row. The
+    // reply is always the projected shape, which is what a peer would compute.
+
+    if (req.method === "GET" && url.pathname === "/agents") {
+      return json(res, 200, { agents: listAgents() });
+    }
+    if (req.method === "POST" && url.pathname === "/agents") {
+      const body = await readJson(req);
+      try {
+        const agent = createAgent(body);
+        broadcast({ type: "board" });
+        return json(res, 200, { agent });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not create that agent" });
+      }
+    }
+    if (parts[0] === "agents" && parts[1] && parts.length === 2) {
+      const id = decodeURIComponent(parts[1]);
+      if (req.method === "GET") {
+        const agent = getAgent(id);
+        return agent ? json(res, 200, { agent }) : json(res, 404, { error: "no such agent" });
+      }
+      if (req.method === "PATCH") {
+        const body = await readJson(req);
+        try {
+          const agent = updateAgent(id, body);
+          broadcast({ type: "board" });
+          return json(res, 200, { agent });
+        } catch (error) {
+          const message = (error as Error).message || "could not save that agent";
+          return json(res, /no such agent/.test(message) ? 404 : 400, { error: message });
+        }
+      }
+      if (req.method === "DELETE") {
+        try {
+          deleteAgent(id);
+          broadcast({ type: "board" });
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such agent" });
+        }
+      }
+    }
+
+    if (req.method === "GET" && url.pathname === "/projects") {
+      // Binding is cheap and idempotent, so a repo added from Workspaces turns
+      // up here without anyone having to think about projects at all.
+      await syncProjectBindings();
+      return json(res, 200, { projects: listProjects() });
+    }
+    if (parts[0] === "projects" && parts[1] && parts.length === 2 && req.method === "PATCH") {
+      const body = await readJson(req);
+      try {
+        const project = updateProject(decodeURIComponent(parts[1]), body);
+        broadcast({ type: "board" });
+        return json(res, 200, { project });
+      } catch (error) {
+        return json(res, 404, { error: (error as Error).message || "no such project" });
+      }
+    }
+
+    // Everything the board pane paints, in one answer.
+    if (req.method === "GET" && url.pathname === "/board") {
+      await syncProjectBindings();
+      const projectId = url.searchParams.get("project") ?? undefined;
+      return json(res, 200, {
+        deviceId,
+        projects: listProjects(),
+        agents: listAgents(),
+        tickets: listTickets(projectId),
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/tickets") {
+      const body = await readJson(req);
+      try {
+        const ticket = createTicket(body);
+        broadcast({ type: "board" });
+        return json(res, 200, { ticket });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not create that ticket" });
+      }
+    }
+    if (parts[0] === "tickets" && parts[1]) {
+      const id = decodeURIComponent(parts[1]);
+      if (req.method === "GET" && parts.length === 2) {
+        const ticket = getTicket(id);
+        return ticket ? json(res, 200, { ticket }) : json(res, 404, { error: "no such ticket" });
+      }
+      if (req.method === "GET" && parts[2] === "activity") {
+        if (!getTicket(id)) return json(res, 404, { error: "no such ticket" });
+        return json(res, 200, { activity: ticketActivity(id) });
+      }
+      if (req.method === "PATCH" && parts.length === 2) {
+        const body = await readJson(req);
+        try {
+          const ticket = updateTicket(id, body);
+          broadcast({ type: "board" });
+          return json(res, 200, { ticket });
+        } catch (error) {
+          const message = (error as Error).message || "could not save that ticket";
+          return json(res, /no such/.test(message) ? 404 : 400, { error: message });
+        }
+      }
+      if (req.method === "DELETE" && parts.length === 2) {
+        try {
+          deleteTicket(id);
+          broadcast({ type: "board" });
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such ticket" });
+        }
+      }
+      // A move carries the neighbours it landed between, so ordering is one
+      // rank rather than a renumbered column.
+      if (req.method === "POST" && parts[2] === "move") {
+        const body = await readJson(req);
+        try {
+          const ticket = moveTicket(
+            id,
+            body.status,
+            typeof body.before === "string" ? body.before : undefined,
+            typeof body.after === "string" ? body.after : undefined,
+          );
+          broadcast({ type: "board" });
+          return json(res, 200, { ticket });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such ticket" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "status") {
+        const body = await readJson(req);
+        try {
+          const ticket = setTicketStatus(id, body.status, {
+            note: typeof body.note === "string" ? body.note : undefined,
+          });
+          broadcast({ type: "board" });
+          return json(res, 200, { ticket });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such ticket" });
+        }
+      }
+      if (req.method === "POST" && parts[2] === "comment") {
+        const body = await readJson(req);
+        try {
+          const ticket = commentOnTicket(id, String(body.body ?? ""));
+          broadcast({ type: "board" });
+          // Naming an agent asks it a question. The turn runs on its own and
+          // posts its reply as another comment, so the request does not wait
+          // on a model to think.
+          const said = ticketActivity(id).at(-1);
+          if (said?.mentions?.length) answerMentions(id, said.mentions, said.body ?? "", said.actor);
+          return json(res, 200, { ticket });
+        } catch (error) {
+          const message = (error as Error).message || "could not add that comment";
+          return json(res, /no such/.test(message) ? 404 : 400, { error: message });
+        }
+      }
+      // Attaching an existing thread. Deliberately does not start or resume it:
+      // linking is bookkeeping, and the runner tells the two apart by `linkedBy`.
+      if (req.method === "POST" && parts[2] === "threads") {
+        const body = await readJson(req);
+        try {
+          const ticket = linkThread(id, {
+            chatId: String(body.chatId ?? ""),
+            agentId: typeof body.agentId === "string" ? body.agentId : undefined,
+            stage: typeof body.stage === "string" ? body.stage : undefined,
+          });
+          broadcast({ type: "board" });
+          return json(res, 200, { ticket });
+        } catch (error) {
+          const message = (error as Error).message || "could not attach that thread";
+          return json(res, /no such/.test(message) ? 404 : 409, { error: message });
+        }
+      }
+      if (req.method === "DELETE" && parts[2] === "threads" && parts[3]) {
+        try {
+          const ticket = unlinkThread(id, decodeURIComponent(parts[3]));
+          broadcast({ type: "board" });
+          return json(res, 200, { ticket });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such ticket" });
+        }
+      }
+    }
+
     // Chats are Remy's own Claude conversations: the server drives
     // the Agent SDK, so unlike a tmux session there is no terminal to fall back
     // to and every interaction — messages, approvals, questions — lands here.
@@ -315,6 +526,7 @@ const server = createServer(async (req, res) => {
           title: typeof body.title === "string" ? body.title : undefined,
           model: typeof body.model === "string" && body.model ? body.model : undefined,
           permissionMode: body.permissionMode,
+          agentId: typeof body.agentId === "string" && body.agentId ? body.agentId : undefined,
         }) });
       } catch (error) {
         return json(res, 400, { error: (error as Error).message || "could not create the chat" });
@@ -430,6 +642,45 @@ const server = createServer(async (req, res) => {
           return json(res, 200, { path: saveUpload(`chat-${id}`, filename, data) });
         } catch (error) {
           return json(res, 404, { error: (error as Error).message || "no such chat" });
+        }
+      }
+      // Most work does not start on a board — it starts as a thread, and ten
+      // minutes in it turns out to be worth tracking. The ticket adopts what
+      // the thread already has rather than opening a second worktree.
+      if (req.method === "POST" && parts[2] === "ticket") {
+        const chat = getChat(id);
+        if (!chat) return json(res, 404, { error: "no such chat" });
+        const already = ticketForChat(id);
+        if (already) return json(res, 409, { error: `that thread is already on ${already.key}` });
+        const body = await readJson(req);
+        try {
+          const workspaces = await listWorkspaces();
+          // The deepest matching workspace wins, so a worktree inside a
+          // workspace resolves to that workspace rather than a shorter one.
+          const workspace = workspaces
+            .filter((candidate) => chat.cwd === candidate.path || chat.cwd.startsWith(`${candidate.path}/`))
+            .sort((a, b) => b.path.length - a.path.length)[0];
+          if (!workspace) {
+            return json(res, 400, { error: "this thread is not running in a workspace on this machine" });
+          }
+          const project = adoptWorkspace(workspace);
+          const info = await worktreeInfo(chat.cwd);
+          let ticket = createTicket({
+            projectId: project.id,
+            title: typeof body.title === "string" && body.title.trim() ? body.title : chat.title,
+            body: typeof body.body === "string" ? body.body : "",
+            ...(info.branch ? { branch: info.branch } : {}),
+            ...(chat.agentId ? { assigneeAgentId: chat.agentId } : {}),
+          });
+          // Link before status: a ticket that is already being worked on must
+          // never be seen as one nobody has picked up.
+          ticket = linkThread(ticket.id, { chatId: id, agentId: chat.agentId });
+          const live = chat.state === "working" || chat.state === "needs_input";
+          ticket = setTicketStatus(ticket.id, live ? "in_progress" : "todo");
+          broadcast({ type: "board" });
+          return json(res, 200, { ticket });
+        } catch (error) {
+          return json(res, 400, { error: (error as Error).message || "could not create that ticket" });
         }
       }
       // The composer's @file and /skill pickers, resolved against the chat's
@@ -1005,6 +1256,10 @@ setSleepBusyCheck(() =>
 );
 syncSleepAssertion();
 syncRepoUpdateSchedule();
+
+// The built-in agents are ordinary rows once seeded — editable, deletable, and
+// never written again.
+seedPresetAgents();
 
 // Seed the branch prefix once, from whoever this machine is signed in as. Remy
 // names itself when `gh` cannot say, so a branch always carries a prefix.

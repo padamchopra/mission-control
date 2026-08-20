@@ -8,6 +8,7 @@ import {
   Copy,
   GitBranch,
   Square,
+  Ticket as TicketIcon,
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +32,20 @@ import {
   MessageFooter,
   MessageHeader,
 } from "@/components/ui/message";
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ComposerMenu } from "@/components/ComposerMenu";
 import { ContextMeter } from "@/components/ContextMeter";
 import { PaneHeader } from "@/components/PaneHeader";
@@ -54,7 +69,15 @@ import type { Chat, ChatApproval, ChatQuestionRequest, ConvDiffLine, ConvEntry }
 ///
 /// The feed is fetched once when the chat opens and patched from then on by the
 /// `chat` frames the server pushes as a turn streams.
-export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNode }) {
+export function ChatView({
+  chat,
+  headerEnd,
+  onOpenTicket,
+}: {
+  chat: Chat;
+  headerEnd?: ReactNode;
+  onOpenTicket?: (key: string) => void;
+}) {
   const detail = useStore((s) => s.detail);
   const loading = useStore((s) => s.detailLoading);
   const openChat = useStore((s) => s.openChat);
@@ -171,6 +194,7 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
         ]}
       >
         <StateBadge state={state} action={open?.action} />
+        {onOpenTicket && <ThreadTicket chatId={chat.id} onOpenTicket={onOpenTicket} />}
         {headerEnd}
       </PaneHeader>
 
@@ -697,6 +721,105 @@ function QuestionCard({
         Send answer
       </Button>
     </Card>
+  );
+}
+
+/// The bridge between a thread and the board, in both directions.
+///
+/// A thread that is already on a ticket shows its key and opens it. One that is
+/// not offers to make a ticket from it — adopting the worktree and branch it is
+/// already in rather than opening new ones — or to file it under a ticket that
+/// already exists. Neither starts or resumes anything: linking is bookkeeping.
+function ThreadTicket({ chatId, onOpenTicket }: { chatId: string; onOpenTicket: (key: string) => void }) {
+  const tickets = useStore((s) => s.tickets);
+  const loadBoard = useStore((s) => s.loadBoard);
+  const ticketFromThread = useStore((s) => s.ticketFromThread);
+  const attachThread = useStore((s) => s.attachThread);
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void loadBoard().catch(() => {
+      // The board is a nicety here; the thread works without one.
+    });
+  }, [loadBoard]);
+
+  const onTicket = tickets.find((ticket) => ticket.threads.some((link) => link.chatId === chatId));
+  const open = tickets.filter((ticket) => ticket.status !== "done" && ticket.status !== "cancelled");
+
+  if (onTicket) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="outline" size="sm" className="font-mono" onClick={() => onOpenTicket(onTicket.key)}>
+            <TicketIcon />
+            {onTicket.key}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{onTicket.title}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const ticket = await ticketFromThread(chatId);
+      toast.success(`Tracking as ${ticket.key}`);
+      onOpenTicket(ticket.key);
+    } catch (error) {
+      toast.error("Couldn't make a ticket from this thread", { description: apiError(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const attach = async (ticketId: string, key: string) => {
+    try {
+      await attachThread(ticketId, chatId);
+      setPicking(false);
+      toast.success(`Attached to ${key}`);
+    } catch (error) {
+      toast.error("Couldn't attach this thread", { description: apiError(error) });
+    }
+  };
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" disabled={busy}>
+            <TicketIcon />
+            Track
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => void create()}>New ticket from this thread</DropdownMenuItem>
+          <DropdownMenuItem disabled={open.length === 0} onSelect={() => setPicking(true)}>
+            Add to a ticket
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <CommandDialog open={picking} onOpenChange={setPicking} title="Add to a ticket">
+        <Command>
+          <CommandInput placeholder="Find a ticket…" />
+          <CommandList>
+            <CommandEmpty>No open tickets.</CommandEmpty>
+            {open.map((ticket) => (
+              <CommandItem
+                key={ticket.id}
+                value={`${ticket.key} ${ticket.title}`}
+                onSelect={() => void attach(ticket.id, ticket.key)}
+              >
+                <span className="font-mono text-xs text-muted-foreground">{ticket.key}</span>
+                <span className="truncate">{ticket.title}</span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </CommandDialog>
+    </>
   );
 }
 

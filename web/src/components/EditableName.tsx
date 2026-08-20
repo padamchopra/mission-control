@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 export function EditableName({
   value,
   onCommit,
   label,
+  // The type this name is set in. A sidebar row and a ticket's title are the
+  // same control at two sizes, so the size is the caller's to say.
+  className = "text-sm font-medium",
 }: {
   value: string;
   onCommit: (name: string) => void;
   label: string;
+  className?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -39,7 +44,7 @@ export function EditableName({
   if (!editing) {
     return (
       <span className="flex min-w-0 items-center gap-1">
-        <span className="truncate text-sm font-medium">{value}</span>
+        <span className={cn("truncate", className)}>{value}</span>
         <Button
           type="button"
           variant="ghost"
@@ -73,7 +78,9 @@ export function EditableName({
           setEditing(false);
         }
       }}
-      className="h-7 px-1.5 font-medium"
+      // Height follows the type rather than a fixed step, so the same control
+      // fits a sidebar row and a page title without two variants.
+      className={cn("h-auto px-1.5 py-0.5", className)}
     />
   );
 }

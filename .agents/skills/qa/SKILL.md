@@ -35,6 +35,18 @@ Read state back from the server rather than trusting the screen: the endpoints u
 
 Anything you create while testing — a thread, a workspace, a changed setting — you delete or restore before you finish.
 
+## Named things lead somewhere
+
+Wherever a surface names something that lives elsewhere in Remy — a workspace, a device, an agent, a thread, a ticket, a branch's checkout — it carries that thing's own mark and it opens it. A bare word is a dead end, and the person reading it came to that pane precisely because they wanted the thing behind the word.
+
+So for every entity a feature mentions:
+
+- **Its mark.** A workspace shows its `WorkspaceMark`, a device its `deviceIcon`, an agent its `AgentAvatar`, a ticket its status glyph. The same mark it wears on its own pane, so it is recognised rather than read.
+- **Its route.** Clicking it goes there — `#/workspaces/<id>`, `#/tickets/<key>`, a thread by id — and the keyboard reaches it the same way.
+- **Its absence.** When the thing is not on this machine, say so in place of the link rather than offering one that goes nowhere. A project with no local clone still has a name; it just has nothing to open.
+
+Walk them: from the ticket pane reach its workspace, its device, its threads and its sub-tickets; from a thread row reach its ticket. A hop that lands on the wrong pane, or a name with no mark beside it, is the finding.
+
 ## Alignment
 
 Read `getBoundingClientRect` in the page. If it looks a little off, it is off.
