@@ -170,9 +170,11 @@ loopback or your tailnet, behind a bearer token. See [SECURITY.md](SECURITY.md).
 macOS will not open a GitHub download unless Apple has notarized it. The
 `Mac` workflow signs with a Developer ID and notarizes before
 it publishes a new GitHub release. It runs at 00:05 UTC each night, and on
-demand from the Actions tab when a merge is worth shipping sooner. The tag is
-`{major}.{minor}.{run}` from `package.json` plus the workflow run number
-(`v0.1.5`, `v0.1.6`, …), so each run shows up as its own release.
+demand from the Actions tab when a merge is worth shipping sooner. A night with
+nothing new stops before the build: a release that is the same commit as the
+last one is only a new number. Asking for a run by hand always builds. The tag
+is `{major}.{minor}.{run}` from `package.json` plus the workflow run number
+(`v0.1.5`, `v0.1.6`, …), so each build shows up as its own release.
 Without the secrets below,
 that job fails on purpose so an unsigned build never ships.
 
