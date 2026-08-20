@@ -1,214 +1,78 @@
 # Remy
 
-A remote for [Claude Code](https://claude.com/claude-code) on your own machines.
-Start a chat in a folder, pick the model and how much Claude may do unasked, and
-drive the turn from this Mac — or from another device on your
-[Tailscale](https://tailscale.com) network.
+Remy is a remote for [Claude Code](https://claude.com/claude-code) on your own machines. Point it at a folder, say what you want done, and the agent runs on the Mac that actually holds the repo — while you watch from the desktop app, a browser tab, or your phone on the couch.
 
-The work stays on the machine. Remy is a window onto a daemon that runs
-there, not a copy of the repo in the cloud.
+<img src="docs/images/threads.png" alt="Remy showing four threads across two machines, with a composer for a new one" width="100%" />
 
-## How it works
+## Wait, where does my code go?
 
-```
-┌──────────────┐   loopback (or Tailscale)  ┌──────────────────────────────┐
-│  Remy.app    │ ◄────────────────────────► │  bundled server              │
-│  (Electron)  │   REST + WebSocket         │    ├─ Agent SDK chats        │
-│  web/ UI     │                            │    ├─ workspaces / git       │
-└──────────────┘                            │    ├─ event registry         │
-                                            │    └─ ntfy notifier          │
-┌──────────────┐                            │  hooks/ (tmux agents, still) │
-│  iOS app     │  pairing + older session   └──────────────────────────────┘
-└──────────────┘
-```
+Nowhere. That is the whole point.
 
-- **`web/`** — the UI: React 19, Tailwind v4, [shadcn/ui](https://ui.shadcn.com)
-  (Radix, New York). Add primitives with `npx shadcn@latest add` from `web/`.
-  Sidebar: Inbox, Chats, Workspaces, Pull requests, Loops. ⌘K is the palette.
-- **`desktop/`** — a thin Electron shell (`me.padamchopra.Remy`). It owns the
-  window and the tokens; the UI is the same web app. The Mac DMG ships the UI
-  and the daemon. Opening Remy starts the daemon with Electron's Node; quitting
-  Remy stops it. Chats use the Claude Code already on this Mac. A nightly
-  workflow builds that DMG.
-- **`server/`** — a Node/TypeScript daemon. Binds to `127.0.0.1` only. Chats are
-  conversations Remy runs itself through the
-  [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview): the
-  server holds the Claude process, keeps the feed in SQLite
-  (`~/.remy/remy.db`), streams each turn, and parks tool approvals and questions
-  until someone answers. Workspaces, git checkouts, loops, archives, and
-  settings live in the same database.
-- **`server/src/sleep.ts`** — optional idle-sleep assertion (`caffeinate -i`).
-  Off, while a chat is working or waiting on you, or always until you change it
-  or the machine powers off. Closing the lid can still sleep a MacBook.
-- **`ios/`** — SwiftUI companion (XcodeGen). Pair with a `remy://` link. It still
-  speaks the session/tmux remote; chats are the web/desktop product.
-- **`deploy/`** — optional login-item + Tailscale serve + pairing QR, if you
-  want the daemon without the app open or to reach it from another device.
+Remy is a daemon on your machine plus a window onto it. Your repos are never uploaded, never cloned to a server, never sent through anybody's API but Claude's — which is the same call Claude Code already makes when you run it in a terminal. The daemon listens on `127.0.0.1` and nothing else. When you want to reach it from another device, that goes over [Tailscale](https://tailscale.com), which is your own private network, not the public internet.
 
-## Running it
+There is no account, no sign-up, and no hosted anything. If this repo disappeared tomorrow your copy would keep working.
+
+## Try it
+
+You need a Mac that can stay awake, with [Claude Code](https://claude.com/claude-code) installed on it. That is what actually runs your threads, so Remy is only as capable as the Claude Code sitting next to it.
+
+**Install the app.** Grab the newest DMG from [Releases](https://github.com/padamchopra/remy/releases) and drag it to Applications. It is signed and notarized, so it just opens. The DMG carries both the window and the daemon — opening Remy starts everything, quitting it stops everything, and it brings its own Node.
+
+**Or run it from source** (Node 22.5+, for `node:sqlite`):
 
 ```sh
-npm run install:all     # server, web, desktop
-npm run dev:web         # Vite on :5173; starts the local daemon if needed
-npm run dev             # Electron, pointed at the dev server
+git clone https://github.com/padamchopra/remy
+cd remy
+npm run install:all
+npm run dev:web
 ```
 
-`VITE_MC_FIXTURE=1 npm run dev:web` fills the window with sample data, so layout
-can be reviewed without a server. Otherwise Vite proxies `/api` to
-`127.0.0.1:8420` and injects the bearer header from `~/.remy/remy.db` (or
-`MC_TOKEN`) so the token never reaches the page.
+Then open `http://127.0.0.1:5173`. That is the real app against your real folders, not a demo.
 
-```sh
-npm run pack:mac     # web + daemon + Electron DMG → desktop/release/
-npm run shots        # Playwright PNGs of the window
-npm run live-check   # assert the window is showing chats
-```
+> [!NOTE]
+> The page does not live-reload — refresh it after a change. Editing Remy while watching Remy meant every save yanked the window out from under whatever was on screen.
 
-## What you can do
+## What you actually do with it
 
-- **New chat** — empty Chats is a composer, not a blank list. Pick a workspace
-  or a device (`~` on that machine), Default / Opus / Sonnet / Haiku, and a
-  permission mode (Ask, Auto, Accept edits, Plan, Bypass). Enter sends;
-  Shift+Enter is a newline.
-- **Git on send** — a workspace with worktrees gets a branch search and Main
-  checkout vs New worktree. Switching the dropdown does not touch git; send
-  does. A remote ref is added detached.
-- **Inbox** — anything waiting on you, across paired machines.
-- **Workspaces** — a folder on a machine, with icon and tint. Linked git
-  worktrees group under the primary checkout.
-- **Devices** — this machine plus anything you pair. Each online box has Stay
-  awake: Off, While working, or Always.
-- **Updates** — Settings → General shows the version and checks GitHub for a
-  newer one. A launchd-installed server can still be updated from
-  Settings → Server maintenance on the iOS/older remote.
-- **Archived chats** — live in Settings, not in the sidebar.
+Start a thread in a workspace, pick a model and how much the agent may do unasked, and send. A folder with git worktrees lets you branch on send rather than beforehand. Threads that stop to ask you something collect in the Inbox, so a machine working on four things at once has one queue instead of four windows.
 
-A chat's Claude process is retired after 15 idle minutes and the next message
-resumes the same conversation.
+`⌘K` gets you anywhere, and tells you which threads need you.
 
-## Prerequisites
+<img src="docs/images/palette.png" alt="The command palette listing threads that need you and threads still working" width="100%" />
 
-- A Mac that can stay on, with [Homebrew](https://brew.sh), Node 22.5+
-  (`node:sqlite`), `git`, and the [GitHub CLI](https://cli.github.com) (`gh`,
-  authenticated — for pull requests).
-- [Claude Code](https://claude.com/claude-code) on that machine.
-- [Tailscale](https://tailscale.com) if you want another device to reach it.
-- `tmux` (the setup script still registers session hooks). Codex is optional.
-- Optional: the free [ntfy](https://ntfy.sh) app on a phone for pushes when
-  the desktop app is closed.
+The Board is for planning rather than chatting: tickets, agents with their own instructions, and a handoff from one to the next. Agents sign their commits, so `git log` says which one wrote what.
 
-## Setup
+## Add your other machines
 
-### This Mac
+Remy is built for more than one machine. A desktop that holds the big repos, a laptop you carry, both on your tailnet.
 
-Install the latest Remy DMG from [GitHub Releases](https://github.com/padamchopra/remy/releases).
-That is the whole local install: window and daemon. Open Remy and it starts
-listening on `127.0.0.1`. Claude Code still needs to be on this machine.
+On each machine, open **Settings → Devices** and turn on **Reachable from your other machines**. That runs `tailscale serve`, which is what lets anything reach the daemon at all — it binds loopback on its own.
 
-GitHub Releases are Developer ID–signed and notarized, so double-click works.
-A local `npm run pack:mac` without those certificates is ad-hoc: after you copy
-it into Applications, clear quarantine once:
+Then, on either machine, look under **On your tailnet**. Remy already knows your devices and has checked which of them are running it, so you pick one and press **Pair**. Both machines show a six-digit code; if they match, press **Allow** on the other one. Nothing is shared until you do.
 
-```sh
-xattr -cr /Applications/Remy.app
-```
+From then on the two share a planning board — tickets and agents converge on both without either being in charge. Threads stay put, on the machine holding the repo.
 
-To reach it from another device, or to keep the daemon up when Remy is quit,
-also run the login-item script from a clone:
+If a machine is somewhere Tailscale is not, **Pair with a link instead** takes a `remy://configure?…` link you copy from the other side.
 
-```sh
-git clone <this-repo> ~/remy
-cd ~/remy
-./deploy/setup.sh
-```
+## Where notifications go
 
-That installs launchd (`com.example.remy`, auto-start on login), registers
-Claude Code (and Codex) hooks when those CLIs are present, exposes the server
-with `tailscale serve`, and prints a pairing QR. Reprint it with
-`./deploy/show-pairing.sh`.
+Every device card has a **Notifications** switch, and it means: when a thread on *this* machine needs you, tell *that* device. Turn on the ones you want. Turn off the machine you never sit at.
 
-The server binds to `127.0.0.1` only. The way in from another device is
-`tailscale serve` (tailnet only). For TLS, enable HTTPS certificates in the
-Tailscale admin console first; otherwise it falls back to tailnet HTTP (still
-WireGuard-encrypted).
+When a window is open, notifications are banners. When none is, they go to your phone through [ntfy](https://ntfy.sh) — install the free app and subscribe to the topic `./deploy/setup.sh` prints. Notification text through hosted `ntfy.sh` passes over their server, so Remy keeps it terse; point `ntfyServer` at your own if you would rather it did not.
 
-### Pairing another machine
+## Some notes
 
-Paste a `remy://configure?url=…` link in Settings → Devices. The Electron app
-can pair; the Vite preview talks to whatever it is proxying.
+This is early, and built for one person's setup first. Expect rough edges.
 
-### iOS
+- **macOS only** for now. The daemon is Node and would likely run elsewhere; nobody has tried.
+- **The iOS app in `ios/` is well out of date.** It still speaks an older tmux-based remote. Notifications to your phone work; the app does not represent the current product.
+- **Stay awake** prevents *idle* sleep. Closing a MacBook lid is a different thing and can still sleep the machine.
+- **Repos on an external drive** need Full Disk Access for Remy, in System Settings → Privacy & Security.
+- **Running a 1M context window?** Transcripts do not record the window size, so set `contextLimit` if the meter looks wrong.
 
-```sh
-cd ios
-xcodegen generate
-open MissionControl.xcodeproj
-```
+## Going further
 
-Copy `ios/Config/Signing.local.xcconfig.example` to
-`ios/Config/Signing.local.xcconfig` and set your team. That file is gitignored
-and survives `xcodegen generate`. Scan the pairing QR from the setup script.
-
-### Notifications
-
-Pushes go through [ntfy](https://ntfy.sh). The first launch writes a random
-topic. If Remy is open, banners land there. A login-item install (`setup.sh`)
-keeps the daemon up after you quit, so ntfy can still reach a phone.
-
-With hosted `ntfy.sh`, notification text transits their server — kept terse.
-Self-host and set `ntfyServer` in `~/.remy/remy.db` to keep it on your
-infrastructure.
-
-## Security
-
-The server shells out to `git`/`gh` (and `tmux`, when a session remote is used)
-via `execFile` with argument arrays, never a shell. It is reachable only on
-loopback or your tailnet, behind a bearer token. See [SECURITY.md](SECURITY.md).
-
-## Publishing a Mac build
-
-macOS will not open a GitHub download unless Apple has notarized it. The
-`Mac` workflow signs with a Developer ID and notarizes before
-it publishes a new GitHub release. It runs at 00:05 UTC each night, and on
-demand from the Actions tab when a merge is worth shipping sooner. A night with
-nothing new stops before the build: a release that is the same commit as the
-last one is only a new number. Asking for a run by hand always builds. The tag
-is `{major}.{minor}.{run}` from `package.json` plus the workflow run number
-(`v0.1.5`, `v0.1.6`, …), so each build shows up as its own release.
-Without the secrets below,
-that job fails on purpose so an unsigned build never ships.
-
-1. Enrol in the [Apple Developer Program](https://developer.apple.com/programs/).
-2. In Keychain Access, create a **Developer ID Application** certificate,
-   export it as a `.p12`, then `base64 -i Remy.p12 | pbcopy`.
-3. In [App Store Connect](https://appstoreconnect.apple.com/access/api) →
-   Integrations → Team Keys, create a key with Developer access. Download the
-   `.p8` once. Note the Key ID and the Issuer ID.
-4. Add these GitHub Actions secrets on `padamchopra/remy`:
-
-   | Secret | Value |
-   |---|---|
-   | `CSC_LINK` | base64 of the `.p12` |
-   | `CSC_KEY_PASSWORD` | password for that `.p12` |
-   | `APPLE_API_KEY` | the `.p8` itself (`gh secret set APPLE_API_KEY < AuthKey_….p8`) or a base64 of that file |
-   | `APPLE_API_KEY_ID` | the Key ID |
-   | `APPLE_API_ISSUER` | the Issuer UUID |
-   | `APPLE_TEAM_ID` | 10-character Team ID |
-
-5. Wait for the nightly, or run the **Mac** workflow from the Actions tab.
-   Each run publishes a new release; the DMG is then double-clickable.
-
-## Notes
-
-- **Uploaded media** lives under the OS temp directory, which macOS purges on
-  its own.
-- **Context window.** Transcripts record the model but not always the window
-  size. If sessions run a 1M window, set `contextLimit` in `~/.remy/remy.db`.
-- **Repos on a removable volume** (`/Volumes/…`) need Full Disk Access for
-  Remy (System Settings → Privacy & Security → Full Disk Access).
-- **Stay awake** prevents *idle* sleep. Lid-close on a MacBook is a different
-  event and can still sleep the machine.
-- **App updates** in the shipped Remy window are Download, then Relaunch. That
-  uses the zip on GitHub Releases, not the DMG. A `setup.sh` / launchd server
-  can still use the authenticated update endpoint after one manual `git pull`
-  + rebuild.
+- **[AGENTS.md](AGENTS.md)** — how the code is laid out and how to work in it.
+- **[RELEASING.md](RELEASING.md)** — signing and notarizing a Mac build.
+- **[SECURITY.md](SECURITY.md)** — the security posture, and how to report something.
+- **`deploy/setup.sh`** — run the daemon as a login item, so it keeps working after you quit the app.
