@@ -12,6 +12,7 @@ import {
   type ServerConfig,
 } from "./connection";
 import { ensureLocalServer, isLoopback, localTargetFromConfig, stopSpawnedServer } from "./local-server";
+import { downloadUpdate, installUpdate } from "./update";
 
 /// The desktop shell. Deliberately thin — it owns the window, starts the
 /// bundled daemon, and holds the tokens. The UI stays a plain web app that can
@@ -114,7 +115,19 @@ async function wireIpc(): Promise<void> {
     send("mc:status", serverId, online, error),
   );
 
-  ipcMain.handle("app:info", () => ({ version: app.getVersion(), name: app.getName() }));
+  ipcMain.handle("app:info", () => ({
+    version: app.getVersion(),
+    name: app.getName(),
+    packaged: app.isPackaged,
+  }));
+
+  ipcMain.handle("app:download-update", async (_event, url: string) => {
+    await downloadUpdate(url);
+  });
+
+  ipcMain.handle("app:install-update", async () => {
+    await installUpdate();
+  });
 
   ipcMain.handle("mc:servers", () => connection?.list() ?? []);
 

@@ -77,8 +77,9 @@ import {
   setNotificationsEnabled,
   type NotifyPermission,
 } from "@/lib/notify";
+import { useAppUpdate, type AppUpdatePhase } from "@/hooks/use-app-update";
 import { useStore } from "@/state/store";
-import type { Server, ToolStatus } from "@/state/types";
+import type { Chat, Server, ToolStatus } from "@/state/types";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export type SettingsTab = "general" | "version-control" | "providers" | "devices" | "archive";
@@ -150,6 +151,7 @@ function GeneralPane({
   };
 }) {
   const { current, latest, pending, available, local, checking, check } = release;
+  const update = useAppUpdate();
 
   const onCheck = async () => {
     try {
@@ -162,14 +164,33 @@ function GeneralPane({
     }
   };
 
+  const status =
+    available && latest
+      ? update.phase === "downloading"
+        ? update.percent != null
+          ? `Downloading ${latest.version} · ${update.percent}%`
+          : `Downloading ${latest.version}…`
+        : update.phase === "ready"
+          ? `${latest.version} is ready to launch.`
+          : update.phase === "installing"
+            ? `Installing ${latest.version}…`
+            : `${latest.version} is ready to install.`
+      : null;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
         <img src={remyMark} alt="" className="size-10 rounded-[10px]" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">Remy</p>
-          {available && latest ? (
-            <p className="text-xs text-muted-foreground">{latest.version} is ready to install.</p>
+          {status ? (
+            <p className="text-xs text-muted-foreground">
+              {update.phase === "downloading" || update.phase === "installing" ? (
+                <span className="shimmer">{status}</span>
+              ) : (
+                status
+              )}
+            </p>
           ) : (
             <p className="font-mono text-xs text-muted-foreground tabular-nums">
               {checking ? <span className="shimmer">Checking…</span> : current}
@@ -181,7 +202,7 @@ function GeneralPane({
         {local ? (
           <Badge variant="secondary">Built here</Badge>
         ) : available && latest ? (
-          <UpdateButton latest={latest} pending={pending} current={current} />
+          <UpdateButton latest={latest} pending={pending} current={current} update={update} />
         ) : (
           <Button size="sm" variant="ghost" disabled={checking} onClick={() => void onCheck()}>
             {checking ? "Checking…" : "Check for updates"}
@@ -204,7 +225,15 @@ function GeneralPane({
 
 const MAX_SHOWN_RELEASES = 6;
 
-/// The download, with what you would be getting behind it.
+function busyLocalCount(chats: Chat[], servers: Server[]): number {
+  const local = new Set(servers.filter((server) => server.local).map((server) => server.id));
+  return chats.filter((chat) => {
+    if (local.size > 0 && !local.has(chat.serverId)) return false;
+    return chat.state === "working" || chat.state === "needs_input";
+  }).length;
+}
+
+/// The download, then a relaunch that replaces this copy.
 ///
 /// Hovering shows every release between the one running and the one on offer,
 /// not just the newest of them — the point of the card is what changes for you,
@@ -213,68 +242,159 @@ function UpdateButton({
   latest,
   pending,
   current,
+  update,
 }: {
   latest: RemyRelease;
   pending: RemyRelease[];
   current: string;
+  update: {
+    inApp: boolean;
+    phase: AppUpdatePhase;
+    percent?: number;
+    download: (url: string) => Promise<void>;
+    install: () => Promise<void>;
+  };
 }) {
   // Someone a long way behind gets the recent run, not a scroll through every
   // release since they last opened the app.
   const shown = pending.slice(0, MAX_SHOWN_RELEASES);
+  const [confirming, setConfirming] = useState(false);
+  const [busyAtConfirm, setBusyAtConfirm] = useState(0);
+  const busy = useStore((s) => busyLocalCount(s.chats, s.servers));
+  const href = latest.downloadUrl ?? latest.pageUrl;
+  const busyLabel =
+    busyAtConfirm === 1 ? "A thread is still running" : `${busyAtConfirm} threads are still running`;
+
+  const runInstall = async () => {
+    try {
+      await update.install();
+    } catch (caught) {
+      toast.error("Couldn't install the update", {
+        description: caught instanceof Error ? caught.message : "Try again in a bit.",
+      });
+    }
+  };
+
+  const onAction = async () => {
+    if (update.phase === "ready") {
+      if (busy > 0) {
+        setBusyAtConfirm(busy);
+        setConfirming(true);
+        return;
+      }
+      await runInstall();
+      return;
+    }
+    if (!latest.downloadUrl) {
+      window.open(latest.pageUrl, "_blank", "noreferrer");
+      return;
+    }
+    try {
+      await update.download(latest.downloadUrl);
+    } catch (caught) {
+      toast.error("Couldn't download the update", {
+        description: caught instanceof Error ? caught.message : "Try again in a bit.",
+      });
+    }
+  };
+
+  const label =
+    update.phase === "downloading"
+      ? update.percent != null
+        ? `Downloading ${update.percent}%`
+        : "Downloading…"
+      : update.phase === "ready"
+        ? `Relaunch ${latest.version}`
+        : update.phase === "installing"
+          ? "Installing…"
+          : `Download ${latest.version}`;
+
+  const working = update.phase === "downloading" || update.phase === "installing";
 
   return (
-    <HoverCard openDelay={120} closeDelay={80}>
-      <HoverCardTrigger asChild>
-        <Button asChild size="sm">
-          <a href={latest.downloadUrl ?? latest.pageUrl} target="_blank" rel="noreferrer">
-            Download {latest.version}
-          </a>
-        </Button>
-      </HoverCardTrigger>
-      <HoverCardContent align="end" className="w-96 p-0">
-        <div className="flex items-baseline gap-2 border-b border-border px-4 py-2.5">
-          <p className="text-sm font-medium">What you'd be getting</p>
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {current} → {latest.version}
-          </p>
-        </div>
-        <ScrollArea className="max-h-72">
-          <div className="flex flex-col gap-4 px-4 py-3">
-            {shown.map((entry, index) => {
-              const notes = summarizeNotes(entry.notes);
-              return (
-                <div key={entry.version} className="flex flex-col gap-1">
-                  {/* The one you would land on is the news; the ones under it
-                      are what you skipped past to get there. */}
-                  <p className="text-xs font-medium">
-                    {index === 0 ? "What's changed" : `Changes in ${entry.version}`}
-                  </p>
-                  {notes ? (
-                    <Markdown text={notes} className="text-xs" />
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No notes for this one.</p>
-                  )}
-                </div>
-              );
-            })}
-            {pending.length > shown.length && (
-              <p className="text-xs text-muted-foreground">
-                …and {pending.length - shown.length} earlier release
-                {pending.length - shown.length === 1 ? "" : "s"}.
-              </p>
-            )}
+    <>
+      <HoverCard openDelay={120} closeDelay={80}>
+        <HoverCardTrigger asChild>
+          {update.inApp ? (
+            <Button size="sm" disabled={working} onClick={() => void onAction()}>
+              {working ? <span className="shimmer">{label}</span> : label}
+            </Button>
+          ) : (
+            <Button asChild size="sm">
+              <a href={href} target="_blank" rel="noreferrer">
+                Download {latest.version}
+              </a>
+            </Button>
+          )}
+        </HoverCardTrigger>
+        <HoverCardContent align="end" className="w-96 p-0">
+          <div className="flex items-baseline gap-2 border-b border-border px-4 py-2.5">
+            <p className="text-sm font-medium">What you'd be getting</p>
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {current} → {latest.version}
+            </p>
           </div>
-        </ScrollArea>
-        <a
-          href={latest.pageUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="block border-t border-border px-4 py-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          Read it on GitHub
-        </a>
-      </HoverCardContent>
-    </HoverCard>
+          <ScrollArea className="max-h-72">
+            <div className="flex flex-col gap-4 px-4 py-3">
+              {shown.map((entry, index) => {
+                const notes = summarizeNotes(entry.notes);
+                return (
+                  <div key={entry.version} className="flex flex-col gap-1">
+                    {/* The one you would land on is the news; the ones under it
+                        are what you skipped past to get there. */}
+                    <p className="text-xs font-medium">
+                      {index === 0 ? "What's changed" : `Changes in ${entry.version}`}
+                    </p>
+                    {notes ? (
+                      <Markdown text={notes} className="text-xs" />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No notes for this one.</p>
+                    )}
+                  </div>
+                );
+              })}
+              {pending.length > shown.length && (
+                <p className="text-xs text-muted-foreground">
+                  …and {pending.length - shown.length} earlier release
+                  {pending.length - shown.length === 1 ? "" : "s"}.
+                </p>
+              )}
+            </div>
+          </ScrollArea>
+          <a
+            href={latest.pageUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block border-t border-border px-4 py-2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Read it on GitHub
+          </a>
+        </HoverCardContent>
+      </HoverCard>
+
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{busyLabel}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Installing replaces Remy and stops every agent that is not idle.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setConfirming(false);
+                void runInstall();
+              }}
+            >
+              Install anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
