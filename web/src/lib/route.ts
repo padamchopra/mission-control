@@ -11,6 +11,8 @@ export type Route =
   | { name: "inbox" }
   | { name: "threads"; threadId?: string }
   | { name: "workspaces"; workspaceId?: string }
+  | { name: "board"; projectId?: string }
+  | { name: "ticket"; key: string }
   | { name: "prs" }
   | { name: "loops" }
   | { name: "settings"; tab: SettingsTab };
@@ -19,12 +21,21 @@ export interface AppLocation {
   route: Route;
 }
 
-const SETTINGS_TABS: SettingsTab[] = ["general", "version-control", "providers", "devices", "archive"];
+const SETTINGS_TABS: SettingsTab[] = [
+  "general",
+  "version-control",
+  "providers",
+  "agents",
+  "devices",
+  "archive",
+];
 
 /// The section a route belongs to, which is what the sidebar highlights.
-export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs" | "loops" {
+export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs" | "loops" | "board" {
   if (route.name === "threads") return "chats";
   if (route.name === "settings") return "chats";
+  // A ticket sits inside the board the way a thread sits inside Threads.
+  if (route.name === "ticket") return "board";
   return route.name;
 }
 
@@ -38,6 +49,10 @@ export function parseLocation(hash: string): AppLocation {
   if (head === "workspaces") return { route: { name: "workspaces", workspaceId: rest } };
   if (head === "pull-requests") return { route: { name: "prs" } };
   if (head === "loops") return { route: { name: "loops" } };
+  if (head === "board") return { route: { name: "board", projectId: rest } };
+  // Tickets are addressed by key rather than id, so a link someone pastes reads
+  // as the thing it opens.
+  if (head === "tickets" && rest) return { route: { name: "ticket", key: rest } };
   if (head === "settings") {
     const tab = SETTINGS_TABS.includes(rest as SettingsTab) ? (rest as SettingsTab) : "general";
     return { route: { name: "settings", tab } };
@@ -53,10 +68,14 @@ export function formatLocation({ route }: AppLocation): string {
       ? `/threads${route.threadId ? `/${encodeURIComponent(route.threadId)}` : ""}`
       : route.name === "workspaces"
         ? `/workspaces${route.workspaceId ? `/${encodeURIComponent(route.workspaceId)}` : ""}`
-        : route.name === "settings"
-          ? `/settings/${route.tab}`
-          : route.name === "prs"
-            ? "/pull-requests"
-            : `/${route.name}`;
+        : route.name === "board"
+          ? `/board${route.projectId ? `/${encodeURIComponent(route.projectId)}` : ""}`
+          : route.name === "ticket"
+            ? `/tickets/${encodeURIComponent(route.key)}`
+            : route.name === "settings"
+              ? `/settings/${route.tab}`
+              : route.name === "prs"
+                ? "/pull-requests"
+                : `/${route.name}`;
   return `#${path}`;
 }

@@ -42,6 +42,11 @@ export interface Config {
   /// How often Remy refreshes the repositories it knows about. `off` never
   /// does, which is the setting for anyone who wants git touched only by them.
   repoUpdate: RepoUpdateEvery;
+  /// What a new agent's commits are signed with by default. `off` inherits
+  /// this machine's git identity, `author` credits the agent while leaving you
+  /// as the committer, and `full` makes it both. Attribution only — a git
+  /// identity says who wrote a commit, never proves it.
+  defaultGitIdentity: GitIdentity;
   /// The model Remy runs its own small jobs on — naming a thread, and whatever
   /// else comes to need a model later. Separate from `defaultModel`, which is
   /// what your threads think with: this one should stay cheap. `off` declines
@@ -53,11 +58,13 @@ export type PreventSleepMode = "off" | "whileBusy" | "always";
 export type CheckoutMode = "main" | "worktree";
 export type WorktreeBase = "remote" | "local";
 export type RepoUpdateEvery = "off" | "hourly" | "sixHourly" | "daily";
+export type GitIdentity = "off" | "author" | "full";
 
 const SLEEP_MODES: PreventSleepMode[] = ["off", "whileBusy", "always"];
 const CHECKOUT_MODES: CheckoutMode[] = ["main", "worktree"];
 const WORKTREE_BASES: WorktreeBase[] = ["remote", "local"];
 const REPO_UPDATES: RepoUpdateEvery[] = ["off", "hourly", "sixHourly", "daily"];
+const GIT_IDENTITIES: GitIdentity[] = ["off", "author", "full"];
 
 /// How long between refreshes, or nothing when they are off.
 export function repoUpdateInterval(every: RepoUpdateEvery): number | undefined {
@@ -139,6 +146,7 @@ function load(): Config {
     defaultModel: oneOf(MODELS, parsed.defaultModel, ""),
     remyModel: oneOf(REMY_MODELS, parsed.remyModel, "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
+    defaultGitIdentity: oneOf(GIT_IDENTITIES, parsed.defaultGitIdentity, "author"),
     worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
     avatar: avatarValue(parsed.avatar),
   };
@@ -158,6 +166,7 @@ export interface PublicSettings {
   repoUpdate: RepoUpdateEvery;
   worktreeBranchPrefix: string;
   avatar: string;
+  defaultGitIdentity: GitIdentity;
 }
 
 export function publicSettings(): PublicSettings {
@@ -171,6 +180,7 @@ export function publicSettings(): PublicSettings {
     repoUpdate: config.repoUpdate,
     worktreeBranchPrefix: config.worktreeBranchPrefix,
     avatar: config.avatar,
+    defaultGitIdentity: config.defaultGitIdentity,
   };
 }
 
@@ -203,6 +213,9 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
   if (patch.repoUpdate !== undefined) {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));
+  }
+  if (patch.defaultGitIdentity !== undefined) {
+    set("defaultGitIdentity", oneOf(GIT_IDENTITIES, patch.defaultGitIdentity, config.defaultGitIdentity));
   }
   if (patch.avatar !== undefined) {
     set("avatar", avatarValue(patch.avatar));

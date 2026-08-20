@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  SquareKanban,
   SquarePen,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -39,6 +40,8 @@ import { ChatView } from "@/components/ChatView";
 import { PaneHeader } from "@/components/PaneHeader";
 import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
+import { Board } from "@/components/Board";
+import { MissingTicket, TicketView } from "@/components/TicketView";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
 import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
 import { useNotifications } from "@/hooks/use-notifications";
@@ -56,11 +59,12 @@ import { useStore } from "@/state/store";
 import type { ChatState } from "@/state/types";
 import remyMark from "@/assets/remy-mark.png";
 
-type Section = "inbox" | "chats" | "workspaces" | "prs" | "loops";
+type Section = "inbox" | "chats" | "workspaces" | "board" | "prs" | "loops";
 
 function routeForSection(section: Section): Route {
   if (section === "chats") return { name: "threads" };
   if (section === "workspaces") return { name: "workspaces" };
+  if (section === "board") return { name: "board" };
   return { name: section };
 }
 
@@ -68,6 +72,7 @@ const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "chats", label: "Threads", icon: MessagesSquare },
   { id: "workspaces", label: "Workspaces", icon: Folder },
+  { id: "board", label: "Board", icon: SquareKanban },
   { id: "prs", label: "Pull requests", icon: GitPullRequest },
   { id: "loops", label: "Loops", icon: RefreshCw },
 ];
@@ -107,6 +112,14 @@ const EMPTY: Record<
     detail: "Add a folder on this machine to run threads in.",
     action: "workspace",
     icon: Folder,
+  },
+  board: {
+    // The board pane draws its own empty states, which know whether the gap is
+    // a missing project or an empty column.
+    title: "Nothing on the board",
+    detail: "Add a workspace to plan work in it.",
+    action: "workspace",
+    icon: SquareKanban,
   },
   prs: {
     title: "No pull requests",
@@ -152,6 +165,8 @@ export function App() {
   const error = useStore((s) => s.error);
   const start = useStore((s) => s.start);
   const loadSettings = useStore((s) => s.loadSettings);
+  const tickets = useStore((s) => s.tickets);
+  const loadBoard = useStore((s) => s.loadBoard);
   const release = useRelease();
 
   // Opens the connection and holds it for the life of the app.
@@ -170,6 +185,15 @@ export function App() {
       // A machine that cannot answer already shows as offline.
     });
   }, [anyServerOnline, loadSettings]);
+
+  // A ticket opened straight from its URL has no board behind it yet, so the
+  // pane reads one rather than showing "no such ticket" on every reload.
+  useEffect(() => {
+    if (route.name !== "ticket" || !anyServerOnline) return;
+    void loadBoard().catch(() => {
+      // An unreachable machine already shows as offline.
+    });
+  }, [route.name, anyServerOnline, loadBoard]);
 
   // Every device at once: that a thread runs somewhere else is what the row's
   // device mark says, not something to filter the list down to.
@@ -207,6 +231,8 @@ export function App() {
   const working = scoped.filter((chat) => chat.state === "working").length;
   const anyOnline = servers.some((s) => s.online);
   const openWorkspace = allWorkspaces.find((workspace) => workspace.id === workspaceSettingsId) ?? null;
+  // Tickets are addressed by key, which is what someone pastes into a message.
+  const openTicket = route.name === "ticket" ? tickets.find((ticket) => ticket.key === route.key) : undefined;
   // Chats live in the sidebar, so the main pane is either the chat you opened or
   // the composer for the next one. There is no list of them here.
   const canCompose = !loading && !error && servers.length > 0;
@@ -289,12 +315,34 @@ export function App() {
 
         {view === "settings" ? (
           <SettingsPane tab={settingsTab} release={release} />
+        ) : route.name === "board" ? (
+          <Board
+            projectId={route.projectId}
+            onOpenTicket={(key) => go({ name: "ticket", key })}
+            onAddWorkspace={() => setAddWorkspaceOpen(true)}
+          />
+        ) : route.name === "ticket" ? (
+          openTicket ? (
+            <TicketView
+              key={openTicket.id}
+              ticket={openTicket}
+              onBack={() => go({ name: "board", projectId: openTicket.projectId })}
+              onOpenThread={openChat}
+            />
+          ) : (
+            <MissingTicket ticketKey={route.key} onBack={() => go({ name: "board" })} />
+          )
         ) : openWorkspace ? (
           <WorkspaceSettings workspace={openWorkspace} onBack={() => go({ name: "workspaces" })} />
         ) : (
           <main className="flex min-w-0 flex-1 flex-col">
             {section === "chats" && active ? (
-              <ChatView key={active.id} chat={active} headerEnd={<NewChatButton onClick={draftChat} />} />
+              <ChatView
+                key={active.id}
+                chat={active}
+                onOpenTicket={(key) => go({ name: "ticket", key })}
+                headerEnd={<NewChatButton onClick={draftChat} />}
+              />
             ) : section === "chats" && canCompose ? (
               <ChatComposer
                 workspaces={workspaces}

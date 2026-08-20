@@ -1,4 +1,4 @@
-import { Archive, Boxes, Check, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Archive, Bot, Boxes, Check, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -77,11 +77,12 @@ import {
   setNotificationsEnabled,
   type NotifyPermission,
 } from "@/lib/notify";
+import { AgentsPane } from "@/components/AgentSettings";
 import { useStore } from "@/state/store";
 import type { Server, ToolStatus } from "@/state/types";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-export type SettingsTab = "general" | "version-control" | "providers" | "devices" | "archive";
+export type SettingsTab = "general" | "version-control" | "providers" | "agents" | "devices" | "archive";
 
 export const SETTINGS_SECTIONS: {
   id: SettingsTab;
@@ -91,6 +92,7 @@ export const SETTINGS_SECTIONS: {
   { id: "general", label: "General", icon: Monitor },
   { id: "version-control", label: "Version control", icon: GitBranch },
   { id: "providers", label: "Providers", icon: Boxes },
+  { id: "agents", label: "Agents", icon: Bot },
   { id: "devices", label: "Devices", icon: Laptop },
   { id: "archive", label: "Archived threads", icon: Archive },
 ];
@@ -126,6 +128,8 @@ export function SettingsPane({
             <VersionControlPane />
           ) : tab === "providers" ? (
             <ProvidersPane />
+          ) : tab === "agents" ? (
+            <AgentsSettings />
           ) : (
             <GeneralPane release={release} />
           )}
@@ -814,6 +818,22 @@ function when(at: number): string {
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric" });
+}
+
+/// The roster lives in its own module; this only hands it the machine setting
+/// that decides what a new agent signs with.
+function AgentsSettings() {
+  const { settings, online, save } = useServerSettings();
+  if (!online) return <Unreachable />;
+  if (!settings) return <p className="text-sm shimmer text-muted-foreground">Reading this machine's agents…</p>;
+  return (
+    <AgentsPane
+      defaultGitIdentity={settings.defaultGitIdentity ?? "author"}
+      onSaveDefaultIdentity={(value) =>
+        void save({ defaultGitIdentity: value as "off" | "author" | "full" }, "what agents sign with")
+      }
+    />
+  );
 }
 
 function ProvidersPane() {

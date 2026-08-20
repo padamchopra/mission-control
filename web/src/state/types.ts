@@ -170,6 +170,8 @@ export interface ServerSettings {
   worktreeBranchPrefix: string;
   /// Your face: empty for the default, `preset:<id>`, or a `data:` URL.
   avatar: string;
+  /// What a new agent's commits are signed with unless you say otherwise.
+  defaultGitIdentity: "off" | "author" | "full";
 }
 
 /// What one repository did the last time Remy refreshed them.
@@ -198,4 +200,93 @@ export interface Tooling {
   git: ToolStatus;
   gh: ToolStatus;
   claude: ToolStatus;
+}
+
+/// A named persona a thread can run as. Mirrors `Agent` in `server/src/agents.ts`.
+export interface Agent {
+  id: string;
+  serverId: string;
+  name: string;
+  handle: string;
+  role?: string;
+  instructions: string;
+  provider: string;
+  model?: string;
+  permissionMode: string;
+  tint?: string;
+  autoStart: boolean;
+  handoffTo: string[];
+  /// What this agent's commits are signed with: `off` keeps your own identity,
+  /// `author` credits the agent and leaves you as the committer, `full` is both.
+  gitIdentity: "off" | "author" | "full";
+  gitName?: string;
+  gitEmail?: string;
+  preset?: string;
+}
+
+/// A repository, as the board knows it — what a ticket belongs to, rather than
+/// the folder holding it on any one machine.
+export interface Project {
+  id: string;
+  serverId: string;
+  name: string;
+  keyPrefix: string;
+  origin?: string;
+  /// Workspaces on that machine which are this project. Empty means the repo is
+  /// not cloned there.
+  workspaceIds: string[];
+}
+
+export type TicketStatus =
+  | "backlog"
+  | "todo"
+  | "in_progress"
+  | "needs_input"
+  | "in_review"
+  | "done"
+  | "cancelled";
+
+export interface TicketThread {
+  ticketId: string;
+  deviceId: string;
+  chatId: string;
+  agentId?: string;
+  stage?: string;
+  /// `runner` when the board started it, `you` when you attached it by hand.
+  linkedBy: "runner" | "you";
+  createdAt: number;
+}
+
+export interface Ticket {
+  id: string;
+  serverId: string;
+  key: string;
+  projectId: string;
+  title: string;
+  body: string;
+  status: TicketStatus;
+  priority: number;
+  assigneeAgentId?: string;
+  parentId?: string;
+  rank: string;
+  /// The machine that runs this ticket's work.
+  deviceId?: string;
+  branch?: string;
+  handoffs: number;
+  createdAt: number;
+  updatedAt: number;
+  startedAt?: number;
+  closedAt?: number;
+  threads: TicketThread[];
+}
+
+/// One line of a ticket's story. The feed and the log the board syncs are the
+/// same record, so nothing here can drift from what actually happened.
+export interface TicketActivity {
+  id: string;
+  at: number;
+  actor: string;
+  kind: string;
+  body?: string;
+  detail?: Record<string, unknown>;
 }

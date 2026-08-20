@@ -10,6 +10,7 @@ export interface ChatRow {
   cwd: string;
   model?: string;
   permissionMode: ChatPermissionMode;
+  agentId?: string;
   createdAt: number;
   updatedAt: number;
   claudeSessionId?: string;
@@ -36,10 +37,11 @@ function writeChat(row: ChatRow): void {
   db.prepare(
     `insert into chats (
        id, title, cwd, model, permission_mode, created_at, updated_at,
-       claude_session_id, turns, cost_usd, context_json, todos_json, error
-     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       claude_session_id, turns, cost_usd, context_json, todos_json, error, agent_id
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      on conflict(id) do update set
        title = excluded.title,
+       agent_id = excluded.agent_id,
        cwd = excluded.cwd,
        model = excluded.model,
        permission_mode = excluded.permission_mode,
@@ -64,6 +66,7 @@ function writeChat(row: ChatRow): void {
     row.context ? JSON.stringify(row.context) : null,
     row.todos.length ? JSON.stringify(row.todos) : null,
     row.error ?? null,
+    row.agentId ?? null,
   );
 }
 
@@ -136,6 +139,7 @@ function toChatRow(row: Record<string, unknown>): ChatRow {
     cwd: String(row.cwd),
     ...(row.model ? { model: String(row.model) } : {}),
     permissionMode: String(row.permission_mode) as ChatPermissionMode,
+    ...(row.agent_id ? { agentId: String(row.agent_id) } : {}),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     ...(row.claude_session_id ? { claudeSessionId: String(row.claude_session_id) } : {}),
