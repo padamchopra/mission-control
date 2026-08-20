@@ -9,6 +9,7 @@ import type {
   ChatDetail,
   ChatQuestionRequest,
   ChatState,
+  ContextUsage,
   ConvEntry,
   ConvTodo,
   GitBranch,
@@ -626,6 +627,7 @@ interface ChatFrame {
   title?: string;
   live?: boolean;
   error?: string | null;
+  context?: ContextUsage | null;
   updatedAt?: number;
   workingSince?: number | null;
 }
@@ -639,6 +641,7 @@ interface RawChatDetail extends RawChat {
   action?: string | null;
   live?: boolean;
   error?: string | null;
+  context?: ContextUsage | null;
 }
 
 function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
@@ -657,6 +660,7 @@ function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
     question: raw.question ?? undefined,
     live: raw.live,
     error: raw.error ?? undefined,
+    context: raw.context ?? undefined,
   };
 }
 
@@ -709,6 +713,7 @@ function mergeDetail(detail: ChatDetail, frame: ChatFrame): ChatDetail {
     title: frame.title ?? detail.title,
     live: frame.live ?? detail.live,
     error: frame.error === undefined ? detail.error : frame.error ?? undefined,
+    context: frame.context === undefined ? detail.context : frame.context ?? undefined,
   };
 }
 

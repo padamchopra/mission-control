@@ -307,9 +307,14 @@ function ThreadRow({
       className="h-auto flex-col items-stretch gap-1 py-2"
       onClick={onSelect}
     >
+      {/* Project first, as an eyebrow, so you place the thread before you read it. */}
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-normal leading-none text-muted-foreground">
+        <WorkspaceMark home={!workspace} workspace={workspace} server={server} size="sm" />
+        <span className="min-w-0 truncate">{place}</span>
+      </span>
+
       <span className="flex min-w-0 items-center gap-1.5">
         <StateDot state={chat.state} className="mt-0" />
-        <WorkspaceMark home={!workspace} workspace={workspace} server={server} size="sm" />
         <span className="min-w-0 flex-1 truncate">{chat.title}</span>
       </span>
 
@@ -317,10 +322,8 @@ function ThreadRow({
         <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{plainText(chat.preview)}</span>
       )}
 
-      {/* The place is what you read; the marks are what you glance at, so they
-          hold the right edge rather than crowding the name. */}
-      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">{place}</span>
+      {/* Marks stay on the right edge so they don't compete with the title. */}
+      <span className="flex min-w-0 items-center justify-end gap-1.5 text-[11px] font-normal text-muted-foreground">
         {elapsed && (
           <span className="flex shrink-0 items-center gap-1 tabular-nums">
             <Clock className="size-3" />
