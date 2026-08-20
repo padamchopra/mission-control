@@ -185,6 +185,8 @@ export interface ServerSettings {
   avatar: string;
   /// What a new agent's commits are signed with unless you say otherwise.
   defaultGitIdentity: "off" | "author" | "full";
+  /// What a new agent thinks with unless you say otherwise.
+  defaultProvider: string;
 }
 
 /// What one repository did the last time Remy refreshed them.
@@ -300,11 +302,20 @@ export interface Ticket {
 
 /// One line of a ticket's story. The feed and the log the board syncs are the
 /// same record, so nothing here can drift from what actually happened.
+/// Who a comment named: the handle as it was typed, and who that turned out to
+/// be. Rendering reads the id, so renaming an agent renames every mention of it
+/// ever written.
+export interface TicketMention {
+  id: string;
+  handle: string;
+}
+
 export interface TicketActivity {
   id: string;
   at: number;
   actor: string;
   kind: string;
   body?: string;
+  mentions?: TicketMention[];
   detail?: Record<string, unknown>;
 }

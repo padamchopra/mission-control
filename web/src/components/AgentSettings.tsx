@@ -53,8 +53,16 @@ import type { Agent } from "@/state/types";
 /// switches save on change; text saves when you leave the field, because saving
 /// a paragraph on every keystroke is a write per character.
 
+/// Threads run on the Claude Agent SDK, so Codex is a value the board can hold
+/// and not yet one an agent can think with. Listed and disabled rather than
+/// hidden: the field is where you would look for it, and it says why.
+const PROVIDERS = [
+  { value: "claude", label: "Claude", ready: true },
+  { value: "codex", label: "Codex", ready: false },
+];
+
 const MODELS = [
-  { value: "default", label: "Default" },
+  { value: "default", label: "Remy's default" },
   { value: "opus", label: "Opus" },
   { value: "sonnet", label: "Sonnet" },
   { value: "haiku", label: "Haiku" },
@@ -77,13 +85,17 @@ export function AgentsPane({
   selected,
   onSelect,
   defaultGitIdentity,
+  defaultProvider,
   onSaveDefaultIdentity,
+  onSaveDefaultProvider,
 }: {
   /// The handle in the URL, if one is there.
   selected?: string;
   onSelect: (handle?: string) => void;
   defaultGitIdentity: string;
+  defaultProvider: string;
   onSaveDefaultIdentity: (value: string) => void;
+  onSaveDefaultProvider: (value: string) => void;
 }) {
   const agents = useStore((s) => s.agents);
   const loadBoard = useStore((s) => s.loadBoard);
@@ -119,6 +131,7 @@ export function AgentsPane({
       const made = await saveAgent(undefined, {
         name: "New agent",
         gitIdentity: defaultGitIdentity,
+        provider: defaultProvider,
       });
       onSelect(made.handle);
     } catch (error) {
@@ -207,6 +220,32 @@ export function AgentsPane({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex w-full max-w-2xl flex-col gap-6 px-6 py-6">
+          <Field orientation="horizontal" className="items-center">
+            <FieldContent>
+              <FieldLabel htmlFor="default-provider">Provider for new agents</FieldLabel>
+              <FieldDescription className="text-xs">
+                What an agent thinks with unless it says otherwise.
+              </FieldDescription>
+            </FieldContent>
+            <Select value={defaultProvider} onValueChange={onSaveDefaultProvider}>
+              <SelectTrigger id="default-provider" size="sm" className="w-56 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectGroup>
+                  {PROVIDERS.map((option) => (
+                    <SelectItem key={option.value} value={option.value} disabled={!option.ready}>
+                      {option.label}
+                      {!option.ready && (
+                        <span className="ml-auto text-[11px] text-muted-foreground">Not yet</span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+
           <Field orientation="horizontal" className="items-center">
             <FieldContent>
               <FieldLabel htmlFor="default-git-identity">Git identity for new agents</FieldLabel>
@@ -393,6 +432,29 @@ function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void
       <Separator />
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <Field>
+          <FieldLabel htmlFor="agent-provider">Provider</FieldLabel>
+          <Select
+            value={agent.provider || "claude"}
+            onValueChange={(next) => void save({ provider: next }, "the provider")}
+          >
+            <SelectTrigger id="agent-provider" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {PROVIDERS.map((option) => (
+                  <SelectItem key={option.value} value={option.value} disabled={!option.ready}>
+                    {option.label}
+                    {!option.ready && (
+                      <span className="ml-auto text-[11px] text-muted-foreground">Not yet</span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
         <Field>
           <FieldLabel htmlFor="agent-model">Model</FieldLabel>
           <Select

@@ -180,7 +180,7 @@ export function permissionMode(value: unknown, fallback: ChatPermissionMode = "d
 /// launchd hands the server a stripped PATH. Claude's own Bash tool inherits it,
 /// so without this a chat would fail on `git`, `gh`, or `node` while the same
 /// command works in a tmux session started from a login shell.
-function agentEnvironment(agent?: Agent): NodeJS.ProcessEnv {
+export function agentEnvironment(agent?: Agent): NodeJS.ProcessEnv {
   const extra = ["/opt/homebrew/bin", "/usr/local/bin", join(homedir(), ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
   const current = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const merged = [...new Set([...current, ...extra])].join(delimiter);

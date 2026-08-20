@@ -79,6 +79,8 @@ export interface TicketActivity {
   actor: string;
   kind: string;
   body?: string;
+  /// Who the comment named, if anyone. See `Mention`.
+  mentions?: Mention[];
   detail?: Record<string, unknown>;
 }
 
@@ -352,6 +354,32 @@ const ACTIVITY_KINDS = new Set(["create", "status", "comment", "handoff", "link"
 
 /// The ticket's story, newest last. This is the log itself — there is no second
 /// record that could drift from it.
+/// Who a comment named.
+///
+/// Stored as a pair rather than as either half alone: the handle is the text
+/// that is actually in the prose, so the renderer knows what to mark, and the
+/// id is who that was, so renaming an agent renames every mention of it that
+/// was ever written.
+export interface Mention {
+  id: string;
+  handle: string;
+}
+
+/// A leading `@` that starts a word. An email address has a character before
+/// the `@`, so it is left alone, and an unknown name stays plain text.
+const MENTION = /(?:^|[^\w@.])@([\w-]+)/g;
+
+export function parseMentions(body: string): Mention[] {
+  const known = new Map<string, string>([[YOU, YOU]]);
+  for (const agent of listAgents()) known.set(agent.handle, agent.id);
+  const found = new Map<string, string>();
+  for (const match of body.matchAll(MENTION)) {
+    const id = known.get(match[1]);
+    if (id) found.set(match[1], id);
+  }
+  return [...found].map(([handle, id]) => ({ handle, id }));
+}
+
 export function ticketActivity(id: string): TicketActivity[] {
   return eventsFor("ticket", id)
     .filter((event) => ACTIVITY_KINDS.has(event.kind))
@@ -363,6 +391,9 @@ export function ticketActivity(id: string): TicketActivity[] {
       actor: String(event.payload.actor ?? "you"),
       kind: event.kind,
       ...(event.payload.body ? { body: String(event.payload.body) } : {}),
+      ...(Array.isArray(event.payload.mentions)
+        ? { mentions: event.payload.mentions as Mention[] }
+        : {}),
       detail: event.payload,
     }));
 }
@@ -484,7 +515,7 @@ export function commentOnTicket(id: string, body: string, actor = "you"): Ticket
   if (!getTicket(id)) throw new Error("no such ticket");
   const text_ = body.trim().slice(0, 10000);
   if (!text_) throw new Error("a comment needs something in it");
-  append("ticket", id, "comment", { body: text_, actor });
+  append("ticket", id, "comment", { body: text_, actor, mentions: parseMentions(text_) });
   return getTicketOrThrow(id);
 }
 

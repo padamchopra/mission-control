@@ -329,3 +329,33 @@ test("a ticket can be yours as well as an agent's", () => {
   const cleared = tickets.updateTicket(ticket.id, { assigneeAgentId: "" });
   assert.equal(cleared.assigneeAgentId, undefined, "clearing leaves nobody on it");
 });
+
+test("a comment records who it named, so renaming an agent renames the mention", () => {
+  const board = project("Talkers");
+  const ticket = tickets.createTicket({ projectId: board.id, title: "Scope me" });
+  const pm = agents.createAgent({ name: "Product", handle: "pm" });
+
+  tickets.commentOnTicket(ticket.id, "@pm what is the scope here? @you should weigh in. team@example.com");
+  const comment = tickets.ticketActivity(ticket.id).at(-1);
+  assert.ok(comment, "the comment should be on the feed");
+  assert.deepEqual(
+    comment.mentions,
+    [{ handle: "pm", id: pm.id }, { handle: "you", id: "you" }],
+    "an email address is not a mention, and an unknown name is not either",
+  );
+
+  // The prose still says `@pm`, and the id still says who that was — which is
+  // the whole point of storing the pair.
+  agents.updateAgent(pm.id, { handle: "product" });
+  const after = tickets.ticketActivity(ticket.id).at(-1)?.mentions?.[0];
+  assert.equal(after?.handle, "pm", "the prose still says what was typed");
+  assert.equal(agents.getAgent(after!.id)?.handle, "product", "and the id says who that is now");
+});
+
+test("an unknown name in a comment stays plain text", () => {
+  const board = project("Quiet");
+  const ticket = tickets.createTicket({ projectId: board.id, title: "Nobody home" });
+  tickets.commentOnTicket(ticket.id, "@nosuchagent are you there?");
+  const comment = tickets.ticketActivity(ticket.id).at(-1);
+  assert.deepEqual(comment?.mentions, [], "nothing was named, so nothing is recorded");
+});

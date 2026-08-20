@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { append, applyFields, entityIds, eventsFor } from "./board-log.js";
 import type { ChatPermissionMode } from "./chat.js";
+import { config } from "./config.js";
 import { db, runTransaction } from "./db.js";
 
 // An agent is a thread with a character on the front: the same Claude, the same
@@ -306,11 +307,13 @@ export function createAgent(input: Record<string, unknown>): Agent {
   const handle = String(patch.handle);
   const created = {
     instructions: "",
-    provider: "claude",
+    // What a new agent starts on comes from settings, so the API and the pane
+    // agree on the answer rather than each carrying its own literal.
+    provider: config.defaultProvider,
     permissionMode: "default",
     autoStart: true,
     handoffTo: [],
-    gitIdentity: "author",
+    gitIdentity: config.defaultGitIdentity,
     gitName: patch.name,
     gitEmail: defaultGitEmail(handle),
     ...patch,

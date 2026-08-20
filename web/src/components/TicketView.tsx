@@ -65,6 +65,7 @@ import {
   DERIVED_STATUSES,
   STATUS_LABEL,
   TICKET_STATUSES,
+  YOU,
   byRank,
   deviceForTicket,
   people,
@@ -119,17 +120,6 @@ export function TicketView({
   const project = projects.find((entry) => entry.id === ticket.projectId);
   const workspace = project ? localWorkspace(project, workspaces) : undefined;
   const device = deviceForTicket(ticket, boardDevices, servers);
-  // A name in a comment is a person, so it wears their name and — for an agent,
-  // which has a pane of its own — opens them.
-  const mentions = useMemo<Mention[]>(
-    () =>
-      people(agents).map((person) => ({
-        handle: person.handle,
-        label: person.name,
-        ...(person.agent ? { onOpen: () => onOpenAgent(person.agent!.handle) } : {}),
-      })),
-    [agents, onOpenAgent],
-  );
   const parent = ticket.parentId ? tickets.find((entry) => entry.id === ticket.parentId) : undefined;
   const children = useMemo(
     () => tickets.filter((entry) => entry.parentId === ticket.id).sort(byRank),
@@ -383,7 +373,7 @@ export function TicketView({
 
             <section className="flex flex-col gap-3">
               <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Activity</h2>
-              <ActivityFeed activity={activity} mentions={mentions} />
+              <ActivityFeed activity={activity} agents={agents} onOpenAgent={onOpenAgent} />
               <CommentBox
                 agents={agents}
                 onSend={async (body) => {
@@ -569,10 +559,12 @@ function Property({
 
 function ActivityFeed({
   activity,
-  mentions,
+  agents,
+  onOpenAgent,
 }: {
   activity: TicketActivity[];
-  mentions: Mention[];
+  agents: Agent[];
+  onOpenAgent: (handle: string) => void;
 }) {
   if (activity.length === 0) {
     return <p className="text-sm text-muted-foreground">Nothing has happened yet.</p>;
@@ -584,12 +576,12 @@ function ActivityFeed({
           <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="text-muted-foreground">
-              <span className="text-foreground">{actorName(entry.actor)}</span> {describe(entry)}
+              <span className="text-foreground">{actorName(entry.actor, agents)}</span> {describe(entry)}
               <span className="ml-2 text-[11px]">{when(entry.at)}</span>
             </span>
             {entry.kind === "comment" && entry.body && (
               <div className="rounded-lg border border-border bg-card px-3 py-2">
-                <Markdown text={entry.body} mentions={mentions} />
+                <Markdown text={entry.body} mentions={named(entry, agents, onOpenAgent)} />
               </div>
             )}
           </div>
@@ -599,10 +591,26 @@ function ActivityFeed({
   );
 }
 
-function actorName(actor: string): string {
+/// What the entry's `@` tokens should render as now.
+///
+/// The stored handle says what text is in the prose; the stored id says who
+/// that was. So an agent renamed after the fact still renders under its
+/// current name, and a mention of somebody since deleted quietly stays plain
+/// text rather than pointing at nothing.
+function named(entry: TicketActivity, agents: Agent[], onOpenAgent: (handle: string) => void): Mention[] {
+  return (entry.mentions ?? []).flatMap((mention) => {
+    if (mention.id === YOU) return [{ handle: mention.handle, label: "You" }];
+    const agent = agents.find((candidate) => candidate.id === mention.id);
+    return agent
+      ? [{ handle: mention.handle, label: agent.name, onOpen: () => onOpenAgent(agent.handle) }]
+      : [];
+  });
+}
+
+function actorName(actor: string, agents: Agent[]): string {
   if (actor === "you") return "You";
   if (actor === "remy") return "Remy";
-  return actor;
+  return agents.find((agent) => agent.id === actor)?.name ?? actor;
 }
 
 function describe(entry: TicketActivity): string {

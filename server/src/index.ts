@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
+import { answerMentions } from "./mentions.js";
 import { config, patchSettings, publicSettings } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { createAgent, deleteAgent, getAgent, listAgents, seedPresetAgents, updateAgent } from "./agents.js";
@@ -469,6 +470,11 @@ const server = createServer(async (req, res) => {
         try {
           const ticket = commentOnTicket(id, String(body.body ?? ""));
           broadcast({ type: "board" });
+          // Naming an agent asks it a question. The turn runs on its own and
+          // posts its reply as another comment, so the request does not wait
+          // on a model to think.
+          const said = ticketActivity(id).at(-1);
+          if (said?.mentions?.length) answerMentions(id, said.mentions, said.body ?? "", said.actor);
           return json(res, 200, { ticket });
         } catch (error) {
           const message = (error as Error).message || "could not add that comment";

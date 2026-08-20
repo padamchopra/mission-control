@@ -973,6 +973,8 @@ function AgentsSettings({ item, onSelectItem }: { item?: string; onSelectItem: (
       selected={item}
       onSelect={onSelectItem}
       defaultGitIdentity={settings.defaultGitIdentity ?? "author"}
+      defaultProvider={settings.defaultProvider ?? "claude"}
+      onSaveDefaultProvider={(value) => void save({ defaultProvider: value }, "what agents think with")}
       onSaveDefaultIdentity={(value) =>
         void save({ defaultGitIdentity: value as "off" | "author" | "full" }, "what agents sign with")
       }
