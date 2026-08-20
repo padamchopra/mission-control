@@ -40,6 +40,7 @@ import { ChatView } from "@/components/ChatView";
 import { PaneHeader } from "@/components/PaneHeader";
 import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
+import { PairRequestDialog } from "@/components/PairRequest";
 import { Board } from "@/components/Board";
 import { MissingTicket, TicketView } from "@/components/TicketView";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
@@ -542,6 +543,8 @@ export function App() {
       </SidebarProvider>
 
       <AddWorkspaceDialog open={addWorkspaceOpen} onOpenChange={setAddWorkspaceOpen} />
+      {/* Wherever you are: another machine is waiting on your answer. */}
+      <PairRequestDialog />
       <Palette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}

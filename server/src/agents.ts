@@ -32,6 +32,8 @@ export interface Agent {
   handoffTo: string[];
   gitIdentity: GitIdentityMode;
   gitName?: string;
+  /// Read-only: `agentGitEmail` derives this from the handle and the GitHub
+  /// account, so nothing sets it and no client can send it.
   gitEmail?: string;
   /// The preset this was seeded from, so seeding runs once and never again.
   preset?: string;
@@ -63,7 +65,6 @@ const EDITABLE = [
   "handoffTo",
   "gitIdentity",
   "gitName",
-  "gitEmail",
 ] as const;
 
 /// A handle lives in a tool call and a commit trailer, so it is held to
@@ -80,11 +81,16 @@ export function agentHandle(value: unknown): string | undefined {
   return cleaned || undefined;
 }
 
-/// The address an agent's commits are signed with. `.invalid` is reserved by
-/// RFC 2606 and can never reach a mailbox, so a forge will not quietly map an
-/// agent onto somebody's account.
-export function defaultGitEmail(handle: string): string {
-  return `${handle}@remy.invalid`;
+/// The address on an agent's commits: its handle at whoever's machine it ran
+/// on, so `git log` reads `planner@padamchopra.invalid` and says both which
+/// agent wrote the commit and whose account stood behind it.
+///
+/// Derived rather than stored, so it follows a renamed handle and fills itself
+/// in the moment `gh` can say who you are. `.invalid` is reserved by RFC 2606
+/// and can never reach a mailbox or resolve, so no forge quietly maps an agent
+/// onto somebody's real account — attribution, never an identity claim.
+export function agentGitEmail(handle: string): string {
+  return `${handle}@${config.githubLogin || "remy"}.invalid`;
 }
 
 function oneOf<T extends string>(allowed: readonly T[], value: unknown, fallback: T): T {
@@ -129,7 +135,9 @@ function fold(id: string): Agent | undefined {
     if (!agent || event.kind !== "field") continue;
     agent = { ...applyFields(agent, event.payload, EDITABLE), updatedAt: event.at };
   }
-  return agent;
+  // Derived last, from the handle the fold settled on, so a renamed handle
+  // takes its address with it.
+  return agent && { ...agent, gitEmail: agentGitEmail(agent.handle) };
 }
 
 function write(agent: Agent): void {
@@ -210,7 +218,9 @@ function toAgent(row: Record<string, unknown>): Agent {
     handoffTo,
     gitIdentity: oneOf(GIT_IDENTITIES, row.git_identity, "author"),
     ...(row.git_name ? { gitName: String(row.git_name) } : {}),
-    ...(row.git_email ? { gitEmail: String(row.git_email) } : {}),
+    // Derived rather than read back, so an address stored before you signed in
+    // to `gh` does not outlive the fact.
+    gitEmail: agentGitEmail(String(row.handle)),
     ...(row.preset ? { preset: String(row.preset) } : {}),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -290,13 +300,8 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
     patch.gitIdentity = oneOf(GIT_IDENTITIES, input.gitIdentity, existing?.gitIdentity ?? "author");
   }
   if (input.gitName !== undefined) patch.gitName = text(input.gitName, 60) ?? "";
-  if (input.gitEmail !== undefined) {
-    const email = text(input.gitEmail, 120);
-    // Anything that is not an address would make every commit from this agent
-    // fail at the point of committing, which is a long way from here.
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("that is not an email address");
-    patch.gitEmail = email ?? "";
-  }
+  // `gitEmail` is deliberately not settable: it is derived from the handle and
+  // the GitHub account, so there is nothing here for a client to disagree with.
   return patch;
 }
 
@@ -315,7 +320,6 @@ export function createAgent(input: Record<string, unknown>): Agent {
     handoffTo: [],
     gitIdentity: config.defaultGitIdentity,
     gitName: patch.name,
-    gitEmail: defaultGitEmail(handle),
     ...patch,
     ...(input.preset ? { preset: String(input.preset) } : {}),
   };
@@ -357,7 +361,7 @@ export function deleteAgent(id: string): void {
 export function gitIdentityEnv(agent: Agent | undefined): NodeJS.ProcessEnv {
   if (!agent || agent.gitIdentity === "off") return {};
   const name = agent.gitName?.trim() || agent.name;
-  const email = agent.gitEmail?.trim() || defaultGitEmail(agent.handle);
+  const email = agentGitEmail(agent.handle);
   return {
     GIT_AUTHOR_NAME: name,
     GIT_AUTHOR_EMAIL: email,
@@ -468,7 +472,7 @@ export function seedPresetAgents(): void {
   for (const preset of PRESETS) {
     if (seen.has(preset.preset)) continue;
     try {
-      createAgent({ ...preset, gitName: preset.name, gitEmail: defaultGitEmail(preset.handle) });
+      createAgent({ ...preset, gitName: preset.name });
     } catch (error) {
       console.error(`could not seed the ${preset.name} agent:`, error);
     }

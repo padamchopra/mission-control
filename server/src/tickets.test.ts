@@ -11,6 +11,7 @@ const stateDir = mkdtempSync(join(tmpdir(), "mc-tickets-"));
 process.env.MC_CONFIG_DIR = stateDir;
 
 const { db } = await import("./db.js");
+const config = await import("./config.js");
 const log = await import("./board-log.js");
 const projects = await import("./projects.js");
 const tickets = await import("./tickets.js");
@@ -274,7 +275,7 @@ test("git identity modes decide which variables a thread gets", () => {
   const author = agents.createAgent({ name: "Writer", gitIdentity: "author" });
   const authorEnv = agents.gitIdentityEnv(author);
   assert.equal(authorEnv.GIT_AUTHOR_NAME, "Writer");
-  assert.equal(authorEnv.GIT_AUTHOR_EMAIL, "writer@remy.invalid");
+  assert.equal(authorEnv.GIT_AUTHOR_EMAIL, "writer@remy.invalid", "no GitHub login here, so Remy names itself");
   // Author-only deliberately leaves the human as committer.
   assert.equal(authorEnv.GIT_COMMITTER_NAME, undefined);
 
@@ -286,11 +287,45 @@ test("git identity modes decide which variables a thread gets", () => {
   assert.deepEqual(agents.gitIdentityEnv(undefined), {}, "a thread with no agent keeps your identity");
 });
 
-test("an agent email has to be an address", () => {
-  const agent = agents.createAgent({ name: "Picky" });
-  assert.throws(() => agents.updateAgent(agent.id, { gitEmail: "not an address" }), /email address/);
-  const ok = agents.updateAgent(agent.id, { gitEmail: "picky@example.com" });
-  assert.equal(ok.gitEmail, "picky@example.com");
+test("an agent's commit address is derived, not set", () => {
+  const agent = agents.createAgent({ name: "Picky", handle: "picky" });
+  assert.equal(agent.gitEmail, "picky@remy.invalid");
+
+  // Nothing a client sends can move it, so no commit can claim a real mailbox.
+  const ignored = agents.updateAgent(agent.id, { gitEmail: "picky@example.com" });
+  assert.equal(ignored.gitEmail, "picky@remy.invalid");
+  assert.equal(agents.gitIdentityEnv(ignored).GIT_AUTHOR_EMAIL, "picky@remy.invalid");
+});
+
+test("the commit address follows a renamed handle", () => {
+  const agent = agents.createAgent({ name: "Drifter", handle: "before" });
+  assert.equal(agent.gitEmail, "before@remy.invalid");
+
+  const renamed = agents.updateAgent(agent.id, { handle: "after" });
+  assert.equal(renamed.gitEmail, "after@remy.invalid", "derived, so it cannot go stale");
+  assert.equal(agents.gitIdentityEnv(renamed).GIT_AUTHOR_EMAIL, "after@remy.invalid");
+});
+
+test("the commit address carries whoever the machine is signed in as", () => {
+  const agent = agents.createAgent({ name: "Owned", handle: "planner" });
+  config.config.githubLogin = "padamchopra";
+  try {
+    assert.equal(agents.reproject(agent.id)?.gitEmail, "planner@padamchopra.invalid");
+    assert.equal(
+      agents.gitIdentityEnv(agents.getAgent(agent.id)).GIT_AUTHOR_EMAIL,
+      "planner@padamchopra.invalid",
+    );
+  } finally {
+    config.config.githubLogin = "";
+  }
+});
+
+test("a login that is not one is dropped rather than passed into an address", () => {
+  assert.equal(config.githubAccount("padamchopra"), "padamchopra");
+  assert.equal(config.githubAccount("has space"), "");
+  assert.equal(config.githubAccount("bad@login"), "");
+  assert.equal(config.githubAccount("-leading"), "");
+  assert.equal(config.githubAccount(undefined), "");
 });
 
 test("the built-in agents seed once and stay editable", () => {

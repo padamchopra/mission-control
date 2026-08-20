@@ -15,6 +15,7 @@ import type {
   ConvTodo,
   GitBranch,
   GitWorktree,
+  PairRequest,
   PathSuggestion,
   Project,
   Server,
@@ -132,6 +133,9 @@ interface State {
   /// The board. Read on demand by the pane that shows it rather than on every
   /// poll — a board nobody is looking at costs nothing.
   loadBoard(): Promise<void>;
+  /// Machines asking to pair with this one, waiting on you.
+  pairRequests: PairRequest[];
+  loadPairRequests(): Promise<void>;
   createTicket(input: {
     projectId: string;
     title: string;
@@ -166,6 +170,7 @@ export const useStore = create<State>((set, get) => ({
   agents: [],
   projects: [],
   tickets: [],
+  pairRequests: [],
   boardDevices: [],
   boardLoading: false,
   detailLoading: false,
@@ -175,7 +180,13 @@ export const useStore = create<State>((set, get) => ({
   start() {
     if (useFixture) return () => {};
 
-    void get().refresh();
+    // Servers first, then anything keyed to them. A machine that asked to pair
+    // while this window was closed is standing there waiting for an answer, so
+    // its prompt cannot wait for the first poll fifteen seconds from now.
+    void get()
+      .refresh()
+      .then(() => get().loadPairRequests())
+      .catch(() => {});
 
     const offPush = transport.subscribe((_serverId, payload) => {
       const frame = payload as ChatFrame;
@@ -184,9 +195,21 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
       // A board frame says a ticket, agent or project changed — on this machine
-      // or, once peers land, on one of the others.
+      // or on one of the machines paired with it.
       if (frame.type === "board") {
         void get().loadBoard();
+        return;
+      }
+      // A machine was paired or unpaired. Every window onto this daemon shows
+      // the same list, so none of them should wait for its next poll to agree.
+      if (frame.type === "peers") {
+        void get().refresh();
+        return;
+      }
+      // A machine is asking to pair. Somebody is standing at it waiting for an
+      // answer, so this is the one frame that must not wait for a poll.
+      if (frame.type === "pair-requests") {
+        void get().loadPairRequests();
         return;
       }
       // A turn streams as `chat` frames: the entries that changed, plus the
@@ -213,6 +236,9 @@ export const useStore = create<State>((set, get) => ({
     const poll = async () => {
       if (stopped) return;
       await get().refresh();
+      // A request arriving while the notify socket was down would otherwise sit
+      // unanswered until the socket came back.
+      await get().loadPairRequests().catch(() => {});
       if (stopped) return;
       timer = setTimeout(
         () => void poll(),
@@ -634,6 +660,21 @@ export const useStore = create<State>((set, get) => ({
   // Every machine answers with its own whole board. Once daemons replicate to
   // each other those answers are the same board, and merging by id here is what
   // keeps that from showing up twice.
+
+  /// Only ever asked of the daemon on this machine: a request to pair with
+  /// another machine is that machine's business to answer, not ours.
+  async loadPairRequests() {
+    if (useFixture) return;
+    const home = get().servers.find((server) => server.local) ?? get().servers[0];
+    if (!home) return;
+    try {
+      const answer = await transport.request<{ requests?: PairRequest[] }>(home.id, "/pair/pending");
+      set({ pairRequests: answer.requests ?? [] });
+    } catch {
+      // A daemon from before pairing landed has none, which is the same as none.
+      set({ pairRequests: [] });
+    }
+  },
 
   async loadBoard() {
     if (useFixture) return;

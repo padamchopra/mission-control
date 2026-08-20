@@ -1,5 +1,6 @@
 import type { WebSocket } from "ws";
 import { config } from "./config.js";
+import { forwardNotification } from "./peers.js";
 import type { RegistryEntry } from "./registry.js";
 
 export interface NotifyEvent {
@@ -10,6 +11,9 @@ export interface NotifyEvent {
   /// Where tapping the push should land. Defaults to the session deep link;
   /// chats set their own, since they have no tmux session behind them.
   click?: string;
+  /// The machine the thread is running on, when that is not this one. A banner
+  /// on your laptop about a thread on the studio has to say which machine.
+  device?: string;
 }
 
 const THROTTLE_MS = 5 * 60_000;
@@ -107,6 +111,25 @@ export async function sendNotification(evt: NotifyEvent): Promise<void> {
   if (now - (lastSent.get(throttleKey) ?? 0) < THROTTLE_MS) return;
   lastSent.set(throttleKey, now);
 
+  // Two independent destinations, and one notification can have both: this
+  // machine, if it still wants to be told about its own work, and whichever
+  // paired machines asked to be told about it.
+  await Promise.all([
+    config.notifySelf ? deliverHere(evt) : Promise.resolve(),
+    forwardNotification({ ...evt }),
+  ]);
+}
+
+/// A notification a peer addressed to this machine. Always shown: being a
+/// target is the whole reason it was sent here, and `notifySelf` governs what
+/// this machine does about its own work rather than what it was handed.
+export async function deliverFromPeer(evt: NotifyEvent): Promise<void> {
+  await deliverHere(evt);
+}
+
+/// Shows a notification on this machine: a banner in a window that is open
+/// here, or the phone push when no window is.
+async function deliverHere(evt: NotifyEvent): Promise<void> {
   if (notifyTargets.size > 0) {
     const payload = JSON.stringify({ type: "notification", ...evt });
     for (const ws of notifyTargets) {
@@ -125,7 +148,9 @@ async function sendNtfy(evt: NotifyEvent): Promise<void> {
     const res = await fetch(`${config.ntfyServer.replace(/\/$/, "")}/${config.ntfyTopic}`, {
       method: "POST",
       headers: {
-        Title: sanitizeHeader(evt.title),
+        // A push about another machine's thread names it, or the same title
+        // arrives twice with no way to tell the two threads apart.
+        Title: sanitizeHeader(evt.device ? `${evt.title} · ${evt.device}` : evt.title),
         Click: evt.click ?? `remy://session/${encodeURIComponent(evt.session)}`,
         Priority: evt.highPriority ? "high" : "default",
         Tags: evt.highPriority ? "bell" : "white_check_mark",

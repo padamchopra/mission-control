@@ -17,6 +17,35 @@ export interface Server {
   tint?: TintId;
   /// This machine's own daemon, started with the app. It cannot be unpaired.
   local?: boolean;
+  /// A machine paired with this one, reached through the daemon here.
+  peer?: boolean;
+  /// Whether notifications raised on this machine are shown on that one.
+  notify?: boolean;
+  /// When that machine last answered.
+  lastSeen?: number;
+}
+
+/// A machine asking to pair with this one. It is waiting on a person here, so
+/// the code is what they compare before allowing it.
+export interface PairRequest {
+  id: string;
+  code: string;
+  fromDeviceId: string;
+  fromName: string;
+  fromUrl: string;
+  at: number;
+}
+
+/// One of your machines on the tailnet, and whether Remy answered on it.
+export interface TailnetDevice {
+  host: string;
+  name: string;
+  os: string;
+  online: boolean;
+  /// Remy answered here, so it can be paired with.
+  remy: boolean;
+  url?: string;
+  paired: boolean;
 }
 
 export interface Chat {

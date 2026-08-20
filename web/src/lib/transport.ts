@@ -29,6 +29,112 @@ export interface Transport {
   updateServer(id: string, patch: { name?: string; icon?: DeviceIconId; tint?: TintId }): Promise<void>;
 }
 
+/// A transport that only knows the daemon on this machine. Pairing is not its
+/// job: `withPeers` adds that, in one place, for both platforms.
+type LocalTransport = Omit<Transport, "addServer">;
+
+/// A paired machine, as the daemon on this one describes it.
+interface WirePeer {
+  id: string;
+  name: string;
+  url: string;
+  icon?: string;
+  notify?: boolean;
+  online?: boolean;
+  lastSeen?: number;
+}
+
+function toPeerServer(peer: WirePeer): Server {
+  const appearance = loadAppearance()[peer.id];
+  const name = appearance?.name || peer.name;
+  return {
+    id: peer.id,
+    name,
+    url: peer.url,
+    code: codeFor(name),
+    online: peer.online === true,
+    icon: appearance?.icon ?? (isDeviceIcon(peer.icon) ? peer.icon : "laptop"),
+    ...(appearance?.tint ? { tint: appearance.tint } : {}),
+    peer: true,
+    notify: peer.notify === true,
+    ...(peer.lastSeen ? { lastSeen: peer.lastSeen } : {}),
+  };
+}
+
+/// Adds the machines this one is paired with to a transport that only knows how
+/// to reach the daemon here.
+///
+/// Pairing lives in the daemon, so the list is the same whichever window is
+/// asking — pair once on this machine and the desktop app, the browser and the
+/// phone all see it. Reaching a paired machine goes back out through that same
+/// daemon: it is the only side holding the other machine's token, and a browser
+/// could not call the other machine directly in any case.
+function withPeers(base: LocalTransport): Transport {
+  let localId: string | undefined;
+  let peerIds = new Set<string>();
+
+  const localOf = (servers: Server[]) => servers.find((server) => server.local)?.id ?? servers[0]?.id;
+
+  const home = async (): Promise<string> => {
+    if (!localId) localId = localOf(await base.servers());
+    if (!localId) throw new Error("Remy is still starting on this machine.");
+    return localId;
+  };
+
+  return {
+    ...base,
+
+    async servers() {
+      const own = await base.servers();
+      localId = localOf(own);
+      if (!localId) {
+        peerIds = new Set();
+        return own;
+      }
+      let listed: WirePeer[] = [];
+      try {
+        const answer = await base.request<{ peers?: WirePeer[] }>(localId, "/peers");
+        listed = answer.peers ?? [];
+      } catch {
+        // A daemon from before pairing landed has no /peers, which simply means
+        // this machine is the only one.
+      }
+      peerIds = new Set(listed.map((peer) => peer.id));
+      // A machine the desktop app paired the old way is already in `own`; it
+      // must not appear a second time under its daemon-side id.
+      const already = new Set(own.map((server) => server.url));
+      const peers = listed.filter((peer) => !already.has(peer.url)).map(toPeerServer);
+      return [...own, ...peers];
+    },
+
+    request<T>(serverId: string, path: string, init?: { method?: string; body?: unknown }) {
+      if (!peerIds.has(serverId) || !localId) return base.request<T>(serverId, path, init);
+      return base.request<T>(localId, `/peers/${encodeURIComponent(serverId)}/api${path}`, init);
+    },
+
+    async addServer(input) {
+      await base.request(await home(), "/peers", { method: "POST", body: input });
+    },
+
+    async removeServer(id) {
+      if (!peerIds.has(id)) return base.removeServer(id);
+      await base.request(await home(), `/peers/${encodeURIComponent(id)}`, { method: "DELETE" });
+    },
+
+    async updateServer(id, patch) {
+      // How a device looks is this window's business; what it is called is the
+      // daemon's, so a rename reaches the other windows too.
+      saveAppearance(id, patch);
+      if (!peerIds.has(id)) return base.updateServer(id, patch);
+      const body: Record<string, unknown> = {};
+      if (patch.name !== undefined) body.name = patch.name;
+      if (patch.icon !== undefined) body.icon = patch.icon;
+      if (Object.keys(body).length === 0) return;
+      await base.request(await home(), `/peers/${encodeURIComponent(id)}`, { method: "PATCH", body });
+    },
+  };
+}
+
 interface ListedServer {
   id: string;
   name: string;
@@ -57,11 +163,6 @@ interface Bridge {
   focus?(): Promise<void>;
   /// Captures the window to a file, and answers with where it went.
   snapshot?(): Promise<string>;
-  addServer(input: {
-    url: string;
-    token: string;
-    name?: string;
-  }): Promise<ListedServer[]>;
   removeServer(id: string): Promise<ListedServer[]>;
   updateServer?(id: string, patch: { name?: string; icon?: string }): Promise<ListedServer[]>;
 }
@@ -90,7 +191,7 @@ function toServer(listed: ListedServer, online: boolean): Server {
   };
 }
 
-function electronTransport(bridge: Bridge): Transport {
+function electronTransport(bridge: Bridge): LocalTransport {
   return {
     kind: "electron",
     async servers() {
@@ -104,9 +205,6 @@ function electronTransport(bridge: Bridge): Transport {
     },
     subscribe: (handler) => bridge.onPush(handler),
     onStatus: (handler) => bridge.onStatus(handler),
-    async addServer(input) {
-      await bridge.addServer(input);
-    },
     async removeServer(id) {
       await bridge.removeServer(id);
     },
@@ -119,7 +217,7 @@ function electronTransport(bridge: Bridge): Transport {
 
 /// The browser path. `/api` is proxied by Vite; `/api/notify/stream` upgrades
 /// through the same proxy, so the token stays server-side there too.
-function proxyTransport(): Transport {
+function proxyTransport(): LocalTransport {
   let socket: WebSocket | undefined;
   const pushHandlers = new Set<(serverId: string, payload: unknown) => void>();
   const statusHandlers = new Set<(serverId: string, online: boolean, error?: string) => void>();
@@ -212,9 +310,6 @@ function proxyTransport(): Transport {
       statusHandlers.add(handler);
       return () => statusHandlers.delete(handler);
     },
-    async addServer() {
-      throw new Error("Pair more devices from the desktop app. This browser is using the Vite proxy.");
-    },
     async removeServer() {
       throw new Error("This machine stays connected while Remy is running.");
     },
@@ -224,8 +319,10 @@ function proxyTransport(): Transport {
   };
 }
 
-export const transport: Transport = window.remy
-  ? electronTransport(window.remy)
-  : window.missionControl
-    ? electronTransport(window.missionControl)
-    : proxyTransport();
+export const transport: Transport = withPeers(
+  window.remy
+    ? electronTransport(window.remy)
+    : window.missionControl
+      ? electronTransport(window.missionControl)
+      : proxyTransport(),
+);

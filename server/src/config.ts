@@ -43,6 +43,10 @@ export interface Config {
   /// from the GitHub login at boot, so a branch someone else sees says who
   /// made it.
   worktreeBranchPrefix: string;
+  /// Whoever this machine is signed in as on GitHub, read from `gh` at boot.
+  /// An agent's commit address is built from it, so a commit says both which
+  /// agent wrote it and whose account stood behind the machine that ran it.
+  githubLogin: string;
   /// How often Remy refreshes the repositories it knows about. `off` never
   /// does, which is the setting for anyone who wants git touched only by them.
   repoUpdate: RepoUpdateEvery;
@@ -51,6 +55,10 @@ export interface Config {
   /// as the committer, and `full` makes it both. Attribution only — a git
   /// identity says who wrote a commit, never proves it.
   defaultGitIdentity: GitIdentity;
+  /// Whether notifications raised on this machine are shown on this machine.
+  /// Off routes them only to the paired devices that asked for them, which is
+  /// the setting for a machine that runs the work while you watch from another.
+  notifySelf: boolean;
   /// The model Remy runs its own small jobs on — naming a thread, and whatever
   /// else comes to need a model later. Separate from `defaultModel`, which is
   /// what your threads think with: this one should stay cheap. `off` declines
@@ -122,6 +130,15 @@ export function avatarValue(value: unknown): string {
   return trimmed.length > MAX_AVATAR_BYTES ? "" : trimmed;
 }
 
+/// A GitHub login, held to what GitHub itself allows. It ends up on the right
+/// of an `@` in every commit an agent signs, so anything else is dropped rather
+/// than passed through.
+export function githubAccount(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(trimmed) ? trimmed : "";
+}
+
 /// A prefix has to survive `git check-ref-format`: no spaces, no leading or
 /// trailing slash, none of the characters git reserves. Undefined when nothing
 /// usable is left.
@@ -154,7 +171,10 @@ function load(): Config {
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
     defaultGitIdentity: oneOf(GIT_IDENTITIES, parsed.defaultGitIdentity, "author"),
     worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
+    githubLogin: githubAccount(parsed.githubLogin),
     avatar: avatarValue(parsed.avatar),
+    // Absent means this is the only device, so it is the one to buzz.
+    notifySelf: parsed.notifySelf !== false,
   };
   setKv("config", config);
   return config;
@@ -174,6 +194,7 @@ export interface PublicSettings {
   worktreeBranchPrefix: string;
   avatar: string;
   defaultGitIdentity: GitIdentity;
+  notifySelf: boolean;
 }
 
 export function publicSettings(): PublicSettings {
@@ -189,6 +210,7 @@ export function publicSettings(): PublicSettings {
     worktreeBranchPrefix: config.worktreeBranchPrefix,
     avatar: config.avatar,
     defaultGitIdentity: config.defaultGitIdentity,
+    notifySelf: config.notifySelf,
   };
 }
 
@@ -230,6 +252,14 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
   if (patch.avatar !== undefined) {
     set("avatar", avatarValue(patch.avatar));
+  }
+  if (patch.notifySelf !== undefined) {
+    set("notifySelf", patch.notifySelf === true);
+  }
+  // Seeded from `gh` at boot rather than typed, but it has to be settable for
+  // that seeding to persist it.
+  if (patch.githubLogin !== undefined) {
+    set("githubLogin", githubAccount(patch.githubLogin));
   }
   if (patch.worktreeBranchPrefix !== undefined) {
     // An unusable prefix falls back to Remy's own name rather than producing a
