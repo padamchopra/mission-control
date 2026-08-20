@@ -43,7 +43,22 @@ import {
 } from "./chat.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
-import { attachNotifyStream, broadcast, pushSession, pushSessionList } from "./notify.js";
+import { attachNotifyStream, broadcast, deliverFromPeer, pushSession, pushSessionList } from "./notify.js";
+import {
+  acceptAnnouncement,
+  acceptEvents,
+  expose,
+  identity,
+  pairWith,
+  peerViews,
+  proxyToPeer,
+  removePeer,
+  startPeerSync,
+  syncAnswer,
+  syncNow,
+  thisMachineName,
+  updatePeer,
+} from "./peers.js";
 import {
   createPullRequest,
   diffStatFor,
@@ -269,6 +284,106 @@ const server = createServer(async (req, res) => {
       // Turning the schedule off has to stop the timer now, not at its next tick.
       syncRepoUpdateSchedule();
       return json(res, 200, { ...settings, preventSleepSupported: sleepSupported() });
+    }
+
+    // Who this machine is, and the link another machine pairs with. The token
+    // is in the answer because the caller already presented it to get here.
+    if (url.pathname === "/server/identity" && req.method === "GET") {
+      return json(res, 200, await identity());
+    }
+    // Puts this daemon on the tailnet with `tailscale serve`, so a paired
+    // machine has an address to call. Serve, never funnel.
+    if (url.pathname === "/server/expose" && req.method === "POST") {
+      try {
+        return json(res, 200, await expose());
+      } catch (error) {
+        return json(res, 409, { error: (error as Error).message });
+      }
+    }
+
+    // The machines this one is paired with.
+    if (url.pathname === "/peers" && req.method === "GET") {
+      return json(res, 200, { deviceId, name: thisMachineName(), peers: peerViews() });
+    }
+    if (url.pathname === "/peers" && req.method === "POST") {
+      const body = await readJson(req);
+      try {
+        const peer = await pairWith(body);
+        broadcast({ type: "peers" });
+        return json(res, 201, { peer });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message });
+      }
+    }
+    // A peer completing its half of the pair. Authorised by this machine's own
+    // token, which it holds only because its link was pasted over there.
+    if (url.pathname === "/peers/announce" && req.method === "POST") {
+      const body = await readJson(req);
+      try {
+        const peer = acceptAnnouncement(body);
+        broadcast({ type: "peers" });
+        return json(res, 200, { peer });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message });
+      }
+    }
+    // Board sync: the caller's gaps out, this machine's cursor back.
+    if (url.pathname === "/peers/sync" && req.method === "POST") {
+      return json(res, 200, syncAnswer(await readJson(req)));
+    }
+    if (url.pathname === "/peers/events" && req.method === "POST") {
+      const landed = acceptEvents(await readJson(req));
+      if (landed > 0) broadcast({ type: "board" });
+      return json(res, 200, { landed });
+    }
+    // A round now, rather than at the next tick.
+    if (url.pathname === "/peers/sync-now" && req.method === "POST") {
+      return json(res, 200, { landed: await syncNow() });
+    }
+    // A notification another machine routed here.
+    if (url.pathname === "/peers/notify" && req.method === "POST") {
+      const body = await readJson(req);
+      await deliverFromPeer({
+        session: typeof body.session === "string" ? body.session : "",
+        title: typeof body.title === "string" ? body.title : "",
+        message: typeof body.message === "string" ? body.message : "",
+        highPriority: body.highPriority === true,
+        ...(typeof body.click === "string" ? { click: body.click } : {}),
+        ...(typeof body.device === "string" ? { device: body.device } : {}),
+      });
+      return json(res, 202, { ok: true });
+    }
+    if (parts[0] === "peers" && parts.length === 2 && req.method === "PATCH") {
+      const body = await readJson(req);
+      try {
+        const peer = updatePeer(decodeURIComponent(parts[1]), body);
+        broadcast({ type: "peers" });
+        return json(res, 200, { peer });
+      } catch (error) {
+        return json(res, 404, { error: (error as Error).message });
+      }
+    }
+    if (parts[0] === "peers" && parts.length === 2 && req.method === "DELETE") {
+      removePeer(decodeURIComponent(parts[1]));
+      broadcast({ type: "peers" });
+      return json(res, 200, { ok: true });
+    }
+    // Everything a client wants from a paired machine goes out through here.
+    // This daemon is the only side holding that machine's token, and a browser
+    // could not call it directly anyway — no CORS headers over there.
+    if (parts[0] === "peers" && parts[2] === "api" && parts.length >= 4) {
+      const peerId = decodeURIComponent(parts[1]);
+      const target = `/${parts.slice(3).join("/")}${url.search}`;
+      const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readJson(req);
+      try {
+        const data = await proxyToPeer(peerId, target, {
+          method: req.method ?? "GET",
+          ...(body && Object.keys(body).length > 0 ? { body } : {}),
+        });
+        return json(res, 200, data);
+      } catch (error) {
+        return json(res, 502, { error: (error as Error).message });
+      }
     }
 
     // Refreshing repositories: what the schedule does, and what the button in
@@ -1261,12 +1376,19 @@ syncRepoUpdateSchedule();
 // never written again.
 seedPresetAgents();
 
-// Seed the branch prefix once, from whoever this machine is signed in as. Remy
-// names itself when `gh` cannot say, so a branch always carries a prefix.
-if (!config.worktreeBranchPrefix) {
+// Who this machine is signed in as, asked once. It names the branches Remy
+// creates and the address on an agent's commits; Remy names itself when `gh`
+// cannot say, so a branch always carries a prefix.
+if (!config.worktreeBranchPrefix || !config.githubLogin) {
   void githubLogin().then((login) => {
-    if (config.worktreeBranchPrefix) return;
-    patchSettings({ worktreeBranchPrefix: login ?? "remy" });
+    patchSettings({
+      ...(config.worktreeBranchPrefix ? {} : { worktreeBranchPrefix: login ?? "remy" }),
+      ...(config.githubLogin || !login ? {} : { githubLogin: login }),
+    });
   });
 }
 startLoopScheduler(pushSessionList);
+
+// Board events flow between paired machines whether or not a window is open —
+// the daemon is what is paired, so the sync runs here rather than in a client.
+startPeerSync(() => broadcast({ type: "board" }));

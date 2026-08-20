@@ -17,6 +17,12 @@ export interface Server {
   tint?: TintId;
   /// This machine's own daemon, started with the app. It cannot be unpaired.
   local?: boolean;
+  /// A machine paired with this one, reached through the daemon here.
+  peer?: boolean;
+  /// Whether notifications raised on this machine are shown on that one.
+  notify?: boolean;
+  /// When that machine last answered.
+  lastSeen?: number;
 }
 
 export interface Chat {

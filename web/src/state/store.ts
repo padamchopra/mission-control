@@ -184,9 +184,15 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
       // A board frame says a ticket, agent or project changed — on this machine
-      // or, once peers land, on one of the others.
+      // or on one of the machines paired with it.
       if (frame.type === "board") {
         void get().loadBoard();
+        return;
+      }
+      // A machine was paired or unpaired. Every window onto this daemon shows
+      // the same list, so none of them should wait for its next poll to agree.
+      if (frame.type === "peers") {
+        void get().refresh();
         return;
       }
       // A turn streams as `chat` frames: the entries that changed, plus the

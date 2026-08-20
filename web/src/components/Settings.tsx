@@ -1,4 +1,4 @@
-import { Archive, Bot, Boxes, Check, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Archive, Bot, Boxes, Check, Copy, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -1240,107 +1240,66 @@ function DevicesPane() {
   const addServer = useStore((s) => s.addServer);
   const removeServer = useStore((s) => s.removeServer);
   const updateServer = useStore((s) => s.updateServer);
-  const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const canPair = transport.kind === "electron";
+  // Pairing lives in the daemon on this machine rather than in any one window,
+  // so the desktop app, a browser and the phone all pair once and see one list.
+  const home = servers.find((server) => server.local) ?? servers[0];
 
-  const submit = async () => {
-    const parsed = parsePairingLink(link);
-    if (!parsed) {
-      setError("Paste a remy://configure link from the setup script.");
-      return;
-    }
+  const unpair = async (server: Server) => {
     setBusy(true);
-    setError(undefined);
     try {
-      await addServer(parsed);
-      setLink("");
-      toast.success("Paired the machine.");
+      await removeServer(server.id);
+      toast.success(`Unpaired ${server.name}.`);
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      setError(message);
-      toast.error("Couldn't pair that machine", { description: message });
+      toast.error("Couldn't unpair that device", { description: apiError(caught) });
     } finally {
       setBusy(false);
     }
   };
 
-  const remove = async (id: string) => {
-    setBusy(true);
-    setError(undefined);
-    try {
-      await removeServer(id);
-      toast.success("Removed the connection.");
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      toast.error("Couldn't remove that connection", { description: message });
-    } finally {
-      setBusy(false);
-    }
-  };
+  if (servers.length === 0) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>Starting Remy on this machine</EmptyTitle>
+          <EmptyDescription>Give it a moment.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-6">
-        {servers.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-            Starting the local Remy server…
-          </p>
-        ) : (
-          servers.map((server) => (
-            <DeviceCard
-              key={server.id}
-              server={server}
-              busy={busy}
-              canRemove={canPair && !server.local}
-              onRemove={() => void remove(server.id)}
-              onUpdate={(patch) => updateServer(server.id, patch)}
-            />
-          ))
-        )}
-      </div>
-
-      {canPair && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="pairing-link">Pair another machine</Label>
-          <div className="flex gap-2">
-            <Input
-              id="pairing-link"
-              value={link}
-              onChange={(event) => setLink(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submit();
-              }}
-              placeholder="remy://configure?url=…"
-              spellCheck={false}
-              disabled={busy}
-            />
-            <Button onClick={() => void submit()} disabled={busy || !link.trim()}>
-              <Plus />
-              Add
-            </Button>
-          </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
-      )}
+      {servers.map((server) => (
+        <DeviceCard
+          key={server.id}
+          server={server}
+          homeId={home?.id}
+          busy={busy}
+          onUnpair={() => void unpair(server)}
+          onUpdate={(patch) => updateServer(server.id, patch)}
+        />
+      ))}
+      <AddDevice onAdd={addServer} />
     </div>
   );
 }
 
 function DeviceCard({
   server,
+  homeId,
   busy,
-  canRemove,
-  onRemove,
+  onUnpair,
   onUpdate,
 }: {
   server: Server;
+  homeId?: string;
   busy: boolean;
-  canRemove: boolean;
-  onRemove: () => void;
+  onUnpair: () => void;
   onUpdate: (patch: { name?: string; icon?: DeviceIconId; tint?: TintId }) => Promise<void>;
 }) {
+  const identity = useIdentity(server.local ? server.id : undefined);
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-3">
@@ -1366,37 +1325,275 @@ function DeviceCard({
             <EditableName value={server.name} label="device name" onCommit={(name) => void onUpdate({ name })} />
           </span>
           <span className="block truncate text-xs text-muted-foreground">
-            {server.local ? "This machine" : `${server.code} · ${hostLabel(server.url)}`}
+            {server.local
+              ? identity?.tailnetHost
+                ? `This machine · ${identity.tailnetHost}`
+                : "This machine"
+              : `${server.code} · ${hostLabel(server.url)}`}
           </span>
         </span>
 
-        {canRemove && (
+        {!server.local && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon-xs" disabled={busy} aria-label={`Remove ${server.name}`}>
+              <Button variant="ghost" size="icon-xs" disabled={busy} aria-label={`Unpair ${server.name}`}>
                 <Trash2 />
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Remove {server.name}?</AlertDialogTitle>
+                <AlertDialogTitle>Unpair {server.name}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Remy stops talking to this machine. Pair it again from a remy:// link.
+                  Its threads and board stop syncing here. Pair it again from its link.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={onRemove}>
-                  Remove connection
+                <AlertDialogAction variant="destructive" onClick={onUnpair}>
+                  Unpair device
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         )}
       </div>
+      <NotifyField server={server} homeId={homeId} />
+      {server.local ? <PairingField serverId={server.id} identity={identity} /> : null}
       {server.online ? <StayAwakeField serverId={server.id} /> : null}
     </div>
   );
+}
+
+/// Where notifications raised on this machine go.
+///
+/// One switch per device, which is the whole answer: the machine running the
+/// thread, the machine you are sitting at, several of them, or none. A paired
+/// machine decides for itself what its own threads do — this is about the work
+/// happening here.
+function NotifyField({ server, homeId }: { server: Server; homeId?: string }) {
+  const refresh = useStore((s) => s.refresh);
+  const [on, setOn] = useState<boolean>();
+  const [saving, setSaving] = useState(false);
+  const switchId = `notify-${server.id}`;
+
+  useEffect(() => {
+    if (server.peer) {
+      setOn(server.notify === true);
+      return;
+    }
+    let cancelled = false;
+    void transport
+      .request<{ notifySelf?: boolean }>(server.id, "/server/settings")
+      .then((settings) => {
+        if (!cancelled) setOn(settings.notifySelf !== false);
+      })
+      .catch(() => {
+        // A daemon from before routing landed has no say in where these go.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [server.id, server.peer, server.notify]);
+
+  if (on === undefined) return null;
+
+  const toggle = async (next: boolean) => {
+    const previous = on;
+    setOn(next);
+    setSaving(true);
+    try {
+      if (server.peer) {
+        if (!homeId) throw new Error("Remy is still starting on this machine.");
+        await transport.request(homeId, `/peers/${encodeURIComponent(server.id)}`, {
+          method: "PATCH",
+          body: { notify: next },
+        });
+        await refresh();
+      } else {
+        await transport.request(server.id, "/server/settings", {
+          method: "PATCH",
+          body: { notifySelf: next },
+        });
+      }
+    } catch (caught) {
+      setOn(previous);
+      toast.error("Couldn't change where notifications go", { description: apiError(caught) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 px-3.5 py-3">
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor={switchId}>Notifications</FieldLabel>
+          <FieldDescription className="text-xs">
+            {server.local
+              ? "A thread on this machine reaches you here."
+              : `A thread on this machine also reaches you on ${server.name}.`}
+          </FieldDescription>
+        </FieldContent>
+        <Switch
+          id={switchId}
+          checked={on}
+          disabled={saving}
+          onCheckedChange={(next) => void toggle(next)}
+        />
+      </Field>
+    </div>
+  );
+}
+
+/// The link that pairs another machine with this one — the thing you come to
+/// this pane to fetch when you are sitting at the machine you want to add.
+function PairingField({ serverId, identity }: { serverId: string; identity?: Identity }) {
+  const [exposing, setExposing] = useState(false);
+  const [exposed, setExposed] = useState<Identity>();
+  const current = exposed ?? identity;
+
+  if (!current) return null;
+
+  const copy = async () => {
+    const link = `remy://configure?url=${encodeURIComponent(current.url)}&token=${encodeURIComponent(current.token)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Copied this machine's pairing link.");
+    } catch {
+      toast.error("Couldn't copy that link", { description: "Your browser is blocking the clipboard." });
+    }
+  };
+
+  const putOnTailnet = async () => {
+    setExposing(true);
+    try {
+      setExposed(await transport.request<Identity>(serverId, "/server/expose", { method: "POST" }));
+      toast.success("This machine is on the tailnet.");
+    } catch (caught) {
+      toast.error("Couldn't put this machine on the tailnet", { description: apiError(caught) });
+    } finally {
+      setExposing(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/40 px-3.5 py-3">
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel>Pairing link</FieldLabel>
+          <FieldDescription className="text-xs">
+            {current.exposed
+              ? "Paste it into Devices on another machine to pair the two."
+              : "Nothing outside this machine can reach it yet."}
+          </FieldDescription>
+        </FieldContent>
+        {current.exposed ? (
+          <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copy()}>
+            <Copy />
+            Copy link
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            disabled={exposing}
+            onClick={() => void putOnTailnet()}
+          >
+            Put it on the tailnet
+          </Button>
+        )}
+      </Field>
+    </div>
+  );
+}
+
+/// Pairing with a machine from the link it showed you.
+function AddDevice({ onAdd }: { onAdd: (input: { url: string; token: string }) => Promise<void> }) {
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const submit = async () => {
+    const parsed = parsePairingLink(link);
+    if (!parsed) {
+      setError("Copy the pairing link from Devices on the other machine.");
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      await onAdd(parsed);
+      setLink("");
+      toast.success("Paired the machine.");
+    } catch (caught) {
+      const message = apiError(caught);
+      setError(message);
+      toast.error("Couldn't pair that machine", { description: message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor="pairing-link">Add a device</Label>
+      <div className="flex gap-2">
+        <Input
+          id="pairing-link"
+          value={link}
+          onChange={(event) => setLink(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void submit();
+          }}
+          placeholder="remy://configure?url=…"
+          spellCheck={false}
+          disabled={busy}
+        />
+        <Button onClick={() => void submit()} disabled={busy || !link.trim()}>
+          <Plus />
+          Add
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Open Remy on the other machine and copy its pairing link.
+      </p>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/// What a machine says about itself: its tailnet name, whether anything can
+/// reach it, and the token a peer needs. Only asked of the local daemon.
+interface Identity {
+  deviceId: string;
+  name: string;
+  url: string;
+  token: string;
+  exposed: boolean;
+  tailnetHost?: string;
+}
+
+function useIdentity(serverId: string | undefined): Identity | undefined {
+  const [identity, setIdentity] = useState<Identity>();
+
+  useEffect(() => {
+    if (!serverId) return;
+    let cancelled = false;
+    void transport
+      .request<Identity>(serverId, "/server/identity")
+      .then((answer) => {
+        if (!cancelled) setIdentity(answer);
+      })
+      .catch(() => {
+        // A daemon from before pairing landed cannot introduce itself.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverId]);
+
+  return identity;
 }
 
 function StayAwakeField({ serverId }: { serverId: string }) {

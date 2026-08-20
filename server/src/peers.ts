@@ -1,0 +1,536 @@
+import { execFile } from "node:child_process";
+import { hostname } from "node:os";
+import { promisify } from "node:util";
+import { deviceId, eventsSince, mergeRemote, versionVector } from "./board-log.js";
+import { config } from "./config.js";
+import { db } from "./db.js";
+import { reprojectAll as reprojectAgents } from "./agents.js";
+import { reprojectAll as reprojectProjects } from "./projects.js";
+import { reprojectAll as reprojectTickets } from "./tickets.js";
+
+const exec = promisify(execFile);
+
+/// The other machines this one is paired with.
+///
+/// A peer is a whole Remy — its own daemon, its own repos, its own threads —
+/// not a client of this one. Pairing is therefore symmetric: each side stores
+/// the other's address and the token it needs to call it, and neither is in
+/// charge. What crosses the link is the board log, which converges without a
+/// coordinator, and notifications, which are addressed rather than broadcast.
+///
+/// This lives in the daemon rather than in a client so that pairing a machine
+/// once pairs it for every window onto that daemon — the desktop app, the
+/// browser, and the phone — and so that the sync loop runs whether or not
+/// anybody is looking.
+
+export interface Peer {
+  id: string;
+  name: string;
+  url: string;
+  token: string;
+  icon?: string;
+  /// Whether notifications raised on this machine are routed to that one.
+  notify: boolean;
+  pairedAt: number;
+  lastSeen?: number;
+}
+
+/// A peer as a client sees it. The token never leaves the daemon.
+export type PeerView = Omit<Peer, "token"> & { online: boolean };
+
+/// How this machine introduces itself, and what a peer needs to call it back.
+export interface Identity {
+  deviceId: string;
+  name: string;
+  url: string;
+  token: string;
+}
+
+/// A peer is online if it answered recently. The sync loop runs well inside
+/// this, so a peer that has gone quiet is genuinely unreachable rather than
+/// merely between polls.
+const ONLINE_MS = 90_000;
+const SYNC_EVERY_MS = 15_000;
+const SYNC_LIMIT = 500;
+/// Long enough for a sleepy laptop to wake and answer, short enough that one
+/// unreachable peer does not hold up the others in the same round.
+const REQUEST_TIMEOUT_MS = 8_000;
+
+/// What this machine calls itself. The hostname, without the `.local` a Mac
+/// appends, because that is the name a person recognises.
+export function thisMachineName(): string {
+  return hostname().replace(/\.local$/, "");
+}
+
+function toPeer(row: Record<string, unknown>): Peer {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    url: String(row.url),
+    token: String(row.token),
+    ...(row.icon ? { icon: String(row.icon) } : {}),
+    notify: Number(row.notify) === 1,
+    pairedAt: Number(row.paired_at),
+    ...(row.last_seen ? { lastSeen: Number(row.last_seen) } : {}),
+  };
+}
+
+export function listPeers(): Peer[] {
+  const rows = db
+    .prepare("select * from peers order by name asc, id asc")
+    .all() as Record<string, unknown>[];
+  return rows.map(toPeer);
+}
+
+export function getPeer(id: string): Peer | undefined {
+  const row = db.prepare("select * from peers where id = ?").get(id) as Record<string, unknown> | undefined;
+  return row ? toPeer(row) : undefined;
+}
+
+export function peerViews(): PeerView[] {
+  const now = Date.now();
+  return listPeers().map(({ token: _token, ...peer }) => ({
+    ...peer,
+    online: peer.lastSeen !== undefined && now - peer.lastSeen < ONLINE_MS,
+  }));
+}
+
+/// Where a peer's address has to point. The daemon answers on loopback only, so
+/// the reachable address is whatever fronts it — `tailscale serve` on the
+/// tailnet, in practice. Anything that is not plain HTTP is not that.
+function peerUrl(value: unknown): string {
+  if (typeof value !== "string") throw new Error("that link has no server address");
+  const trimmed = value.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("that is not a server address");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("a device address starts with http:// or https://");
+  }
+  return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
+}
+
+function peerToken(value: unknown): string {
+  const token = typeof value === "string" ? value.trim() : "";
+  if (!token) throw new Error("that link has no token");
+  return token;
+}
+
+function peerName(value: unknown, fallback: string): string {
+  const name = typeof value === "string" ? value.trim().slice(0, 80) : "";
+  return name || fallback;
+}
+
+/// One call to a peer, with its token and a deadline. The peer's own error
+/// sentence is preserved, because it is the one worth showing.
+export async function callPeer<T>(
+  peer: Pick<Peer, "url" | "token">,
+  path: string,
+  init: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  // Concatenated rather than resolved against a base: a root-relative path
+  // resolved against `https://host/remy` would drop the `/remy`, and a peer
+  // behind a path prefix is exactly the shape `tailscale serve` can produce.
+  const response = await fetch(`${peer.url}${path}`, {
+    method: init.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${peer.token}`,
+      ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    signal,
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`;
+    if (response.status === 401) message = "that token was refused";
+    else {
+      try {
+        const parsed = JSON.parse(text) as { error?: string };
+        if (parsed.error) message = parsed.error;
+      } catch {
+        if (text && text.length < 200) message = text;
+      }
+    }
+    throw new Error(message);
+  }
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+function upsert(peer: Peer): Peer {
+  db.prepare(
+    `insert into peers (id, name, url, token, icon, notify, paired_at, last_seen)
+     values (?, ?, ?, ?, ?, ?, ?, ?)
+     on conflict(id) do update set
+       name = excluded.name,
+       url = excluded.url,
+       token = excluded.token`,
+  ).run(
+    peer.id,
+    peer.name,
+    peer.url,
+    peer.token,
+    peer.icon ?? null,
+    peer.notify ? 1 : 0,
+    peer.pairedAt,
+    peer.lastSeen ?? null,
+  );
+  return getPeer(peer.id) ?? peer;
+}
+
+function seen(id: string): void {
+  db.prepare("update peers set last_seen = ? where id = ?").run(Date.now(), id);
+}
+
+export function updatePeer(
+  id: string,
+  patch: { name?: unknown; icon?: unknown; notify?: unknown },
+): PeerView {
+  const peer = getPeer(id);
+  if (!peer) throw new Error("that device is not paired");
+  if (patch.name !== undefined) {
+    const name = peerName(patch.name, peer.name);
+    db.prepare("update peers set name = ? where id = ?").run(name, id);
+  }
+  if (patch.icon !== undefined) {
+    const icon = typeof patch.icon === "string" && patch.icon.trim() ? patch.icon.trim().slice(0, 32) : null;
+    db.prepare("update peers set icon = ? where id = ?").run(icon, id);
+  }
+  if (patch.notify !== undefined) {
+    db.prepare("update peers set notify = ? where id = ?").run(patch.notify ? 1 : 0, id);
+  }
+  const view = peerViews().find((item) => item.id === id);
+  if (!view) throw new Error("that device is not paired");
+  return view;
+}
+
+export function removePeer(id: string): void {
+  db.prepare("delete from peers where id = ?").run(id);
+}
+
+// --- This machine's own identity ------------------------------------------
+
+/// Candidate paths for the Tailscale CLI. The Mac App Store build keeps it
+/// inside the app bundle, where it is on nobody's PATH.
+const TAILSCALE_PATHS = [
+  "tailscale",
+  "/usr/local/bin/tailscale",
+  "/opt/homebrew/bin/tailscale",
+  "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+];
+
+async function tailscale(args: string[]): Promise<string | undefined> {
+  for (const bin of TAILSCALE_PATHS) {
+    try {
+      const { stdout } = await exec(bin, args, { timeout: 5_000, maxBuffer: 4 * 1024 * 1024 });
+      return stdout;
+    } catch (error) {
+      // A missing binary means try the next path; anything else means Tailscale
+      // is here and answered badly, which is not something another path fixes.
+      if ((error as { code?: string }).code === "ENOENT") continue;
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/// This machine's name on the tailnet, without the trailing dot.
+async function tailnetHost(): Promise<string | undefined> {
+  const stdout = await tailscale(["status", "--json"]);
+  if (!stdout) return undefined;
+  try {
+    const status = JSON.parse(stdout) as { Self?: { DNSName?: string } };
+    const dns = status.Self?.DNSName?.replace(/\.$/, "");
+    return dns || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/// Whether `tailscale serve` is already fronting this daemon, and on which
+/// port. Serve is the only way in: the daemon itself binds loopback.
+async function serveTarget(): Promise<{ https: boolean } | undefined> {
+  const stdout = await tailscale(["serve", "status", "--json"]);
+  if (!stdout) return undefined;
+  try {
+    const status = JSON.parse(stdout) as { Web?: Record<string, unknown> };
+    const hosts = Object.keys(status.Web ?? {});
+    if (hosts.length === 0) return undefined;
+    // A serve key is `host:port`. 443 is the HTTPS listener; anything else is
+    // tailnet HTTP, still WireGuard-encrypted but without TLS on top.
+    return { https: hosts.some((host) => host.endsWith(":443")) };
+  } catch {
+    return undefined;
+  }
+}
+
+export interface IdentityView {
+  deviceId: string;
+  name: string;
+  /// Empty until something fronts the daemon — until then no peer can reach it.
+  url: string;
+  token: string;
+  /// Whether `tailscale serve` is carrying this daemon right now.
+  exposed: boolean;
+  /// This machine's tailnet name, whether or not it is being served.
+  tailnetHost?: string;
+}
+
+/// How this machine introduces itself. The token is in here because the caller
+/// already holds it — asking is how a person copies the link for another
+/// device, and the answer is only ever given to an authorised request.
+export async function identity(): Promise<IdentityView> {
+  const host = await tailnetHost();
+  const serve = host ? await serveTarget() : undefined;
+  const url = host && serve ? (serve.https ? `https://${host}` : `http://${host}:${config.port}`) : "";
+  return {
+    deviceId,
+    name: thisMachineName(),
+    url,
+    token: config.token,
+    exposed: Boolean(url),
+    ...(host ? { tailnetHost: host } : {}),
+  };
+}
+
+/// Puts this daemon on the tailnet, the same way `deploy/setup.sh` does. Serve,
+/// never funnel: the tailnet can reach it, the public internet cannot.
+export async function expose(): Promise<IdentityView> {
+  const attempts = [
+    ["serve", "--bg", "--https=443", `http://127.0.0.1:${config.port}`],
+    ["serve", "--bg", `--http=${config.port}`, `http://127.0.0.1:${config.port}`],
+  ];
+  for (const args of attempts) {
+    if ((await tailscale(args)) !== undefined) break;
+  }
+  const next = await identity();
+  if (!next.exposed) {
+    throw new Error(
+      next.tailnetHost
+        ? "Tailscale would not serve this machine. Check `tailscale serve status`."
+        : "Tailscale is not running on this machine.",
+    );
+  }
+  return next;
+}
+
+// --- Pairing ---------------------------------------------------------------
+
+/// Pairs with the machine behind a link, from this side and from theirs.
+///
+/// One paste is enough for both directions: we ask who they are, store them,
+/// and then hand them our own address and token so they can call us too. A
+/// pairing that only went one way would sync one way, which is not a pair.
+export async function pairWith(input: Record<string, unknown>): Promise<PeerView> {
+  const url = peerUrl(input.url);
+  const token = peerToken(input.token);
+
+  const them = await callPeer<Partial<IdentityView>>({ url, token }, "/server/identity");
+  const id = typeof them.deviceId === "string" ? them.deviceId : "";
+  if (!id) throw new Error("that machine is not running Remy");
+  if (id === deviceId) throw new Error("that link is for this machine");
+
+  const peer = upsert({
+    id,
+    name: peerName(input.name ?? them.name, new URL(url).hostname),
+    url,
+    token,
+    notify: false,
+    pairedAt: Date.now(),
+    lastSeen: Date.now(),
+  });
+
+  // Their side of the pair. A machine that cannot be reached back still pairs:
+  // it can pull from us, and the sync loop keeps trying.
+  const mine = await identity();
+  if (mine.exposed) {
+    try {
+      await callPeer(peer, "/peers/announce", {
+        method: "POST",
+        body: { deviceId: mine.deviceId, name: mine.name, url: mine.url, token: mine.token },
+      });
+    } catch {
+      // Their half can also be completed by pairing from over there.
+    }
+  }
+
+  await syncWithPeer(peer);
+  const view = peerViews().find((item) => item.id === id);
+  if (!view) throw new Error("that device did not pair");
+  return view;
+}
+
+/// A peer telling us who it is, so the pair works in both directions. The
+/// request already carried this machine's token, which is what authorises it.
+export function acceptAnnouncement(body: Record<string, unknown>): PeerView {
+  const id = typeof body.deviceId === "string" ? body.deviceId.trim() : "";
+  if (!id) throw new Error("that announcement has no device");
+  if (id === deviceId) throw new Error("that announcement is from this machine");
+  const url = peerUrl(body.url);
+  const peer = upsert({
+    id,
+    name: peerName(body.name, new URL(url).hostname),
+    url,
+    token: peerToken(body.token),
+    notify: false,
+    pairedAt: Date.now(),
+    lastSeen: Date.now(),
+  });
+  const view = peerViews().find((item) => item.id === peer.id);
+  if (!view) throw new Error("that device did not pair");
+  return view;
+}
+
+// --- Reaching a peer on a client's behalf ---------------------------------
+
+/// One request forwarded to a peer.
+///
+/// Clients only ever talk to the daemon on their own machine: a browser cannot
+/// reach a peer directly (no CORS headers there, and the notify upgrade wants a
+/// header a browser socket cannot set), and a peer's token is deliberately not
+/// something a client holds. So the local daemon makes the call.
+export async function proxyToPeer<T>(
+  peerId: string,
+  path: string,
+  init: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  const peer = getPeer(peerId);
+  if (!peer) throw new Error("that device is not paired");
+  try {
+    const result = await callPeer<T>(peer, path, init);
+    seen(peer.id);
+    return result;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+// --- Board sync -----------------------------------------------------------
+
+interface SyncAnswer {
+  deviceId?: string;
+  events?: unknown;
+  have?: Record<string, number>;
+}
+
+/// One round with one peer: take what they have that we do not, then hand back
+/// what we have that they do not.
+///
+/// Both sides run this on their own timer, so either half alone converges
+/// eventually. Doing both here means a change shows up on the other machine in
+/// one round rather than two.
+async function syncWithPeer(peer: Peer): Promise<number> {
+  const answer = await callPeer<SyncAnswer>(peer, "/peers/sync", {
+    method: "POST",
+    body: { have: versionVector(), limit: SYNC_LIMIT },
+  });
+  seen(peer.id);
+
+  const landed = mergeRemote(answer.events);
+  if (landed > 0) reprojectBoard();
+
+  const theirs = answer.have && typeof answer.have === "object" ? answer.have : {};
+  const outgoing = eventsSince(theirs, SYNC_LIMIT);
+  if (outgoing.length > 0) {
+    await callPeer(peer, "/peers/events", { method: "POST", body: { events: outgoing } });
+  }
+  return landed;
+}
+
+/// What this machine answers a peer's sync with: their gaps, and our own cursor
+/// so they know what to send back.
+export function syncAnswer(body: Record<string, unknown>): SyncAnswer {
+  const have = body.have && typeof body.have === "object" && !Array.isArray(body.have)
+    ? (body.have as Record<string, number>)
+    : {};
+  const limit = Math.min(Number(body.limit) || SYNC_LIMIT, SYNC_LIMIT);
+  return { deviceId, events: eventsSince(have, limit), have: versionVector() };
+}
+
+/// Events pushed to us by a peer. Answers how many were new, so the caller can
+/// tell a no-op round from a real one.
+export function acceptEvents(body: Record<string, unknown>): number {
+  const landed = mergeRemote(body.events);
+  if (landed > 0) reprojectBoard();
+  return landed;
+}
+
+/// Replays every fold over the merged log. The board's tables are projections,
+/// so this is how a peer's events become tickets, agents and projects here.
+function reprojectBoard(): void {
+  reprojectProjects();
+  reprojectAgents();
+  reprojectTickets();
+}
+
+let syncTimer: ReturnType<typeof setInterval> | undefined;
+let syncing = false;
+let onBoardChange: (() => void) | undefined;
+
+/// Pulls from every paired machine, forever. Rounds never overlap: a peer on a
+/// slow link would otherwise have a second round stacked on the first.
+export function startPeerSync(onChange: () => void): void {
+  onBoardChange = onChange;
+  if (syncTimer) return;
+  syncTimer = setInterval(() => void syncNow(), SYNC_EVERY_MS);
+  syncTimer.unref?.();
+  void syncNow();
+}
+
+export async function syncNow(): Promise<number> {
+  if (syncing) return 0;
+  const peers = listPeers();
+  if (peers.length === 0) return 0;
+  syncing = true;
+  try {
+    const rounds = await Promise.all(
+      peers.map(async (peer) => {
+        try {
+          return await syncWithPeer(peer);
+        } catch {
+          // A peer that is asleep or off the tailnet is not an error to report;
+          // it shows as offline, and the next round tries again.
+          return 0;
+        }
+      }),
+    );
+    const landed = rounds.reduce((sum, count) => sum + count, 0);
+    if (landed > 0) onBoardChange?.();
+    return landed;
+  } finally {
+    syncing = false;
+  }
+}
+
+// --- Notifications --------------------------------------------------------
+
+/// The paired machines that notifications raised here are routed to.
+export function notifyPeers(): Peer[] {
+  return listPeers().filter((peer) => peer.notify);
+}
+
+/// Hands a notification to the machines it is addressed to. Each peer decides
+/// how to show it — a banner in a window that is open there, or its own phone
+/// push if nothing is.
+export async function forwardNotification(payload: Record<string, unknown>): Promise<void> {
+  const peers = notifyPeers();
+  if (peers.length === 0) return;
+  // Stamped on the way out, so the machine that shows the banner can say where
+  // the thread actually is. A payload that already names one keeps it.
+  const body = { ...payload, device: payload.device ?? thisMachineName() };
+  await Promise.all(
+    peers.map(async (peer) => {
+      try {
+        await callPeer(peer, "/peers/notify", { method: "POST", body });
+        seen(peer.id);
+      } catch {
+        // A machine that cannot be reached cannot be buzzed. The one that
+        // raised this still shows it if it is a target itself.
+      }
+    }),
+  );
+}

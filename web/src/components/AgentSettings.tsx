@@ -527,29 +527,21 @@ function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void
       </Field>
 
       {identity !== "off" && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor="agent-git-name">Name on commits</FieldLabel>
-            <Input
-              id="agent-git-name"
-              value={text("gitName")}
-              placeholder={agent.name}
-              onChange={(event) => setDraft((c) => ({ ...c, gitName: event.target.value }))}
-              onBlur={commit("gitName", "the name on its commits")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="agent-git-email">Email on commits</FieldLabel>
-            <Input
-              id="agent-git-email"
-              className="font-mono text-xs"
-              value={text("gitEmail")}
-              placeholder={`${agent.handle}@remy.invalid`}
-              onChange={(event) => setDraft((c) => ({ ...c, gitEmail: event.target.value }))}
-              onBlur={commit("gitEmail", "the email on its commits")}
-            />
-          </Field>
-        </div>
+        <Field>
+          <FieldLabel htmlFor="agent-git-name">Name on commits</FieldLabel>
+          <FieldDescription className="text-xs">
+            Beside it goes <span className="font-mono">{agent.gitEmail}</span>, from its handle and
+            your GitHub account.
+          </FieldDescription>
+          <Input
+            id="agent-git-name"
+            className="sm:w-64"
+            value={text("gitName")}
+            placeholder={agent.name}
+            onChange={(event) => setDraft((c) => ({ ...c, gitName: event.target.value }))}
+            onBlur={commit("gitName", "the name on its commits")}
+          />
+        </Field>
       )}
 
       <Separator />

@@ -158,6 +158,20 @@ function migrate(database: DatabaseSync): void {
       primary key (ticket_id, device_id, chat_id)
     );
     create index if not exists ticket_threads_chat on ticket_threads(chat_id);
+    -- The other machines this one is paired with. The token is theirs, not
+    -- ours: it is what this daemon presents when it calls them, which is why
+    -- pairing lives here rather than in any one client.
+    create table if not exists peers (
+      id text primary key,
+      name text not null,
+      url text not null,
+      token text not null,
+      icon text,
+      -- Whether notifications raised here are routed to that machine.
+      notify integer not null default 0,
+      paired_at integer not null,
+      last_seen integer
+    );
   `);
   try {
     database.exec("alter table workspaces add column icon text");
