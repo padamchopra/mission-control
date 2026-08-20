@@ -367,6 +367,11 @@ export function ticketActivity(id: string): TicketActivity[] {
     }));
 }
 
+/// What `assigneeAgentId` holds when the ticket is yours rather than an
+/// agent's. Remy has no accounts — there is one person at this daemon — so the
+/// name is the whole record.
+export const YOU = "you";
+
 // ── writing ─────────────────────────────────────────────────────────────────
 
 function text(value: unknown, max: number): string | undefined {
@@ -386,7 +391,7 @@ function validate(input: Record<string, unknown>): Record<string, unknown> {
   if (input.priority !== undefined) patch.priority = Math.min(Math.max(Number(input.priority) || 0, 0), 4);
   if (input.assigneeAgentId !== undefined) {
     const id = text(input.assigneeAgentId, 64);
-    if (id && !getAgent(id)) throw new Error("no such agent");
+    if (id && id !== YOU && !getAgent(id)) throw new Error("no such agent");
     patch.assigneeAgentId = id ?? "";
   }
   if (input.parentId !== undefined) {

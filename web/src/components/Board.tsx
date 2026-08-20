@@ -68,13 +68,12 @@ import { WorkspaceIcon } from "@/components/WorkspaceIcon";
 import { deviceIcon } from "@/lib/devices";
 import { localWorkspace } from "@/lib/projects";
 import { tintOf } from "@/lib/tints";
-import { AgentAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
+import { AssigneeAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
 import {
   BOARD_COLUMNS,
   STATUS_LABEL,
   TICKET_STATUSES,
-  agentFor,
   currentThread,
   deviceForTicket,
   neighboursAt,
@@ -252,7 +251,7 @@ export function Board({
             {dragging && (
               <CardBody
                 ticket={dragging}
-                agent={agentFor(agents, dragging)}
+                agents={agents}
                 thread={currentThread(chats, dragging)}
                 device={deviceForTicket(dragging, boardDevices, servers)}
                 progress={subTicketProgress(scoped, dragging)}
@@ -419,7 +418,7 @@ function Column({
             key={ticket.id}
             ticket={ticket}
             allTickets={allTickets}
-            agent={agentFor(agents, ticket)}
+            agents={agents}
             thread={currentThread(chats, ticket)}
             device={deviceForTicket(ticket, boardDevices, servers)}
             onOpen={() => onOpenTicket(ticket.key)}
@@ -434,14 +433,14 @@ function Column({
 /// render exactly the same thing without a second set of styles.
 function CardBody({
   ticket,
-  agent,
+  agents,
   thread,
   device,
   progress,
   className,
 }: {
   ticket: Ticket;
-  agent?: Agent;
+  agents: Agent[];
   thread?: Chat;
   device?: Server;
   progress: { done: number; total: number };
@@ -477,7 +476,7 @@ function CardBody({
           </Tooltip>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <AgentAvatar agent={agent} />
+          <AssigneeAvatar assignee={ticket.assigneeAgentId} agents={agents} />
         </span>
       </div>
 
@@ -512,14 +511,14 @@ function CardBody({
 function TicketCard({
   ticket,
   allTickets,
-  agent,
+  agents,
   thread,
   device,
   onOpen,
 }: {
   ticket: Ticket;
   allTickets: Ticket[];
-  agent?: Agent;
+  agents: Agent[];
   thread?: Chat;
   device?: Server;
   onOpen: () => void;
@@ -574,7 +573,7 @@ function TicketCard({
         >
           <CardBody
             ticket={ticket}
-            agent={agent}
+            agents={agents}
             thread={thread}
             device={device}
             progress={subTicketProgress(allTickets, ticket)}

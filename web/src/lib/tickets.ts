@@ -13,8 +13,26 @@ export const TICKET_STATUSES: TicketStatus[] = [
   "cancelled",
 ];
 
-/// The columns a board shows. Cancelled is a status you can set but not a
-/// column anyone wants standing in front of them all day.
+/// What an assignee is when the ticket is yours. Mirrors `YOU` in
+/// `server/src/tickets.ts`.
+export const YOU = "you";
+
+/// Everyone a ticket can name — the agents on this machine, and you. Remy has
+/// no accounts, so you are the one person there is, and an agent is the rest.
+export interface Person {
+  id: string;
+  handle: string;
+  name: string;
+  agent?: Agent;
+}
+
+export function people(agents: Agent[]): Person[] {
+  return [
+    { id: YOU, handle: YOU, name: "You" },
+    ...agents.map((agent) => ({ id: agent.id, handle: agent.handle, name: agent.name, agent })),
+  ];
+}
+
 /// The machine a ticket runs on. `deviceId` is the durable answer and survives
 /// replication; the daemon that happened to answer with the ticket is the
 /// fallback for a board written before the field existed.
@@ -27,6 +45,8 @@ export function deviceForTicket(
   return servers.find((server) => server.id === (match ? match.serverId : ticket.serverId));
 }
 
+/// The columns a board shows. Cancelled is a status you can set but not a
+/// column anyone wants standing in front of them all day.
 export const BOARD_COLUMNS: TicketStatus[] = [
   "backlog",
   "todo",
@@ -73,10 +93,6 @@ export const STATUS_TEXT: Record<TicketStatus, string> = {
 /// something an agent declared on purpose — worth saying in the UI so a status
 /// that moves on its own does not look like a bug.
 export const DERIVED_STATUSES: TicketStatus[] = ["in_progress", "needs_input"];
-
-export function agentFor(agents: Agent[], ticket: Ticket): Agent | undefined {
-  return ticket.assigneeAgentId ? agents.find((agent) => agent.id === ticket.assigneeAgentId) : undefined;
-}
 
 /// The thread a ticket is being worked in right now — the newest one linked to
 /// it that still exists on a machine we can see.

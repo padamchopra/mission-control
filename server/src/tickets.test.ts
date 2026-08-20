@@ -307,3 +307,25 @@ test("the built-in agents seed once and stay editable", () => {
   const edited = agents.updateAgent(builder.id, { role: "Changed by hand" });
   assert.equal(edited.role, "Changed by hand");
 });
+
+test("a ticket can be yours as well as an agent's", () => {
+  const mine = project("Mine");
+  const ticket = tickets.createTicket({ projectId: mine.id, title: "Something I keep" });
+
+  const kept = tickets.updateTicket(ticket.id, { assigneeAgentId: tickets.YOU });
+  assert.equal(kept.assigneeAgentId, tickets.YOU, "you are an assignee, not an agent lookup");
+
+  const agent = agents.createAgent({ name: "Handoff" });
+  const theirs = tickets.updateTicket(ticket.id, { assigneeAgentId: agent.id });
+  assert.equal(theirs.assigneeAgentId, agent.id);
+
+  // The sentinel is the only name that is not an agent; anything else is still
+  // a typo worth refusing.
+  assert.throws(
+    () => tickets.updateTicket(ticket.id, { assigneeAgentId: "nobody-by-that-id" }),
+    /no such agent/,
+  );
+
+  const cleared = tickets.updateTicket(ticket.id, { assigneeAgentId: "" });
+  assert.equal(cleared.assigneeAgentId, undefined, "clearing leaves nobody on it");
+});

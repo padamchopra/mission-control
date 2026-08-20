@@ -52,11 +52,12 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditableName } from "@/components/EditableName";
-import { Markdown } from "@/components/Markdown";
+import { Markdown, type Mention } from "@/components/Markdown";
+import { MentionField } from "@/components/MentionField";
 import { PaneHeader } from "@/components/PaneHeader";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { NewTicketDialog } from "@/components/Board";
-import { AgentAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
+import { AssigneeAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
 import { localWorkspace } from "@/lib/projects";
@@ -66,10 +67,11 @@ import {
   TICKET_STATUSES,
   byRank,
   deviceForTicket,
+  people,
   shortDate,
 } from "@/lib/tickets";
 import { useStore } from "@/state/store";
-import type { Ticket, TicketActivity, TicketStatus } from "@/state/types";
+import type { Agent, Ticket, TicketActivity, TicketStatus } from "@/state/types";
 
 /// One ticket: what it is, who has it, what it is broken into, and every thread
 /// that has worked on it.
@@ -85,12 +87,14 @@ export function TicketView({
   onOpenTicket,
   onOpenThread,
   onOpenWorkspace,
+  onOpenAgent,
 }: {
   ticket: Ticket;
   onBack: () => void;
   onOpenTicket: (key: string) => void;
   onOpenThread: (chatId: string) => void;
   onOpenWorkspace: (workspaceId: string) => void;
+  onOpenAgent: (handle: string) => void;
 }) {
   const projects = useStore((s) => s.projects);
   const servers = useStore((s) => s.servers);
@@ -115,6 +119,17 @@ export function TicketView({
   const project = projects.find((entry) => entry.id === ticket.projectId);
   const workspace = project ? localWorkspace(project, workspaces) : undefined;
   const device = deviceForTicket(ticket, boardDevices, servers);
+  // A name in a comment is a person, so it wears their name and — for an agent,
+  // which has a pane of its own — opens them.
+  const mentions = useMemo<Mention[]>(
+    () =>
+      people(agents).map((person) => ({
+        handle: person.handle,
+        label: person.name,
+        ...(person.agent ? { onOpen: () => onOpenAgent(person.agent!.handle) } : {}),
+      })),
+    [agents, onOpenAgent],
+  );
   const parent = ticket.parentId ? tickets.find((entry) => entry.id === ticket.parentId) : undefined;
   const children = useMemo(
     () => tickets.filter((entry) => entry.parentId === ticket.id).sort(byRank),
@@ -286,9 +301,7 @@ export function TicketView({
                         <StatusIcon status={child.status} />
                         <span className="font-mono text-[11px] text-muted-foreground">{child.key}</span>
                         <span className="min-w-0 flex-1 truncate text-sm">{child.title}</span>
-                        <AgentAvatar
-                          agent={agents.find((agent) => agent.id === child.assigneeAgentId)}
-                        />
+                        <AssigneeAvatar assignee={child.assigneeAgentId} agents={agents} />
                       </button>
                     </li>
                   ))}
@@ -370,8 +383,9 @@ export function TicketView({
 
             <section className="flex flex-col gap-3">
               <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Activity</h2>
-              <ActivityFeed activity={activity} />
+              <ActivityFeed activity={activity} mentions={mentions} />
               <CommentBox
+                agents={agents}
                 onSend={async (body) => {
                   try {
                     await commentOnTicket(ticket.id, body);
@@ -428,10 +442,12 @@ export function TicketView({
               <SelectContent align="end">
                 <SelectGroup>
                   <SelectItem value="none">Nobody</SelectItem>
-                  {agents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
-                      <AgentAvatar agent={agent} />
-                      {agent.name}
+                  {/* You first: a ticket you keep is the common case, and an
+                      agent only starts on one that was handed to it. */}
+                  {people(agents).map((person) => (
+                    <SelectItem key={person.id} value={person.id}>
+                      <AssigneeAvatar assignee={person.id} agents={agents} />
+                      {person.name}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -546,7 +562,13 @@ function Property({
   );
 }
 
-function ActivityFeed({ activity }: { activity: TicketActivity[] }) {
+function ActivityFeed({
+  activity,
+  mentions,
+}: {
+  activity: TicketActivity[];
+  mentions: Mention[];
+}) {
   if (activity.length === 0) {
     return <p className="text-sm text-muted-foreground">Nothing has happened yet.</p>;
   }
@@ -562,7 +584,7 @@ function ActivityFeed({ activity }: { activity: TicketActivity[] }) {
             </span>
             {entry.kind === "comment" && entry.body && (
               <div className="rounded-lg border border-border bg-card px-3 py-2">
-                <Markdown text={entry.body} />
+                <Markdown text={entry.body} mentions={mentions} />
               </div>
             )}
           </div>
@@ -600,9 +622,16 @@ function when(at: number): string {
   return new Date(at).toLocaleDateString();
 }
 
-function CommentBox({ onSend }: { onSend: (body: string) => Promise<void> }) {
+function CommentBox({
+  agents,
+  onSend,
+}: {
+  agents: Agent[];
+  onSend: (body: string) => Promise<void>;
+}) {
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
+  const roster = useMemo(() => people(agents), [agents]);
 
   const send = async () => {
     const body = value.trim();
@@ -618,17 +647,14 @@ function CommentBox({ onSend }: { onSend: (body: string) => Promise<void> }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <Textarea
+      <MentionField
         rows={3}
         value={value}
-        placeholder="Leave a note for whoever picks this up."
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          // Enter sends; Shift+Enter is a newline, the same as the composer.
-          if (event.key !== "Enter" || event.shiftKey) return;
-          event.preventDefault();
-          void send();
-        }}
+        onChange={setValue}
+        people={roster}
+        agents={agents}
+        onSubmit={() => void send()}
+        placeholder="Leave a note. @ names an agent or you."
       />
       <Button size="sm" className="self-end" disabled={!value.trim() || sending} onClick={() => void send()}>
         <Send />

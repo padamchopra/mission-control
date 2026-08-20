@@ -341,6 +341,7 @@ export function App() {
               onOpenTicket={(key) => go({ name: "ticket", key })}
               onOpenThread={openChat}
               onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
+              onOpenAgent={(handle) => go({ name: "settings", tab: "agents", item: handle })}
             />
           ) : (
             <MissingTicket ticketKey={route.key} onBack={() => go({ name: "board" })} />
