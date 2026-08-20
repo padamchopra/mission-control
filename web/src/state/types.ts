@@ -133,6 +133,18 @@ export interface ChatQuestionRequest {
   questions: ConvQuestion[];
 }
 
+/// How full this session's context window is. Absent until a turn has finished
+/// and reported token accounting.
+export interface ContextUsage {
+  tokens: number;
+  limit: number;
+  /// True when `limit` is a guess rather than a number this session proved.
+  limitEstimated: boolean;
+  model?: string;
+  compactions: number;
+  droppedTokens: number;
+}
+
 /// One open chat, as `GET /chats/:id` returns it plus the server it came from.
 export interface ChatDetail {
   id: string;
@@ -148,6 +160,7 @@ export interface ChatDetail {
   todos: ConvTodo[];
   approval?: ChatApproval;
   question?: ChatQuestionRequest;
+  context?: ContextUsage;
   /// True while the chat holds a live Claude process. A cold chat resumes on
   /// the next message, so this is a hint, not a blocker.
   live?: boolean;

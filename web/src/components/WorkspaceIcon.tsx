@@ -75,7 +75,15 @@ export function WorkspaceMark({
   const glyph = size === "lg" ? "size-[0.65em]" : "size-3";
   if (home || !workspace) {
     const Icon = deviceIcon(server?.icon);
-    return <Icon className={cn("block shrink-0", size === "lg" ? "size-[1em]" : glyph)} />;
+    if (size === "lg") {
+      return <Icon className="block shrink-0 size-[1em]" />;
+    }
+    // Same slot as a project well, so names in a list share one x.
+    return (
+      <span className={cn("inline-flex shrink-0 items-center justify-center", box)}>
+        <Icon className={cn("block", glyph)} />
+      </span>
+    );
   }
   const colors = tintOf(workspace.tint);
   const file = isProjectIconFile(workspace.icon);

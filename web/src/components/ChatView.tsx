@@ -32,6 +32,7 @@ import {
   MessageHeader,
 } from "@/components/ui/message";
 import { ComposerMenu } from "@/components/ComposerMenu";
+import { ContextMeter } from "@/components/ContextMeter";
 import { PaneHeader } from "@/components/PaneHeader";
 import { ClaudeMark } from "@/components/ClaudeMark";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -297,6 +298,7 @@ export function ChatView({ chat, headerEnd }: { chat: Chat; headerEnd?: ReactNod
                     <span className="max-w-32 truncate">{branch}</span>
                   </InputGroupText>
                 )}
+                <ContextMeter context={open?.context} />
                 {working && (
                   <InputGroupButton type="button" onClick={() => void stop()}>
                     <Square />
