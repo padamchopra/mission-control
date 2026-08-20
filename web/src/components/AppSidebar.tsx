@@ -353,15 +353,17 @@ function ThreadRow({
         <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{plainText(chat.preview)}</span>
       )}
 
-      {/* Marks, not words: they hold the right edge under the preview. */}
-      <span className="flex min-w-0 items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+      {/* Marks, not words. What the thread thinks with opens the line and where
+          it runs closes it, so neither edge is left standing empty. */}
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+        <ProviderMark model={chat.model} />
+        <span className="flex-1" />
         {elapsed && (
           <span className="flex shrink-0 items-center gap-1 tabular-nums">
             <Clock className="size-3" />
             {elapsed}
           </span>
         )}
-        <ProviderMark model={chat.model} />
         {server && (
           <Tooltip>
             <TooltipTrigger asChild>
