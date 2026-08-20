@@ -11,6 +11,23 @@ export interface RemyRelease {
   downloadUrl?: string;
 }
 
+/// Prefer the DMG built for this Mac. CI names them `Remy-{version}-{arch}.dmg`.
+export function pickDmgUrl(
+  assets: { name?: string; browser_download_url?: string }[] | undefined,
+  arch?: string,
+): string | undefined {
+  if (!assets) return undefined;
+  const dmgs = assets.filter(
+    (asset) => asset.name?.toLowerCase().endsWith(".dmg") && asset.browser_download_url,
+  );
+  if (arch) {
+    const tag = `-${arch.toLowerCase()}.`;
+    const tagged = dmgs.find((asset) => asset.name?.toLowerCase().includes(tag));
+    if (tagged) return tagged.browser_download_url;
+  }
+  return dmgs[0]?.browser_download_url;
+}
+
 /// Whether this copy was built here rather than shipped by CI.
 ///
 /// The release workflow stamps `{major}.{minor}.{run}` from the CI run number,
@@ -67,7 +84,7 @@ export function summarizeNotes(notes: string | undefined): string | undefined {
 
 /// Every release newer than `current`, newest first — what you would be getting,
 /// not just what the newest one changed.
-export async function fetchReleasesSince(current: string): Promise<RemyRelease[]> {
+export async function fetchReleasesSince(current: string, arch?: string): Promise<RemyRelease[]> {
   const response = await fetch(`https://api.github.com/repos/${REMY_REPO}/releases?per_page=30`, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": `Remy/${REMY_VERSION}` },
   });
@@ -83,29 +100,31 @@ export async function fetchReleasesSince(current: string): Promise<RemyRelease[]
 
   return body
     .filter((entry) => !entry.draft && !entry.prerelease)
-    .map((entry) => toRelease(entry))
+    .map((entry) => toRelease(entry, arch))
     .filter((release): release is RemyRelease => Boolean(release) && isNewer(release!.version, current))
     .sort((a, b) => (isNewer(a.version, b.version) ? -1 : 1));
 }
 
-function toRelease(body: {
-  tag_name?: string;
-  html_url?: string;
-  body?: string;
-  assets?: { name?: string; browser_download_url?: string }[];
-}): RemyRelease | undefined {
+function toRelease(
+  body: {
+    tag_name?: string;
+    html_url?: string;
+    body?: string;
+    assets?: { name?: string; browser_download_url?: string }[];
+  },
+  arch?: string,
+): RemyRelease | undefined {
   const version = (body.tag_name ?? "").replace(/^v/i, "").trim();
   if (!version) return undefined;
-  const dmg = body.assets?.find((asset) => asset.name?.toLowerCase().endsWith(".dmg"));
   return {
     version,
     notes: body.body?.trim() || undefined,
     pageUrl: body.html_url || `https://github.com/${REMY_REPO}/releases/latest`,
-    downloadUrl: dmg?.browser_download_url,
+    downloadUrl: pickDmgUrl(body.assets, arch),
   };
 }
 
-export async function fetchLatestRelease(): Promise<RemyRelease | undefined> {
+export async function fetchLatestRelease(arch?: string): Promise<RemyRelease | undefined> {
   const response = await fetch(`https://api.github.com/repos/${REMY_REPO}/releases/latest`, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": `Remy/${REMY_VERSION}` },
   });
@@ -117,15 +136,7 @@ export async function fetchLatestRelease(): Promise<RemyRelease | undefined> {
     body?: string;
     assets?: { name?: string; browser_download_url?: string }[];
   };
-  const version = (body.tag_name ?? "").replace(/^v/i, "").trim();
-  if (!version) return undefined;
-  const dmg = body.assets?.find((asset) => asset.name?.toLowerCase().endsWith(".dmg"));
-  return {
-    version,
-    notes: body.body?.trim() || undefined,
-    pageUrl: body.html_url || `https://github.com/${REMY_REPO}/releases/latest`,
-    downloadUrl: dmg?.browser_download_url,
-  };
+  return toRelease(body, arch);
 }
 
 function parts(version: string): number[] {

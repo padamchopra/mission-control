@@ -47,6 +47,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ComposerMenu } from "@/components/ComposerMenu";
+import { ContextMeter } from "@/components/ContextMeter";
 import { PaneHeader } from "@/components/PaneHeader";
 import { ClaudeMark } from "@/components/ClaudeMark";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -321,6 +322,7 @@ export function ChatView({
                     <span className="max-w-32 truncate">{branch}</span>
                   </InputGroupText>
                 )}
+                <ContextMeter context={open?.context} />
                 {working && (
                   <InputGroupButton type="button" onClick={() => void stop()}>
                     <Square />

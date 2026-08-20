@@ -320,9 +320,9 @@ function ThreadRow({
       className="h-auto flex-col items-stretch gap-1 py-2"
       onClick={onSelect}
     >
-      {/* Where the thread lives, and what it is answering. Above the title
-          rather than under it: it is how you find the row you meant. */}
-      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+      {/* Where the thread lives, and what it is answering — an eyebrow above
+          the title, so you place the row before you read it. */}
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] leading-none font-normal text-muted-foreground">
         <WorkspaceMark home={!workspace} workspace={workspace} server={server} size="sm" />
         <span className="min-w-0 flex-1 truncate">{place}</span>
         {ticket && (
@@ -358,9 +358,10 @@ function ThreadRow({
         <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{plainText(chat.preview)}</span>
       )}
 
-      {/* Marks, not words. What the thread thinks with opens the line and where
-          it runs closes it, so neither edge is left standing empty. */}
-      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+      {/* Marks, not words, so they don't compete with the title. What the
+          thread thinks with opens the line and where it runs closes it, so
+          neither edge is left standing empty. */}
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
         <ProviderMark model={chat.model} />
         <span className="flex-1" />
         {elapsed && (

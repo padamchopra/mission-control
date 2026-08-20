@@ -39,8 +39,12 @@ interface ListedServer {
 
 interface Bridge {
   platform: string;
+  arch?: string;
   version?: string;
-  info?: () => Promise<{ version: string; name: string }>;
+  info?: () => Promise<{ version: string; name: string; packaged?: boolean }>;
+  downloadUpdate?(): Promise<void>;
+  installUpdate?(): Promise<void>;
+  onUpdateProgress?(handler: (progress: { received: number; total: number }) => void): () => void;
   servers(): Promise<ListedServer[]>;
   request(
     serverId: string,

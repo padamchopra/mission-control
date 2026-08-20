@@ -23,7 +23,7 @@ export function useRelease() {
     setChecking(true);
     setError(undefined);
     try {
-      const releases = await fetchReleasesSince(currentRef.current);
+      const releases = await fetchReleasesSince(currentRef.current, window.remy?.arch);
       setPending(releases);
       return releases[0];
     } catch (caught) {
