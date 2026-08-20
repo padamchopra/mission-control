@@ -144,6 +144,7 @@ export function App() {
   const section = sectionOf(route) as Section;
   const view = route.name === "settings" ? "settings" : "app";
   const settingsTab: SettingsTab = route.name === "settings" ? route.tab : "general";
+  const settingsItem = route.name === "settings" ? route.item : undefined;
   const selected = route.name === "threads" ? (route.threadId ?? null) : null;
   const workspaceSettingsId = route.name === "workspaces" ? (route.workspaceId ?? null) : null;
 
@@ -186,14 +187,14 @@ export function App() {
     });
   }, [anyServerOnline, loadSettings]);
 
-  // A ticket opened straight from its URL has no board behind it yet, so the
-  // pane reads one rather than showing "no such ticket" on every reload.
+  // The sidebar puts a ticket key on every thread that has one, so the board is
+  // read once a machine answers rather than only on the board's own route.
   useEffect(() => {
-    if (route.name !== "ticket" || !anyServerOnline) return;
+    if (!anyServerOnline) return;
     void loadBoard().catch(() => {
       // An unreachable machine already shows as offline.
     });
-  }, [route.name, anyServerOnline, loadBoard]);
+  }, [anyServerOnline, loadBoard]);
 
   // Every device at once: that a thread runs somewhere else is what the row's
   // device mark says, not something to filter the list down to.
@@ -308,16 +309,25 @@ export function App() {
           sections={SECTIONS}
           onSection={(id) => go(routeForSection(id as Section))}
           onSelectChat={openChat}
+          onOpenTicket={(key) => go({ name: "ticket", key })}
           openSettings={openSettings}
           closeSettings={closeSettings}
           updateAvailable={release.available}
         />
 
         {view === "settings" ? (
-          <SettingsPane tab={settingsTab} release={release} />
+          <SettingsPane
+            tab={settingsTab}
+            item={settingsItem}
+            // Replaced rather than pushed: picking down a list is not a place
+            // the back button should have to walk through one row at a time.
+            onSelectItem={(item) => go({ name: "settings", tab: settingsTab, ...(item ? { item } : {}) }, true)}
+            release={release}
+          />
         ) : route.name === "board" ? (
           <Board
-            projectId={route.projectId}
+            scope={route.scope}
+            onScope={(scope) => go({ name: "board", ...(scope ? { scope } : {}) }, true)}
             onOpenTicket={(key) => go({ name: "ticket", key })}
             onAddWorkspace={() => setAddWorkspaceOpen(true)}
           />
@@ -326,7 +336,8 @@ export function App() {
             <TicketView
               key={openTicket.id}
               ticket={openTicket}
-              onBack={() => go({ name: "board", projectId: openTicket.projectId })}
+              onBack={() => go({ name: "board" })}
+              onOpenTicket={(key) => go({ name: "ticket", key })}
               onOpenThread={openChat}
             />
           ) : (

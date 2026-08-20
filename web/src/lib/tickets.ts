@@ -8,7 +8,7 @@ export const TICKET_STATUSES: TicketStatus[] = [
   "todo",
   "in_progress",
   "needs_input",
-  "in_review",
+  "pr_review",
   "done",
   "cancelled",
 ];
@@ -20,7 +20,7 @@ export const BOARD_COLUMNS: TicketStatus[] = [
   "todo",
   "in_progress",
   "needs_input",
-  "in_review",
+  "pr_review",
   "done",
 ];
 
@@ -29,24 +29,33 @@ export const STATUS_LABEL: Record<TicketStatus, string> = {
   todo: "Todo",
   in_progress: "In progress",
   needs_input: "Needs input",
-  in_review: "In review",
+  pr_review: "PR Review",
   done: "Done",
   cancelled: "Cancelled",
 };
 
-/// Which of Remy's tones a status borrows. `needs_input` is the one that has to
-/// carry across a room, so it takes the same warning colour the Inbox uses.
+/// Which of Remy's tones a status borrows, as a background and as a foreground.
+/// `needs_input` is the one that has to carry across a room, so it takes the
+/// same warning colour the Inbox uses.
 export const STATUS_TONE: Record<TicketStatus, string> = {
   backlog: "bg-muted-foreground/50",
   todo: "bg-foreground/70",
   in_progress: "bg-info",
   needs_input: "bg-warning",
-  in_review: "bg-primary",
+  pr_review: "bg-primary",
   done: "bg-success",
   cancelled: "bg-muted-foreground/40",
 };
 
-export const PRIORITY_LABEL = ["No priority", "Low", "Medium", "High", "Urgent"];
+export const STATUS_TEXT: Record<TicketStatus, string> = {
+  backlog: "text-muted-foreground",
+  todo: "text-foreground/70",
+  in_progress: "text-info",
+  needs_input: "text-warning",
+  pr_review: "text-primary",
+  done: "text-success",
+  cancelled: "text-muted-foreground",
+};
 
 /// Remy sets these two by watching the thread. Everything else is yours, or
 /// something an agent declared on purpose — worth saying in the UI so a status
@@ -72,11 +81,27 @@ export function byRank(a: Ticket, b: Ticket): number {
   return a.rank.localeCompare(b.rank) || a.createdAt - b.createdAt;
 }
 
-export function ticketsInColumn(tickets: Ticket[], status: TicketStatus): Ticket[] {
-  return tickets.filter((ticket) => ticket.status === status).sort(byRank);
+/// A board only shows tickets that are not part of another one — a sub-ticket
+/// belongs on its parent, where its progress is already counted.
+export function topLevel(tickets: Ticket[]): Ticket[] {
+  return tickets.filter((ticket) => !ticket.parentId);
 }
 
-/// The two neighbours a card lands between when it is moved to `index` of a
+export function ticketsInColumn(tickets: Ticket[], status: TicketStatus): Ticket[] {
+  return topLevel(tickets)
+    .filter((ticket) => ticket.status === status)
+    .sort(byRank);
+}
+
+/// How far through its sub-tickets a ticket is. Cancelled ones are not work
+/// anybody still owes, so they count as settled rather than outstanding.
+export function subTicketProgress(tickets: Ticket[], ticket: Ticket): { done: number; total: number } {
+  const children = tickets.filter((entry) => entry.parentId === ticket.id);
+  const done = children.filter((entry) => entry.status === "done" || entry.status === "cancelled").length;
+  return { done, total: children.length };
+}
+
+/// The two neighbours a card lands between when it is dropped at `index` of a
 /// column, so the server can mint one rank rather than renumber the column.
 export function neighboursAt(
   tickets: Ticket[],
@@ -86,4 +111,16 @@ export function neighboursAt(
 ): { before?: string; after?: string } {
   const column = ticketsInColumn(tickets, status).filter((ticket) => ticket.id !== moving);
   return { before: column[index - 1]?.rank, after: column[index]?.rank };
+}
+
+/// A date on a card, short enough to sit under a title. This year needs no year
+/// on it; anything older does.
+export function shortDate(at: number): string {
+  const date = new Date(at);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
 }

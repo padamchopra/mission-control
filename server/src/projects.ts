@@ -18,8 +18,8 @@ import { listWorkspaces, type Workspace } from "./workspaces.js";
 export interface Project {
   id: string;
   name: string;
-  /// The letters in front of a ticket key. Fixed once, because a key that
-  /// renames itself is not a key.
+  /// The letters in front of a ticket key. Changing it re-keys every ticket in
+  /// the project at once, because a key is derived rather than stored.
   keyPrefix: string;
   origin?: string;
   createdAt: number;
@@ -33,6 +33,18 @@ export interface ProjectView extends Project {
 }
 
 const EDITABLE = ["name", "keyPrefix", "origin"] as const;
+
+/// A slug someone typed, held to what reads as a ticket key: letters and
+/// digits, upper case, short enough to sit in front of a number.
+export function ticketSlug(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value
+    .toUpperCase()
+    .normalize("NFKD")
+    .replace(/[^A-Z0-9]+/g, "")
+    .slice(0, 6);
+  return cleaned || undefined;
+}
 
 /// Five letters at most, from the words of a name: "Remy" → REMY, "mission
 /// control" → MC. Falls back to a readable constant rather than an empty tag.
@@ -188,15 +200,46 @@ export function createProject(input: { name: string; origin?: string }): Project
   return project;
 }
 
-export function updateProject(id: string, patch: { name?: unknown }): Project {
+/// Renames a project, and changes the slug its tickets are keyed by.
+///
+/// Nothing is rewritten per ticket: a key is the ticket's number behind the
+/// project's slug, so changing the slug here changes every key — the ones that
+/// already exist and the ones that do not yet.
+export function updateProject(id: string, patch: { name?: unknown; keyPrefix?: unknown }): Project {
   const existing = getProject(id);
   if (!existing) throw new Error("no such project");
-  const name = typeof patch.name === "string" ? patch.name.trim().slice(0, 60) : undefined;
-  if (!name) return existing;
-  append("project", id, "field", { name });
+  const fields: Record<string, unknown> = {};
+
+  if (patch.name !== undefined) {
+    const name = typeof patch.name === "string" ? patch.name.trim().slice(0, 60) : "";
+    if (!name) throw new Error("a project needs a name");
+    fields.name = name;
+  }
+  if (patch.keyPrefix !== undefined) {
+    const slug = ticketSlug(patch.keyPrefix);
+    if (!slug) throw new Error("a slug needs at least one letter or digit");
+    const clash = db
+      .prepare("select id from projects where key_prefix = ? and id != ? and deleted = 0")
+      .get(slug, id) as { id?: string } | undefined;
+    if (clash) throw new Error(`another project already uses ${slug}`);
+    fields.keyPrefix = slug;
+  }
+  if (Object.keys(fields).length === 0) return existing;
+
+  append("project", id, "field", fields);
   const project = reproject(id);
   if (!project) throw new Error("no such project");
+  // Keys are derived, but the copy kept on each ticket row is what queries read,
+  // so the project's tickets are rebuilt when its slug moves.
+  if (fields.keyPrefix) onSlugChanged?.(id);
   return project;
+}
+
+/// Called when a project's slug changes. Set by `tickets.ts` at import time —
+/// projects cannot import tickets, which import projects.
+let onSlugChanged: ((projectId: string) => void) | undefined;
+export function whenSlugChanges(handler: (projectId: string) => void): void {
+  onSlugChanged = handler;
 }
 
 export function bindWorkspace(projectId: string, workspaceId: string): void {
@@ -255,20 +298,20 @@ export async function workspacePathForProject(projectId: string): Promise<string
   return workspaces.find((workspace) => ids.has(workspace.id))?.path;
 }
 
-/// The next ticket key for a project.
+/// The next ticket number for a project.
 ///
-/// Derived from the keys that exist rather than a stored counter, so it stays
-/// correct when events arrive out of order. Once peers land this gains a
+/// Derived from the numbers that exist rather than a stored counter, so it
+/// stays correct when events arrive out of order. Once peers land this gains a
 /// per-device block so two machines cannot mint the same number while they
 /// cannot see each other.
-export function nextTicketKey(project: Project): string {
-  const rows = db
-    .prepare("select key from tickets where project_id = ?")
-    .all(project.id) as { key: string }[];
-  let high = 0;
-  for (const row of rows) {
-    const n = Number(row.key.slice(row.key.lastIndexOf("-") + 1));
-    if (Number.isFinite(n) && n > high) high = n;
-  }
-  return `${project.keyPrefix}-${high + 1}`;
+export function nextTicketNumber(projectId: string): number {
+  const row = db
+    .prepare("select max(number) as high from tickets where project_id = ?")
+    .get(projectId) as { high?: number | null };
+  return Number(row?.high ?? 0) + 1;
+}
+
+/// What a ticket is called: its number behind its project's slug.
+export function ticketKey(projectId: string, number: number): string {
+  return `${getProject(projectId)?.keyPrefix ?? "TASK"}-${number}`;
 }

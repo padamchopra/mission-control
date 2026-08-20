@@ -1,6 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, Link2, Link2Off, MessagesSquare, Send } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowUpRight, GitBranch, Link2, Link2Off, MessagesSquare, Plus, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,16 +29,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -43,55 +44,63 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { EditableName } from "@/components/EditableName";
 import { Markdown } from "@/components/Markdown";
 import { PaneHeader } from "@/components/PaneHeader";
+import { NewTicketDialog } from "@/components/Board";
+import { AgentAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
-import {
-  DERIVED_STATUSES,
-  PRIORITY_LABEL,
-  STATUS_LABEL,
-  STATUS_TONE,
-  TICKET_STATUSES,
-} from "@/lib/tickets";
-import { tintOf } from "@/lib/tints";
-import { cn } from "@/lib/utils";
+import { DERIVED_STATUSES, STATUS_LABEL, TICKET_STATUSES, byRank, shortDate } from "@/lib/tickets";
 import { useStore } from "@/state/store";
 import type { Ticket, TicketActivity, TicketStatus } from "@/state/types";
 
-/// One ticket: what it is, who has it, and every thread that has worked on it.
+/// One ticket: what it is, who has it, what it is broken into, and every thread
+/// that has worked on it.
 ///
-/// The activity feed below is the log the board is built from rather than a
+/// A reading column down the middle and its properties down the side, so the
+/// description keeps a comfortable measure however wide the window is. The
+/// activity feed at the foot is the log the board is built from rather than a
 /// summary of it, so it cannot say something different from what happened.
 
 export function TicketView({
   ticket,
   onBack,
+  onOpenTicket,
   onOpenThread,
 }: {
   ticket: Ticket;
   onBack: () => void;
+  onOpenTicket: (key: string) => void;
   onOpenThread: (chatId: string) => void;
 }) {
   const projects = useStore((s) => s.projects);
   const agents = useStore((s) => s.agents);
   const chats = useStore((s) => s.chats);
+  const tickets = useStore((s) => s.tickets);
   const updateTicket = useStore((s) => s.updateTicket);
   const moveTicket = useStore((s) => s.moveTicket);
+  const deleteTicket = useStore((s) => s.deleteTicket);
   const commentOnTicket = useStore((s) => s.commentOnTicket);
   const detachThread = useStore((s) => s.detachThread);
   const readActivity = useStore((s) => s.ticketActivity);
 
   const [activity, setActivity] = useState<TicketActivity[]>([]);
   const [attaching, setAttaching] = useState(false);
+  const [addingSub, setAddingSub] = useState(false);
   const [editingBody, setEditingBody] = useState(false);
   const [draft, setDraft] = useState(ticket.body);
 
   const project = projects.find((entry) => entry.id === ticket.projectId);
+  const parent = ticket.parentId ? tickets.find((entry) => entry.id === ticket.parentId) : undefined;
+  const children = useMemo(
+    () => tickets.filter((entry) => entry.parentId === ticket.id).sort(byRank),
+    [tickets, ticket.id],
+  );
+  const done = children.filter((c) => c.status === "done" || c.status === "cancelled").length;
 
   const refreshActivity = useCallback(() => {
     void readActivity(ticket.id)
       .then(setActivity)
       .catch(() => {
-        // The feed is a read of the same events the pane already shows; a
-        // failure here is not worth interrupting the ticket for.
+        // The feed reads the same events the pane already shows; a failure here
+        // is not worth interrupting the ticket for.
       });
   }, [readActivity, ticket.id]);
 
@@ -111,203 +120,185 @@ export function TicketView({
       <PaneHeader
         crumbs={[
           { label: "Board", onClick: onBack },
-          ...(project ? [{ label: project.name, onClick: onBack }] : []),
+          ...(parent ? [{ label: parent.key, onClick: () => onOpenTicket(parent.key) }] : []),
           { label: ticket.key },
         ]}
       >
-        <Select
-          value={ticket.status}
-          onValueChange={(value) => void moveTicket(ticket.id, value as TicketStatus)}
-        >
-          <SelectTrigger size="sm" className="w-40 shrink-0" aria-label="Status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectGroup>
-              {TICKET_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  <span className={cn("size-2 rounded-full", STATUS_TONE[status])} />
-                  {STATUS_LABEL[status]}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </PaneHeader>
-
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6">
-          <div className="flex flex-col gap-2">
-            <h1>
-              <EditableName
-                value={ticket.title}
-                label="ticket title"
-                className="text-xl leading-tight font-semibold"
-                onCommit={(title) => void save({ title }, "the title")}
-              />
-            </h1>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-mono">{ticket.key}</span>
-              {ticket.branch && (
-                <>
-                  <span aria-hidden>·</span>
-                  <span className="font-mono">{ticket.branch}</span>
-                </>
-              )}
-              {DERIVED_STATUSES.includes(ticket.status) && ticket.threads.length > 0 && (
-                <>
-                  <span aria-hidden>·</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-default underline decoration-dotted">follows its thread</span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Remy moves this between In progress and Needs input. Any other status is yours.
-                    </TooltipContent>
-                  </Tooltip>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field orientation="horizontal" className="items-center">
-              <FieldContent>
-                <FieldLabel htmlFor="ticket-assignee">Assignee</FieldLabel>
-              </FieldContent>
-              <Select
-                value={ticket.assigneeAgentId ?? "none"}
-                onValueChange={(value) =>
-                  void save({ assigneeAgentId: value === "none" ? "" : value }, "the assignee")
+        <AlertDialog>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label={`Delete ${ticket.key}`}>
+                  <Trash2 />
+                </Button>
+              </AlertDialogTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Delete ticket</TooltipContent>
+          </Tooltip>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {ticket.key}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {children.length > 0
+                  ? `Its ${children.length} sub-ticket${children.length === 1 ? "" : "s"} stay, without a parent.`
+                  : "Threads that worked on it keep running."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  void deleteTicket(ticket.id)
+                    .then(onBack)
+                    .catch((error) => toast.error("Couldn't delete that ticket", { description: apiError(error) }))
                 }
               >
-                <SelectTrigger id="ticket-assignee" size="sm" className="w-40 shrink-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectGroup>
-                    <SelectItem value="none">Nobody</SelectItem>
-                    {agents.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        <span className={cn("size-2 rounded-full", tintOf(agent.tint).swatch)} />
-                        {agent.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </PaneHeader>
 
-            <Field orientation="horizontal" className="items-center">
-              <FieldContent>
-                <FieldLabel htmlFor="ticket-priority">Priority</FieldLabel>
-              </FieldContent>
-              <Select
-                value={String(ticket.priority)}
-                onValueChange={(value) => void save({ priority: Number(value) }, "the priority")}
-              >
-                <SelectTrigger id="ticket-priority" size="sm" className="w-40 shrink-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectGroup>
-                    {PRIORITY_LABEL.map((label, value) => (
-                      <SelectItem key={label} value={String(value)}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-
-          <Separator />
-
-          <section className="flex flex-col gap-2">
-            <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Description</h2>
-            {editingBody ? (
-              <div className="flex flex-col gap-2">
-                <Textarea
-                  autoFocus
-                  rows={8}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder="What has to change, and how you will know it worked."
+      <div className="flex min-h-0 flex-1">
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-7 px-6 py-7">
+            <div className="flex flex-col gap-2">
+              <h1>
+                <EditableName
+                  value={ticket.title}
+                  label="ticket title"
+                  className="text-2xl leading-tight font-semibold"
+                  onCommit={(title) => void save({ title }, "the title")}
                 />
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setEditingBody(false);
-                      void save({ body: draft }, "the description");
-                    }}
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setDraft(ticket.body);
-                      setEditingBody(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
+              </h1>
+              <p className="text-xs text-muted-foreground">
+                {project?.name} · created {shortDate(ticket.createdAt)}
+              </p>
+            </div>
+
+            <section className="flex flex-col gap-2">
+              {editingBody ? (
+                <div className="flex flex-col gap-2">
+                  <Textarea
+                    autoFocus
+                    rows={10}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder="What has to change, and how you will know it worked."
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setEditingBody(false);
+                        void save({ body: draft }, "the description");
+                      }}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setDraft(ticket.body);
+                        setEditingBody(false);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setEditingBody(true)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  event.preventDefault();
-                  setEditingBody(true);
-                }}
-                className="cursor-text rounded-lg border border-transparent px-3 py-2 hover:border-border focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              >
-                {ticket.body ? (
-                  <Markdown text={ticket.body} />
-                ) : (
-                  <p className="text-sm text-muted-foreground">Add a description.</p>
+              ) : (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setEditingBody(true)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    setEditingBody(true);
+                  }}
+                  className="-mx-3 cursor-text rounded-lg border border-transparent px-3 py-2 hover:border-border focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  {ticket.body ? (
+                    <Markdown text={ticket.body} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Add a description.</p>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Sub-tickets
+                </h2>
+                {children.length > 0 && <SubTicketProgress done={done} total={children.length} />}
+                {!parent && (
+                  <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setAddingSub(true)}>
+                    <Plus />
+                    Add
+                  </Button>
                 )}
               </div>
-            )}
-          </section>
+              {children.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {parent ? "A sub-ticket cannot have its own." : "Break this into pieces if it is too big."}
+                </p>
+              ) : (
+                <ul className="flex flex-col">
+                  {children.map((child) => (
+                    <li key={child.id}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenTicket(child.key)}
+                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      >
+                        <StatusIcon status={child.status} />
+                        <span className="font-mono text-[11px] text-muted-foreground">{child.key}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm">{child.title}</span>
+                        <AgentAvatar
+                          agent={agents.find((agent) => agent.id === child.assigneeAgentId)}
+                        />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-          <section className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Threads</h2>
-              <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setAttaching(true)}>
-                <Link2 />
-                Attach a thread
-              </Button>
-            </div>
-            {ticket.threads.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-muted-foreground">
-                No thread has worked on this yet.
-              </p>
-            ) : (
-              <ItemGroup className="gap-1.5">
-                {ticket.threads.map((link) => {
-                  const chat = chats.find((entry) => entry.id === link.chatId);
-                  const agent = agents.find((entry) => entry.id === link.agentId);
-                  return (
-                    <Item key={link.chatId} variant="outline" size="sm">
-                      <ItemMedia>
-                        <MessagesSquare className="size-4 text-muted-foreground" />
-                      </ItemMedia>
-                      <ItemContent>
-                        <ItemTitle className="truncate">{chat?.title ?? "A thread on another machine"}</ItemTitle>
-                        <ItemDescription>
-                          {agent ? `${agent.name} · ` : ""}
-                          {link.linkedBy === "runner" ? "started by the board" : "attached by you"}
-                        </ItemDescription>
-                      </ItemContent>
-                      <ItemActions>
+            <section className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Threads</h2>
+                <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setAttaching(true)}>
+                  <Link2 />
+                  Attach a thread
+                </Button>
+              </div>
+              {ticket.threads.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No thread has worked on this yet.</p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {ticket.threads.map((link) => {
+                    const chat = chats.find((entry) => entry.id === link.chatId);
+                    const agent = agents.find((entry) => entry.id === link.agentId);
+                    return (
+                      <li
+                        key={link.chatId}
+                        className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2"
+                      >
+                        <MessagesSquare className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm">
+                            {chat?.title ?? "A thread on another machine"}
+                          </span>
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {agent ? `${agent.name} · ` : ""}
+                            {link.linkedBy === "runner" ? "started by the board" : "attached by you"}
+                          </span>
+                        </span>
                         {chat && chat.state !== "idle" && (
                           <Badge variant={chat.state === "needs_input" ? "warning" : "info"}>
                             {chat.state === "needs_input" ? "Needs you" : "Working"}
@@ -341,30 +332,100 @@ export function TicketView({
                           </TooltipTrigger>
                           <TooltipContent>Detach thread</TooltipContent>
                         </Tooltip>
-                      </ItemActions>
-                    </Item>
-                  );
-                })}
-              </ItemGroup>
-            )}
-          </section>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
 
-          <section className="flex flex-col gap-3">
-            <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Activity</h2>
-            <ActivityFeed activity={activity} />
-            <CommentBox
-              onSend={async (body) => {
-                try {
-                  await commentOnTicket(ticket.id, body);
-                  refreshActivity();
-                } catch (error) {
-                  toast.error("Couldn't add that comment", { description: apiError(error) });
-                }
-              }}
-            />
-          </section>
-        </div>
-      </ScrollArea>
+            <Separator />
+
+            <section className="flex flex-col gap-3">
+              <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Activity</h2>
+              <ActivityFeed activity={activity} />
+              <CommentBox
+                onSend={async (body) => {
+                  try {
+                    await commentOnTicket(ticket.id, body);
+                    refreshActivity();
+                  } catch (error) {
+                    toast.error("Couldn't add that comment", { description: apiError(error) });
+                  }
+                }}
+              />
+            </section>
+          </div>
+        </ScrollArea>
+
+        {/* Properties sit beside the reading column rather than above it, so the
+            description keeps its measure and nothing has to be scrolled past to
+            change an assignee. */}
+        <aside className="hidden w-64 shrink-0 flex-col gap-5 border-l border-border px-4 py-7 lg:flex">
+          <Property label="Status" htmlFor="ticket-status">
+            <Select
+              value={ticket.status}
+              onValueChange={(value) => void moveTicket(ticket.id, value as TicketStatus)}
+            >
+              <SelectTrigger id="ticket-status" size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectGroup>
+                  {TICKET_STATUSES.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      <StatusIcon status={status} decorative />
+                      {STATUS_LABEL[status]}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {DERIVED_STATUSES.includes(ticket.status) && ticket.threads.length > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                Remy moves this between In progress and Needs input while a thread is on it.
+              </p>
+            )}
+          </Property>
+
+          <Property label="Assignee" htmlFor="ticket-assignee">
+            <Select
+              value={ticket.assigneeAgentId ?? "none"}
+              onValueChange={(value) =>
+                void save({ assigneeAgentId: value === "none" ? "" : value }, "the assignee")
+              }
+            >
+              <SelectTrigger id="ticket-assignee" size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectGroup>
+                  <SelectItem value="none">Nobody</SelectItem>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      <AgentAvatar agent={agent} />
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Property>
+
+          {ticket.branch && (
+            <Property label="Branch">
+              <span className="flex items-center gap-1.5 font-mono text-xs break-all text-muted-foreground">
+                <GitBranch className="size-3.5 shrink-0" />
+                {ticket.branch}
+              </span>
+            </Property>
+          )}
+
+          <Property label="Workspace">
+            <span className="text-sm">{project?.name ?? "—"}</span>
+          </Property>
+        </aside>
+      </div>
 
       <AttachThreadDialog
         open={attaching}
@@ -372,7 +433,37 @@ export function TicketView({
         ticket={ticket}
         onAttached={refreshActivity}
       />
+      <NewTicketDialog
+        open={addingSub}
+        onOpenChange={setAddingSub}
+        projects={projects}
+        projectId={ticket.projectId}
+        parentId={ticket.id}
+        onCreated={onOpenTicket}
+      />
     </main>
+  );
+}
+
+function Property({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor={htmlFor}
+        className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+      >
+        {label}
+      </label>
+      {children}
+    </div>
   );
 }
 

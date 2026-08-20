@@ -11,11 +11,11 @@ export type Route =
   | { name: "inbox" }
   | { name: "threads"; threadId?: string }
   | { name: "workspaces"; workspaceId?: string }
-  | { name: "board"; projectId?: string }
+  | { name: "board"; scope?: string }
   | { name: "ticket"; key: string }
   | { name: "prs" }
   | { name: "loops" }
-  | { name: "settings"; tab: SettingsTab };
+  | { name: "settings"; tab: SettingsTab; item?: string };
 
 export interface AppLocation {
   route: Route;
@@ -42,20 +42,25 @@ export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs
 export function parseLocation(hash: string): AppLocation {
   const raw = hash.replace(/^#/, "");
   const [path] = raw.split("?");
-  const [head, tail] = path.replace(/^\/+/, "").split("/");
+  const [head, tail, extra] = path.replace(/^\/+/, "").split("/");
   const rest = tail ? decodeURIComponent(tail) : undefined;
+  // A third segment only means something to a settings tab that is a list and
+  // a detail — Agents, so far.
+  const item = extra ? decodeURIComponent(extra) : undefined;
 
   if (head === "inbox") return { route: { name: "inbox" } };
   if (head === "workspaces") return { route: { name: "workspaces", workspaceId: rest } };
   if (head === "pull-requests") return { route: { name: "prs" } };
   if (head === "loops") return { route: { name: "loops" } };
-  if (head === "board") return { route: { name: "board", projectId: rest } };
+  // The board's segment is the key prefixes it is filtered to, comma joined —
+  // `#/board/REMY,ATLAS` — so a filtered view is a link you can send someone.
+  if (head === "board") return { route: { name: "board", scope: rest } };
   // Tickets are addressed by key rather than id, so a link someone pastes reads
   // as the thing it opens.
   if (head === "tickets" && rest) return { route: { name: "ticket", key: rest } };
   if (head === "settings") {
     const tab = SETTINGS_TABS.includes(rest as SettingsTab) ? (rest as SettingsTab) : "general";
-    return { route: { name: "settings", tab } };
+    return { route: { name: "settings", tab, ...(item ? { item } : {}) } };
   }
   // Threads are the front door, so anything unrecognised lands there rather
   // than on a blank screen.
@@ -69,11 +74,11 @@ export function formatLocation({ route }: AppLocation): string {
       : route.name === "workspaces"
         ? `/workspaces${route.workspaceId ? `/${encodeURIComponent(route.workspaceId)}` : ""}`
         : route.name === "board"
-          ? `/board${route.projectId ? `/${encodeURIComponent(route.projectId)}` : ""}`
+          ? `/board${route.scope ? `/${encodeURIComponent(route.scope)}` : ""}`
           : route.name === "ticket"
             ? `/tickets/${encodeURIComponent(route.key)}`
             : route.name === "settings"
-              ? `/settings/${route.tab}`
+              ? `/settings/${route.tab}${route.item ? `/${encodeURIComponent(route.item)}` : ""}`
               : route.name === "prs"
                 ? "/pull-requests"
                 : `/${route.name}`;

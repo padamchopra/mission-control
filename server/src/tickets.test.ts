@@ -66,6 +66,44 @@ test("two projects get distinct prefixes even when their names collide", () => {
   assert.notEqual(a.keyPrefix, b.keyPrefix);
 });
 
+test("renaming a project's slug re-keys every ticket it has", () => {
+  const board = project("Rename me");
+  const one = tickets.createTicket({ projectId: board.id, title: "First" });
+  const two = tickets.createTicket({ projectId: board.id, title: "Second" });
+  assert.equal(one.key, `${board.keyPrefix}-1`);
+  assert.equal(two.key, `${board.keyPrefix}-2`);
+
+  projects.updateProject(board.id, { keyPrefix: "zeta" });
+
+  // The numbers are what the tickets own; the slug in front of them belongs to
+  // the project, so both keys move together and neither is renumbered.
+  assert.equal(tickets.getTicket(one.id)?.key, "ZETA-1");
+  assert.equal(tickets.getTicket(two.id)?.key, "ZETA-2");
+  assert.equal(tickets.ticketByKey("ZETA-2")?.id, two.id);
+
+  // And a ticket made afterwards carries on from where they left off.
+  assert.equal(tickets.createTicket({ projectId: board.id, title: "Third" }).key, "ZETA-3");
+});
+
+test("a slug is cleaned, and two projects cannot share one", () => {
+  const first = project("Slugs one");
+  const second = project("Slugs two");
+  assert.equal(projects.updateProject(first.id, { keyPrefix: " my proj! " }).keyPrefix, "MYPROJ");
+  assert.throws(() => projects.updateProject(second.id, { keyPrefix: "myproj" }), /already uses/);
+  assert.throws(() => projects.updateProject(second.id, { keyPrefix: "!!!" }), /letter or digit/);
+});
+
+test("a sub-ticket hangs off its parent and cannot nest further", () => {
+  const board = project("Nesting");
+  const parent = tickets.createTicket({ projectId: board.id, title: "Parent" });
+  const child = tickets.createTicket({ projectId: board.id, title: "Child", parentId: parent.id });
+  assert.equal(child.parentId, parent.id);
+
+  const other = tickets.createTicket({ projectId: board.id, title: "Grandchild" });
+  assert.throws(() => tickets.updateTicket(other.id, { parentId: child.id }), /already a sub-ticket/);
+  assert.throws(() => tickets.updateTicket(parent.id, { parentId: parent.id }), /its own parent/);
+});
+
 // ── status rules ────────────────────────────────────────────────────────────
 
 test("a thread only moves a ticket between In progress and Needs input", () => {
@@ -153,7 +191,7 @@ test("a ticket projects the same whatever order its events arrive in", () => {
   const ticket = tickets.createTicket({ projectId: board.id, title: "Ordered" });
   tickets.setTicketStatus(ticket.id, "in_progress");
   tickets.updateTicket(ticket.id, { title: "Renamed once" });
-  tickets.setTicketStatus(ticket.id, "in_review");
+  tickets.setTicketStatus(ticket.id, "pr_review");
   const expected = tickets.getTicket(ticket.id);
 
   // Replay the same events with their rows shuffled. The fold sorts by
@@ -214,10 +252,19 @@ test("every board write is an event, so nothing changes without a record", () =>
 test("an agent handle is unique and usable in a tool call", () => {
   const first = agents.createAgent({ name: "Iris the Scout" });
   assert.equal(first.handle, "iris-the-scout");
-  assert.throws(() => agents.createAgent({ name: "iris the scout" }), /already uses/);
+
+  // A handle derived from a name is only a default, so a clash steps aside —
+  // which is what lets New agent be pressed twice.
+  const second = agents.createAgent({ name: "iris the scout" });
+  assert.equal(second.handle, "iris-the-scout-2");
+
+  // One you typed has to be the one you get, so a clash is an error.
+  assert.throws(() => agents.createAgent({ name: "Someone", handle: "iris-the-scout" }), /already uses/);
+
   // Renaming to a free handle is fine; the clash check exempts the agent itself.
   const renamed = agents.updateAgent(first.id, { handle: "iris" });
   assert.equal(renamed.handle, "iris");
+  assert.equal(agents.updateAgent(first.id, { handle: "iris" }).handle, "iris");
 });
 
 test("git identity modes decide which variables a thread gets", () => {

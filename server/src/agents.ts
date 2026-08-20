@@ -252,11 +252,24 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
     patch.name = name;
   }
   if (input.handle !== undefined || (!existing && patch.name)) {
-    const handle = agentHandle(input.handle) ?? agentHandle(patch.name);
+    const asked = agentHandle(input.handle);
+    const handle = asked ?? agentHandle(patch.name);
     if (!handle) throw new Error("that handle has no usable characters");
-    const clash = agentByHandle(handle);
-    if (clash && clash.id !== existing?.id) throw new Error(`another agent already uses @${handle}`);
-    patch.handle = handle;
+    const free = (candidate: string) => {
+      const clash = agentByHandle(candidate);
+      return !clash || clash.id === existing?.id;
+    };
+    // A handle you typed has to be the one you get, so a clash is an error. One
+    // derived from a name is only a default, so it gets out of the way instead
+    // — which is what lets "New agent" be pressed twice.
+    if (asked) {
+      if (!free(handle)) throw new Error(`another agent already uses @${handle}`);
+      patch.handle = handle;
+    } else {
+      let candidate = handle;
+      for (let n = 2; !free(candidate) && n < 100; n += 1) candidate = `${handle}-${n}`;
+      patch.handle = candidate;
+    }
   }
   if (input.role !== undefined) patch.role = text(input.role, 80) ?? "";
   if (input.instructions !== undefined) patch.instructions = text(input.instructions, 8000) ?? "";

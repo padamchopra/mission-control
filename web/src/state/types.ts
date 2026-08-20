@@ -230,6 +230,8 @@ export interface Project {
   id: string;
   serverId: string;
   name: string;
+  /// The letters in front of a ticket key. Editable, and every ticket in the
+  /// project follows it.
   keyPrefix: string;
   origin?: string;
   /// Workspaces on that machine which are this project. Empty means the repo is
@@ -242,7 +244,7 @@ export type TicketStatus =
   | "todo"
   | "in_progress"
   | "needs_input"
-  | "in_review"
+  | "pr_review"
   | "done"
   | "cancelled";
 
@@ -260,6 +262,9 @@ export interface TicketThread {
 export interface Ticket {
   id: string;
   serverId: string;
+  /// Its own number. `key` is that behind the project's slug, so renaming the
+  /// slug renames every key.
+  number: number;
   key: string;
   projectId: string;
   title: string;

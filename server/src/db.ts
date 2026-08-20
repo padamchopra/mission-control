@@ -125,6 +125,9 @@ function migrate(database: DatabaseSync): void {
     );
     create table if not exists tickets (
       id text primary key,
+      -- The number is what a ticket owns; the key is that number behind its
+      -- project's slug, recomputed whenever either changes.
+      number integer not null default 0,
       key text not null,
       project_id text not null,
       title text not null,
@@ -168,6 +171,11 @@ function migrate(database: DatabaseSync): void {
   }
   try {
     database.exec("alter table chats add column agent_id text");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
+  try {
+    database.exec("alter table tickets add column number integer not null default 0");
   } catch {
     // Column already exists on databases created after this migration.
   }

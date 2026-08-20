@@ -99,9 +99,14 @@ export const SETTINGS_SECTIONS: {
 
 export function SettingsPane({
   tab,
+  item,
+  onSelectItem,
   release,
 }: {
   tab: SettingsTab;
+  /// The row a list-and-detail tab has open, from the URL.
+  item?: string;
+  onSelectItem: (item?: string) => void;
   release: {
     current: string;
     latest?: RemyRelease;
@@ -113,7 +118,16 @@ export function SettingsPane({
     check: () => Promise<RemyRelease | undefined>;
   };
 }) {
-  const section = SETTINGS_SECTIONS.find((item) => item.id === tab)!;
+  const section = SETTINGS_SECTIONS.find((entry) => entry.id === tab)!;
+
+  if (tab === "agents") {
+    return (
+      <main className="flex min-w-0 flex-1 flex-col">
+        <PaneHeader crumbs={[{ label: "Settings" }, { label: section.label }]} />
+        <AgentsSettings item={item} onSelectItem={onSelectItem} />
+      </main>
+    );
+  }
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -128,8 +142,6 @@ export function SettingsPane({
             <VersionControlPane />
           ) : tab === "providers" ? (
             <ProvidersPane />
-          ) : tab === "agents" ? (
-            <AgentsSettings />
           ) : (
             <GeneralPane release={release} />
           )}
@@ -822,12 +834,24 @@ function when(at: number): string {
 
 /// The roster lives in its own module; this only hands it the machine setting
 /// that decides what a new agent signs with.
-function AgentsSettings() {
+function AgentsSettings({ item, onSelectItem }: { item?: string; onSelectItem: (item?: string) => void }) {
   const { settings, online, save } = useServerSettings();
-  if (!online) return <Unreachable />;
-  if (!settings) return <p className="text-sm shimmer text-muted-foreground">Reading this machine's agents…</p>;
+  if (!online) {
+    return (
+      <div className="flex flex-1 flex-col px-5 py-6">
+        <Unreachable />
+      </div>
+    );
+  }
+  if (!settings) {
+    return (
+      <p className="shimmer px-5 py-6 text-sm text-muted-foreground">Reading this machine's agents…</p>
+    );
+  }
   return (
     <AgentsPane
+      selected={item}
+      onSelect={onSelectItem}
       defaultGitIdentity={settings.defaultGitIdentity ?? "author"}
       onSaveDefaultIdentity={(value) =>
         void save({ defaultGitIdentity: value as "off" | "author" | "full" }, "what agents sign with")

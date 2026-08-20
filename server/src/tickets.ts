@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { append, applyFields, deviceId, entityIds, eventsFor, type LogEvent } from "./board-log.js";
 import { getAgent, listAgents } from "./agents.js";
 import { db, runTransaction } from "./db.js";
-import { getProject, nextTicketKey } from "./projects.js";
+import { getProject, nextTicketNumber, ticketKey, whenSlugChanges } from "./projects.js";
 
 /// Tickets, their activity, and the threads that have worked on them.
 ///
@@ -16,7 +16,7 @@ export type TicketStatus =
   | "todo"
   | "in_progress"
   | "needs_input"
-  | "in_review"
+  | "pr_review"
   | "done"
   | "cancelled";
 
@@ -25,7 +25,7 @@ export const TICKET_STATUSES: TicketStatus[] = [
   "todo",
   "in_progress",
   "needs_input",
-  "in_review",
+  "pr_review",
   "done",
   "cancelled",
 ];
@@ -37,6 +37,9 @@ const DERIVED: TicketStatus[] = ["in_progress", "needs_input"];
 
 export interface Ticket {
   id: string;
+  /// The ticket's own number. `key` is this behind the project's slug, and is
+  /// recomputed rather than stored — so renaming a slug re-keys every ticket.
+  number: number;
   key: string;
   projectId: string;
   title: string;
@@ -138,7 +141,8 @@ function foldTicket(id: string, events: LogEvent[]): Ticket | undefined {
     if (event.kind === "create") {
       ticket = {
         id,
-        key: String(event.payload.key ?? id.slice(0, 8)),
+        number: Number(event.payload.number ?? 0),
+        key: "",
         projectId: String(event.payload.projectId ?? ""),
         title: String(event.payload.title ?? "Untitled"),
         body: String(event.payload.body ?? ""),
@@ -199,7 +203,10 @@ function foldThreads(events: LogEvent[]): TicketThread[] {
 
 export function reproject(id: string): Ticket | undefined {
   const events = eventsFor("ticket", id);
-  const ticket = events.length ? foldTicket(id, events) : undefined;
+  const folded = events.length ? foldTicket(id, events) : undefined;
+  // The key is never folded: it is the number behind whatever the project's
+  // slug is right now.
+  const ticket = folded && { ...folded, key: ticketKey(folded.projectId, folded.number) };
   db.prepare("delete from ticket_threads where ticket_id = ?").run(id);
   if (!ticket) {
     db.prepare("update tickets set deleted = 1 where id = ?").run(id);
@@ -207,12 +214,13 @@ export function reproject(id: string): Ticket | undefined {
   }
   db.prepare(
     `insert into tickets (
-       id, key, project_id, title, body, status, priority, assignee_agent_id,
+       id, number, key, project_id, title, body, status, priority, assignee_agent_id,
        parent_id, rank, device_id, branch, handoffs,
        created_at, updated_at, started_at, closed_at, deleted
-     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
      on conflict(id) do update set
-       key = excluded.key, project_id = excluded.project_id, title = excluded.title,
+       number = excluded.number, key = excluded.key,
+       project_id = excluded.project_id, title = excluded.title,
        body = excluded.body, status = excluded.status, priority = excluded.priority,
        assignee_agent_id = excluded.assignee_agent_id, parent_id = excluded.parent_id,
        rank = excluded.rank, device_id = excluded.device_id, branch = excluded.branch,
@@ -220,6 +228,7 @@ export function reproject(id: string): Ticket | undefined {
        started_at = excluded.started_at, closed_at = excluded.closed_at, deleted = 0`,
   ).run(
     ticket.id,
+    ticket.number,
     ticket.key,
     ticket.projectId,
     ticket.title,
@@ -265,6 +274,7 @@ export function reprojectAll(): void {
 function toTicket(row: Record<string, unknown>): Ticket {
   return {
     id: String(row.id),
+    number: Number(row.number ?? 0),
     key: String(row.key),
     projectId: String(row.project_id),
     title: String(row.title),
@@ -379,6 +389,11 @@ function validate(input: Record<string, unknown>): Record<string, unknown> {
     if (id && !getAgent(id)) throw new Error("no such agent");
     patch.assigneeAgentId = id ?? "";
   }
+  if (input.parentId !== undefined) {
+    const parent = text(input.parentId, 64);
+    if (parent && !getTicket(parent)) throw new Error("no such parent ticket");
+    patch.parentId = parent ?? "";
+  }
   if (input.deviceId !== undefined) patch.deviceId = text(input.deviceId, 64) ?? "";
   if (input.branch !== undefined) patch.branch = text(input.branch, 200) ?? "";
   if (input.rank !== undefined) patch.rank = text(input.rank, 64) ?? "n";
@@ -398,7 +413,7 @@ export function createTicket(input: Record<string, unknown>): TicketView {
     .get(projectId) as { rank?: string } | undefined;
 
   append("ticket", id, "create", {
-    key: nextTicketKey(project),
+    number: nextTicketNumber(project.id),
     projectId,
     status: status(input.status, "backlog"),
     // New tickets land at the top of their column, where you are looking.
@@ -423,6 +438,12 @@ function getTicketOrThrow(id: string): TicketView {
 export function updateTicket(id: string, input: Record<string, unknown>): TicketView {
   if (!getTicket(id)) throw new Error("no such ticket");
   const patch = validate(input);
+  if (patch.parentId === id) throw new Error("a ticket cannot be its own parent");
+  // One level of nesting is all the board draws, and a cycle would make the
+  // progress ring count forever.
+  if (patch.parentId && getTicket(String(patch.parentId))?.parentId) {
+    throw new Error("that ticket is already a sub-ticket");
+  }
   if (Object.keys(patch).length === 0) return getTicketOrThrow(id);
   append("ticket", id, "field", { ...patch, actor: "you" });
   return getTicketOrThrow(id);
@@ -527,6 +548,18 @@ export function syncTicketFromThread(chatId: string, state: string): void {
     // The ticket was deleted mid-turn; the thread carries on regardless.
   }
 }
+
+// Renaming a project's slug re-keys its tickets. Registered here rather than
+// called from `projects.ts`, which cannot import this module without closing a
+// cycle — this one already imports it.
+whenSlugChanges((projectId) => {
+  runTransaction(() => {
+    const rows = db
+      .prepare("select id from tickets where project_id = ? and deleted = 0")
+      .all(projectId) as { id: string }[];
+    for (const row of rows) reproject(row.id);
+  });
+});
 
 /// Everything the board pane needs in one answer, so opening it is one request
 /// rather than one per ticket.

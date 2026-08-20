@@ -127,7 +127,12 @@ interface State {
   /// The board. Read on demand by the pane that shows it rather than on every
   /// poll — a board nobody is looking at costs nothing.
   loadBoard(): Promise<void>;
-  createTicket(input: { projectId: string; title: string; body?: string }): Promise<Ticket>;
+  createTicket(input: {
+    projectId: string;
+    title: string;
+    body?: string;
+    parentId?: string;
+  }): Promise<Ticket>;
   updateTicket(id: string, patch: Record<string, unknown>): Promise<void>;
   moveTicket(id: string, status: TicketStatus, before?: string, after?: string): Promise<void>;
   commentOnTicket(id: string, body: string): Promise<void>;
@@ -140,6 +145,9 @@ interface State {
   ticketFromThread(chatId: string): Promise<Ticket>;
   saveAgent(id: string | undefined, patch: Record<string, unknown>): Promise<Agent>;
   deleteAgent(id: string): Promise<void>;
+  /// Renames a project, or the slug its tickets are keyed by. Changing the slug
+  /// re-keys every ticket it has, so the whole board is read back after.
+  saveProject(id: string, patch: { name?: string; keyPrefix?: string }): Promise<Project>;
 }
 
 /// How often to poll. Long while pushes are arriving, short while they aren't.
@@ -783,6 +791,18 @@ export const useStore = create<State>((set, get) => ({
     if (!agent) return;
     await transport.request(agent.serverId, `/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
     await get().loadBoard();
+  },
+
+  async saveProject(id, patch) {
+    const project = get().projects.find((entry) => entry.id === id);
+    if (!project) throw new Error("That workspace isn't on the board.");
+    const body = await transport.request<{ project: RawProject }>(
+      project.serverId,
+      `/projects/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: patch },
+    );
+    await get().loadBoard();
+    return { ...body.project, serverId: project.serverId, workspaceIds: project.workspaceIds } as Project;
   },
 
   async setChatOptions(patch) {
