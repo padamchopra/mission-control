@@ -202,6 +202,8 @@ function GeneralPane({
   );
 }
 
+const MAX_SHOWN_RELEASES = 6;
+
 /// The download, with what you would be getting behind it.
 ///
 /// Hovering shows every release between the one running and the one on offer,
@@ -216,6 +218,10 @@ function UpdateButton({
   pending: RemyRelease[];
   current: string;
 }) {
+  // Someone a long way behind gets the recent run, not a scroll through every
+  // release since they last opened the app.
+  const shown = pending.slice(0, MAX_SHOWN_RELEASES);
+
   return (
     <HoverCard openDelay={120} closeDelay={80}>
       <HoverCardTrigger asChild>
@@ -234,11 +240,15 @@ function UpdateButton({
         </div>
         <ScrollArea className="max-h-72">
           <div className="flex flex-col gap-4 px-4 py-3">
-            {pending.map((entry) => {
+            {shown.map((entry, index) => {
               const notes = summarizeNotes(entry.notes);
               return (
                 <div key={entry.version} className="flex flex-col gap-1">
-                  <p className="font-mono text-xs text-muted-foreground tabular-nums">{entry.version}</p>
+                  {/* The one you would land on is the news; the ones under it
+                      are what you skipped past to get there. */}
+                  <p className="text-xs font-medium">
+                    {index === 0 ? "What's changed" : `Changes in ${entry.version}`}
+                  </p>
                   {notes ? (
                     <Markdown text={notes} className="text-xs" />
                   ) : (
@@ -247,6 +257,12 @@ function UpdateButton({
                 </div>
               );
             })}
+            {pending.length > shown.length && (
+              <p className="text-xs text-muted-foreground">
+                …and {pending.length - shown.length} earlier release
+                {pending.length - shown.length === 1 ? "" : "s"}.
+              </p>
+            )}
           </div>
         </ScrollArea>
         <a

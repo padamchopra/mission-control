@@ -33,19 +33,36 @@ export function isNewer(latest: string, current: string): boolean {
   return false;
 }
 
+/// How much of one release's notes the card shows. A run of releases is worth
+/// reading at a glance; the whole of each one is what the release page is for.
+const MAX_NOTE_LINES = 8;
+
+/// Whether a line of GitHub's generated notes is its furniture rather than
+/// news: the heading it adds, the contributors section, and the compare link.
+function isBoilerplate(line: string): boolean {
+  const text = line.replace(/[*#]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return (
+    text === ""
+    || text === "what's changed"
+    || text === "whats changed"
+    || text === "new contributors"
+    || text.startsWith("full changelog")
+    || line.includes("/compare/")
+  );
+}
+
 /// GitHub's generated notes name the author and link the PR on every line,
-/// which is most of the width and none of the news. The heading it adds is the
-/// card's title anyway, and the compare link belongs on the release page.
+/// which is most of the width and none of the news.
 export function summarizeNotes(notes: string | undefined): string | undefined {
   if (!notes) return undefined;
-  const trimmed = notes
+  const lines = notes
     .split("\n")
-    .filter((line) => !/^\s*\*\*Full Changelog\*\*/.test(line))
-    .filter((line) => !/^\s*##\s*What's Changed\s*$/i.test(line))
-    .map((line) => line.replace(/\s+by\s+@[\w-]+\s+in\s+https?:\/\/\S+/i, ""))
-    .join("\n")
-    .trim();
-  return trimmed || undefined;
+    .filter((line) => !isBoilerplate(line))
+    .map((line) => line.replace(/\s+by\s+@[\w-]+\s+in\s+https?:\/\/\S+/i, "").trimEnd());
+
+  const kept = lines.slice(0, MAX_NOTE_LINES);
+  if (lines.length > kept.length) kept.push(`* …and ${lines.length - kept.length} more`);
+  return kept.join("\n").trim() || undefined;
 }
 
 /// Every release newer than `current`, newest first — what you would be getting,
