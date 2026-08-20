@@ -20,35 +20,6 @@ const deviceName = isLoopback(local.url)
       }
     })();
 
-/// The T3 / Cursor preview talks to Vite over an HTTP tunnel. HMR's websocket
-/// often never arrives there, so the window sits on a stale paint after an
-/// agent edit. This plugin bumps a version on disk changes and the page polls
-/// it over plain HTTP, which the tunnel does carry.
-function previewReload(): Plugin {
-  return {
-    name: "preview-reload",
-    apply: "serve",
-    configureServer(server) {
-      let version = 1;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const bump = () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          version += 1;
-          server.ws.send({ type: "full-reload" });
-        }, 300);
-      };
-      server.watcher.on("change", bump);
-      server.watcher.on("add", bump);
-      server.watcher.on("unlink", bump);
-      server.middlewares.use("/__dev_version", (_req, res) => {
-        res.setHeader("Cache-Control", "no-store");
-        res.end(String(version));
-      });
-    },
-  };
-}
-
 /// Vite is the app in the browser preview. If this process is up, the local
 /// daemon should be too — otherwise Devices looks like a pairing problem.
 function ensureRemyServer(): Plugin {
@@ -63,7 +34,7 @@ function ensureRemyServer(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), previewReload(), ensureRemyServer()],
+  plugins: [react(), tailwindcss(), ensureRemyServer()],
   define: {
     "import.meta.env.VITE_REMY_PROXY_DEVICE": JSON.stringify(deviceName),
     "import.meta.env.VITE_REMY_VERSION": JSON.stringify(remyVersion),
@@ -81,6 +52,15 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Bind the address the docs actually give people. Vite's default resolves
+    // to IPv6 loopback alone here, so `http://127.0.0.1:5173` refused the
+    // connection and the browser showed its own error page. Still loopback:
+    // this is never reachable from the network.
+    host: "127.0.0.1",
+    // No live reloading. Editing Remy in Remy meant the page yanked itself out
+    // from under whatever was on screen on every save; reload it yourself when
+    // you want to see a change.
+    hmr: false,
     proxy: {
       "/api": {
         target: local.url,
@@ -88,10 +68,16 @@ export default defineConfig({
         ws: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
         configure(proxy) {
-          proxy.on("proxyReq", (proxyReq) => {
+          const authorize = (proxyReq: { setHeader(name: string, value: string): void }) => {
             const token = process.env.MC_TOKEN || readHomeConfig()?.token;
             if (token) proxyReq.setHeader("Authorization", `Bearer ${token}`);
-          });
+          };
+          proxy.on("proxyReq", authorize);
+          // A websocket upgrade is a different event, and the server checks the
+          // same bearer header on it. Without this the notify socket is refused,
+          // the page silently loses every live update, and a streaming turn only
+          // appears when the poll next comes round.
+          proxy.on("proxyReqWs", authorize);
         },
       },
     },

@@ -1,28 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import {
-  ArrowUp,
-  Box,
-  Check,
-  ChevronDown,
-  Folder,
-  FolderGit2,
-  GitBranch,
-  ListTodo,
-  Lock,
-  Pencil,
-  ShieldOff,
-  Sparkles,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowUp, Box, Check, ChevronDown, Folder, FolderGit2, GitBranch } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -49,11 +28,12 @@ import {
 } from "@/components/ui/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { WorkspaceIcon } from "@/components/WorkspaceIcon";
+import { ComposerMenu } from "@/components/ComposerMenu";
+import { PaneHeader } from "@/components/PaneHeader";
+import { WorkspaceMark } from "@/components/WorkspaceIcon";
+import { MODELS, PERMISSIONS, modelLabel, permissionOf, type PermissionValue } from "@/lib/chat-options";
+import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
-import { isProjectIconFile } from "@/lib/projects";
-import { tintOf } from "@/lib/tints";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
 import type { GitBranch as Branch, Server, Workspace } from "@/state/types";
 
@@ -68,28 +48,16 @@ function deviceIdFromValue(value: string): string | undefined {
   return value.startsWith(DEVICE_PREFIX) ? value.slice(DEVICE_PREFIX.length) : undefined;
 }
 
-const MODELS = [
-  { value: "", label: "Default" },
-  { value: "opus", label: "Opus" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "haiku", label: "Haiku" },
-] as const;
-
-const PERMISSIONS = [
-  { value: "default", label: "Ask", icon: Lock },
-  { value: "auto", label: "Auto", icon: Sparkles },
-  { value: "acceptEdits", label: "Accept edits", icon: Pencil },
-  { value: "plan", label: "Plan", icon: ListTodo },
-  { value: "bypassPermissions", label: "Bypass", icon: ShieldOff },
-] as const;
-
 const CHECKOUTS = [
   { value: "main", label: "Main checkout", icon: Folder },
   { value: "worktree", label: "New worktree", icon: FolderGit2 },
 ] as const;
 
-function worktreeBase(branch?: string | null): string {
-  return `origin/${branch || "main"}`;
+/// What a new worktree starts from. `remote` keeps it current with the default
+/// branch on the remote; `local` follows whatever the main checkout is on.
+function worktreeBase(branch?: string | null, mode?: "remote" | "local"): string {
+  const name = branch || "main";
+  return mode === "local" ? name : `origin/${name}`;
 }
 
 export function ChatComposer({
@@ -107,10 +75,12 @@ export function ChatComposer({
 }) {
   const createChat = useStore((s) => s.createChat);
   const checkoutBranch = useStore((s) => s.checkoutBranch);
+  const settings = useStore((s) => s.settings);
   const [target, setTarget] = useState(workspaces[0]?.id ?? HOME);
   const [serverId, setServerId] = useState(() => preferredServer(servers)?.id ?? "");
   const [model, setModel] = useState("");
-  const [permissionMode, setPermissionMode] = useState<(typeof PERMISSIONS)[number]["value"]>("default");
+  const [modelPicked, setModelPicked] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<PermissionValue>("default");
   const [checkout, setCheckout] = useState<(typeof CHECKOUTS)[number]["value"]>("main");
   const [branch, setBranch] = useState<string>();
   const [text, setText] = useState("");
@@ -134,8 +104,7 @@ export function ChatComposer({
   const place = home ? (server?.name ?? "~") : workspace.name;
   const DeviceIcon = deviceIcon(server?.icon);
   const canSend = Boolean(text.trim() && server && !busy);
-  const modelLabel = MODELS.find((entry) => entry.value === model)?.label ?? "Default";
-  const permission = PERMISSIONS.find((entry) => entry.value === permissionMode) ?? PERMISSIONS[0];
+  const permission = permissionOf(permissionMode);
   const PermissionIcon = permission.icon;
   const permissionLabel = permission.label;
   const checkoutLabel = CHECKOUTS.find((entry) => entry.value === checkout)?.label ?? "Main checkout";
@@ -143,9 +112,17 @@ export function ChatComposer({
   const branchName = branch ?? mainBranch;
 
   useEffect(() => {
-    setBranch(mainBranch ?? undefined);
-    setCheckout("main");
-  }, [workspace?.id, mainBranch]);
+    if (modelPicked) return;
+    setModel(settings?.defaultModel ?? "");
+  }, [settings?.defaultModel, modelPicked]);
+
+  // Switching workspace re-applies this machine's defaults rather than keeping
+  // the last workspace's branch.
+  useEffect(() => {
+    const mode = settings?.defaultCheckout ?? "main";
+    setCheckout(mode);
+    setBranch(mode === "worktree" ? worktreeBase(mainBranch, settings?.worktreeBase) : mainBranch ?? undefined);
+  }, [workspace?.id, mainBranch, settings?.defaultCheckout, settings?.worktreeBase]);
 
   const pickWorkspace = (value: string) => {
     const id = deviceIdFromValue(value);
@@ -162,7 +139,7 @@ export function ChatComposer({
   const pickCheckout = (value: string) => {
     const next = value as (typeof CHECKOUTS)[number]["value"];
     setCheckout(next);
-    setBranch(next === "worktree" ? worktreeBase(mainBranch) : mainBranch);
+    setBranch(next === "worktree" ? worktreeBase(mainBranch, settings?.worktreeBase) : mainBranch);
   };
 
   const pickDevice = (id: string) => {
@@ -198,7 +175,7 @@ export function ChatComposer({
       });
       onCreated(created.id);
     } catch (caught) {
-      toast.error("Couldn't start that chat", { description: apiError(caught) });
+      toast.error("Couldn't start that thread", { description: apiError(caught) });
     } finally {
       setBusy(false);
     }
@@ -216,10 +193,10 @@ export function ChatComposer({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
+      <PaneHeader
+        crumbs={[
+          {
+            label: (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" variant="ghost" size="sm" className="h-auto gap-1.5 px-1">
@@ -229,15 +206,13 @@ export function ChatComposer({
                 </DropdownMenuTrigger>
                 <WorkspaceMenu {...picker} />
               </DropdownMenu>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage className="font-medium">New chat</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        {headerEnd ? <div className="ml-auto flex items-center gap-4">{headerEnd}</div> : null}
-      </div>
+            ),
+          },
+          { label: "New thread" },
+        ]}
+      >
+        {headerEnd}
+      </PaneHeader>
 
       <div className="flex min-h-0 flex-1 items-center justify-center p-6">
         <div className="flex w-full max-w-2xl flex-col gap-8">
@@ -281,16 +256,19 @@ export function ChatComposer({
               <InputGroupAddon align="block-end">
                 <ComposerMenu
                   icon={Box}
-                  label={modelLabel}
+                  label={modelLabel(model)}
                   value={model}
-                  onChange={setModel}
+                  onChange={(value) => {
+                    setModelPicked(true);
+                    setModel(value);
+                  }}
                   options={MODELS}
                 />
                 <ComposerMenu
                   icon={PermissionIcon}
                   label={permissionLabel}
                   value={permissionMode}
-                  onChange={(value) => setPermissionMode(value as (typeof PERMISSIONS)[number]["value"])}
+                  onChange={(value) => setPermissionMode(value as PermissionValue)}
                   options={PERMISSIONS}
                 />
                 <InputGroupButton
@@ -496,88 +474,6 @@ function WorkspaceMenu({
   );
 }
 
-function WorkspaceMark({
-  home,
-  workspace,
-  server,
-  size,
-}: {
-  home: boolean;
-  workspace?: Workspace;
-  server?: Server;
-  size: "sm" | "lg";
-}) {
-  const box = size === "lg" ? "size-[1em]" : "size-4";
-  const glyph = size === "lg" ? "size-[0.65em]" : "size-3";
-  if (home || !workspace) {
-    const Icon = deviceIcon(server?.icon);
-    return <Icon className={cn("block shrink-0", size === "lg" ? "size-[1em]" : glyph)} />;
-  }
-  const colors = tintOf(workspace.tint);
-  const file = isProjectIconFile(workspace.icon);
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md leading-none",
-        box,
-        colors.well,
-        colors.fg,
-      )}
-    >
-      <WorkspaceIcon
-        workspaceId={workspace.id}
-        icon={workspace.icon}
-        className={file ? "size-full" : glyph}
-      />
-    </span>
-  );
-}
-
-function ComposerMenu({
-  icon: Icon,
-  label,
-  value,
-  onChange,
-  options,
-  align = "start",
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: readonly { value: string; label: string; icon?: LucideIcon }[];
-  align?: "start" | "end";
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <InputGroupButton>
-          <Icon />
-          <span className="max-w-40 truncate">{label}</span>
-          <ChevronDown />
-        </InputGroupButton>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align={align}>
-        <DropdownMenuGroup>
-          {options.map((option) => {
-            const OptionIcon = option.icon;
-            return (
-              <DropdownMenuItem
-                key={option.value || option.label}
-                onSelect={() => onChange(option.value)}
-              >
-                {OptionIcon ? <OptionIcon /> : null}
-                {option.label}
-                {value === option.value ? <Check className="ml-auto" /> : null}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 function preferredServer(servers: Server[]): Server | undefined {
   return servers.find((server) => server.local) ?? servers.find((server) => server.online) ?? servers[0];
 }
@@ -585,15 +481,4 @@ function preferredServer(servers: Server[]): Server | undefined {
 function mainPath(workspace?: Workspace): string {
   if (!workspace) return "~";
   return workspace.worktrees.find((entry) => entry.isMain)?.path ?? workspace.path;
-}
-
-function apiError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  try {
-    const parsed = JSON.parse(raw) as { error?: unknown };
-    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error;
-  } catch {
-    // The transport already unwrapped some failures into a plain string.
-  }
-  return raw;
 }

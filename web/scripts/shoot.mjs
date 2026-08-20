@@ -45,19 +45,8 @@ await shoot("03-palette-filtered");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(250);
 
-// The device popover — the interaction that was broken in SwiftUI, where the
-// menu was laid out in flow and pushed the whole sidebar down.
-await page.getByText("All devices").first().click();
-await page.waitForTimeout(300);
-await shoot("04-device-popover");
-
-// Prove it floats: the nav below must not have moved.
-const navBox = await page.getByText("Chats").last().boundingBox();
-await page.keyboard.press("Escape");
-await page.waitForTimeout(300);
-const navBoxAfter = await page.getByText("Chats").last().boundingBox();
-const shifted = Math.abs((navBox?.y ?? 0) - (navBoxAfter?.y ?? 0));
-console.log(`\npopover reflow check: nav moved ${shifted.toFixed(1)}px (must be 0)`);
+// The sidebar is one column of sections now, so there is no popover to float
+// and nothing to reflow.
 
 if (errors.length) {
   console.log(`\nconsole errors (${errors.length}):`);

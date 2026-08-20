@@ -3,7 +3,24 @@ import { codeFor, type DeviceIconId } from "~/lib/devices";
 import type { TintId } from "~/lib/tints";
 import { transport } from "~/lib/transport";
 import { fixtureChats, fixtureServers, fixtureWorkspaces } from "./fixture";
-import type { Chat, ChatState, GitBranch, GitWorktree, PathSuggestion, Server, Workspace, WorkspaceIconMatch } from "./types";
+import type {
+  Chat,
+  ChatApproval,
+  ChatDetail,
+  ChatQuestionRequest,
+  ChatState,
+  ConvEntry,
+  ConvTodo,
+  GitBranch,
+  GitWorktree,
+  PathSuggestion,
+  Server,
+  ServerSettings,
+  Tooling,
+  UpdateRun,
+  Workspace,
+  WorkspaceIconMatch,
+} from "./types";
 
 /// The client's whole view of every connected server.
 ///
@@ -25,6 +42,7 @@ interface RawChat {
   model?: string;
   preview?: string;
   updatedAt?: number;
+  workingSince?: number | null;
 }
 
 interface RawWorkspace {
@@ -41,6 +59,16 @@ interface State {
   servers: Server[];
   chats: Chat[];
   workspaces: Workspace[];
+  /// The chat the main pane has open. Held here rather than in the component so
+  /// a push can patch it without the view refetching.
+  openId?: string;
+  detail?: ChatDetail;
+  detailLoading: boolean;
+  /// This machine's own settings and tool status. Both are read on demand by
+  /// the panes that show them, not on every poll.
+  settings?: ServerSettings;
+  tooling?: Tooling;
+  repoRun?: UpdateRun;
   loading: boolean;
   /// Set when every configured server failed, so the UI can say why rather than
   /// showing an empty list as though nothing were running.
@@ -71,6 +99,21 @@ interface State {
     model?: string;
     permissionMode?: string;
   }): Promise<{ id: string; serverId: string }>;
+  loadSettings(): Promise<void>;
+  saveSettings(patch: Partial<ServerSettings>): Promise<void>;
+  loadTooling(): Promise<void>;
+  useGithubAvatar(): Promise<void>;
+  loadRepoRun(): Promise<void>;
+  updateRepos(): Promise<void>;
+  openChat(id: string): Promise<void>;
+  closeChat(): void;
+  sendMessage(text: string): Promise<void>;
+  answerApproval(requestId: string, decision: "allow" | "allowAlways" | "deny"): Promise<void>;
+  answerQuestion(requestId: string, answers: Record<string, unknown>): Promise<void>;
+  interrupt(): Promise<void>;
+  setChatOptions(patch: { model?: string | null; permissionMode?: string }): Promise<void>;
+  archiveThread(id: string): Promise<void>;
+  deleteThread(id: string): Promise<void>;
 }
 
 /// How often to poll. Long while pushes are arriving, short while they aren't.
@@ -81,6 +124,7 @@ export const useStore = create<State>((set, get) => ({
   servers: useFixture ? fixtureServers : [],
   chats: useFixture ? fixtureChats : [],
   workspaces: useFixture ? fixtureWorkspaces : [],
+  detailLoading: false,
   loading: !useFixture,
   connected: useFixture,
 
@@ -90,8 +134,14 @@ export const useStore = create<State>((set, get) => ({
     void get().refresh();
 
     const offPush = transport.subscribe((_serverId, payload) => {
-      const frame = payload as { type?: string };
-      if (frame.type === "chats") void get().refresh();
+      const frame = payload as ChatFrame;
+      if (frame.type === "chats") {
+        void get().refresh();
+        return;
+      }
+      // A turn streams as `chat` frames: the entries that changed, plus the
+      // whole scalar state. Patch what is on screen rather than refetching.
+      if (frame.type === "chat" && frame.chatId) set((current) => applyChatFrame(current, frame));
     });
 
     const offStatus = transport.onStatus((serverId, pushUp) => {
@@ -354,7 +404,7 @@ export const useStore = create<State>((set, get) => ({
     const text = input.text.trim();
     if (!text) throw new Error("Write a message first.");
     const cwd = input.cwd.trim() || "~";
-    const title = text.split("\n")[0]?.slice(0, 80) || "New chat";
+    const title = text.split("\n")[0]?.slice(0, 80) || "New thread";
 
     if (useFixture) {
       const serverId = input.serverId ?? get().servers.find((server) => server.local)?.id ?? get().servers[0]?.id ?? "studio";
@@ -383,7 +433,7 @@ export const useStore = create<State>((set, get) => ({
       },
     });
     const id = created.chat?.id;
-    if (!id) throw new Error("Couldn't start that chat.");
+    if (!id) throw new Error("Couldn't start that thread.");
     await transport.request(server.id, `/chats/${encodeURIComponent(id)}/message`, {
       method: "POST",
       body: { text },
@@ -391,7 +441,276 @@ export const useStore = create<State>((set, get) => ({
     await get().refresh();
     return { id, serverId: server.id };
   },
+
+  async loadSettings() {
+    const server = localServer(get().servers);
+    if (!server) return;
+    const settings = await transport.request<ServerSettings>(server.id, "/server/settings");
+    set({ settings });
+  },
+
+  async saveSettings(patch) {
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    // The server answers with the whole settings object, so what lands in the
+    // store is what it actually stored rather than what was asked for.
+    const settings = await transport.request<ServerSettings>(server.id, "/server/settings", {
+      method: "PATCH",
+      body: patch,
+    });
+    set({ settings });
+  },
+
+  async loadTooling() {
+    const server = localServer(get().servers);
+    if (!server) return;
+    set({ tooling: await transport.request<Tooling>(server.id, "/server/tooling") });
+  },
+
+  async useGithubAvatar() {
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    const settings = await transport.request<ServerSettings>(server.id, "/server/avatar/github", {
+      method: "POST",
+      body: {},
+    });
+    set({ settings });
+  },
+
+  async loadRepoRun() {
+    const server = localServer(get().servers);
+    if (!server) return;
+    const body = await transport.request<{ run?: UpdateRun | null }>(server.id, "/server/repo-update");
+    set({ repoRun: body.run ?? undefined });
+  },
+
+  async updateRepos() {
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    const body = await transport.request<{ run?: UpdateRun }>(server.id, "/server/repo-update", {
+      method: "POST",
+      body: {},
+    });
+    set({ repoRun: body.run });
+    // A fetch can leave a workspace on a different commit, and a fast-forward
+    // certainly does.
+    await get().refresh();
+  },
+
+  async openChat(id) {
+    const chat = get().chats.find((entry) => entry.id === id);
+    if (!chat) return;
+    // Keep whatever is already on screen for this chat, so reopening it does
+    // not blank the feed while the fetch is in flight.
+    const same = get().detail?.id === id;
+    set({ openId: id, detailLoading: !same, ...(same ? {} : { detail: undefined }) });
+
+    if (useFixture) {
+      set({ detail: { ...chat, entries: [], todos: [] }, detailLoading: false });
+      return;
+    }
+
+    try {
+      const raw = await transport.request<RawChatDetail>(
+        chat.serverId,
+        `/chats/${encodeURIComponent(id)}`,
+      );
+      // A slow fetch for a chat that has since been closed must not paint over
+      // the one that is open now.
+      if (get().openId !== id) return;
+      set({ detail: toDetail(raw, chat.serverId), detailLoading: false });
+    } catch (error) {
+      if (get().openId !== id) return;
+      set({ detailLoading: false });
+      throw error;
+    }
+  },
+
+  closeChat() {
+    set({ openId: undefined, detail: undefined, detailLoading: false });
+  },
+
+  async sendMessage(text) {
+    const detail = get().detail;
+    const trimmed = text.trim();
+    if (!detail || !trimmed) return;
+    await transport.request(detail.serverId, `/chats/${encodeURIComponent(detail.id)}/message`, {
+      method: "POST",
+      body: { text: trimmed },
+    });
+    // The server echoes the message back as a `chat` frame. With the socket
+    // down there is no frame coming, so read the feed once instead.
+    if (!get().connected) await get().openChat(detail.id);
+  },
+
+  async answerApproval(requestId, decision) {
+    const detail = get().detail;
+    if (!detail) return;
+    await transport.request(detail.serverId, `/chats/${encodeURIComponent(detail.id)}/approval`, {
+      method: "POST",
+      body: { requestId, decision },
+    });
+  },
+
+  async answerQuestion(requestId, answers) {
+    const detail = get().detail;
+    if (!detail) return;
+    await transport.request(detail.serverId, `/chats/${encodeURIComponent(detail.id)}/question`, {
+      method: "POST",
+      body: { requestId, answers },
+    });
+  },
+
+  async archiveThread(id) {
+    const chat = get().chats.find((entry) => entry.id === id);
+    if (!chat) return;
+    await transport.request(chat.serverId, `/chats/${encodeURIComponent(id)}/archive`, {
+      method: "POST",
+      body: {},
+    });
+    await get().refresh();
+  },
+
+  async deleteThread(id) {
+    const chat = get().chats.find((entry) => entry.id === id);
+    if (!chat) return;
+    await transport.request(chat.serverId, `/chats/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await get().refresh();
+  },
+
+  async setChatOptions(patch) {
+    const detail = get().detail;
+    if (!detail) return;
+    // The server answers with the chat as it now stands, and retires the Claude
+    // process so the next message starts under the new settings.
+    const body = await transport.request<{ chat?: RawChatDetail }>(
+      detail.serverId,
+      `/chats/${encodeURIComponent(detail.id)}`,
+      { method: "PATCH", body: patch },
+    );
+    const chat = body.chat;
+    if (!chat) return;
+    set((current) => ({
+      detail:
+        current.detail?.id === detail.id
+          ? { ...current.detail, model: chat.model, permissionMode: chat.permissionMode }
+          : current.detail,
+      chats: current.chats.map((entry) =>
+        entry.id === detail.id ? { ...entry, model: chat.model } : entry,
+      ),
+    }));
+  },
+
+  async interrupt() {
+    const detail = get().detail;
+    if (!detail) return;
+    await transport.request(detail.serverId, `/chats/${encodeURIComponent(detail.id)}/interrupt`, {
+      method: "POST",
+      body: {},
+    });
+  },
 }));
+
+/// A live frame for one chat. `entries` are the ones that changed; the scalar
+/// fields are always sent whole, so `null` means cleared rather than unchanged.
+interface ChatFrame {
+  type?: string;
+  chatId?: string;
+  entries?: ConvEntry[];
+  removed?: string[];
+  state?: ChatState;
+  action?: string | null;
+  approval?: ChatApproval | null;
+  question?: ChatQuestionRequest | null;
+  todos?: ConvTodo[];
+  title?: string;
+  live?: boolean;
+  error?: string | null;
+  updatedAt?: number;
+  workingSince?: number | null;
+}
+
+interface RawChatDetail extends RawChat {
+  permissionMode?: string;
+  entries?: ConvEntry[];
+  todos?: ConvTodo[];
+  approval?: ChatApproval | null;
+  question?: ChatQuestionRequest | null;
+  action?: string | null;
+  live?: boolean;
+  error?: string | null;
+}
+
+function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
+  return {
+    id: raw.id,
+    serverId,
+    title: raw.title,
+    cwd: raw.cwd,
+    model: raw.model,
+    permissionMode: raw.permissionMode,
+    state: raw.state ?? "idle",
+    action: raw.action ?? undefined,
+    entries: raw.entries ?? [],
+    todos: raw.todos ?? [],
+    approval: raw.approval ?? undefined,
+    question: raw.question ?? undefined,
+    live: raw.live,
+    error: raw.error ?? undefined,
+  };
+}
+
+function applyChatFrame(current: State, frame: ChatFrame): Partial<State> {
+  // The row in the list is patched in place rather than re-sorted: a chat that
+  // is streaming would otherwise walk up and down the sidebar on every frame.
+  const chats = current.chats.map((chat) =>
+    chat.id === frame.chatId
+      ? {
+          ...chat,
+          state: frame.state ?? chat.state,
+          title: frame.title ?? chat.title,
+          updatedAt: frame.updatedAt ?? chat.updatedAt,
+          workingSince:
+            frame.workingSince === undefined ? chat.workingSince : (frame.workingSince ?? undefined),
+        }
+      : chat,
+  );
+  const detail =
+    current.detail && current.detail.id === frame.chatId
+      ? mergeDetail(current.detail, frame)
+      : current.detail;
+  return { chats, detail };
+}
+
+function mergeDetail(detail: ChatDetail, frame: ChatFrame): ChatDetail {
+  let entries = detail.entries;
+  if (frame.removed?.length) {
+    const gone = new Set(frame.removed);
+    entries = entries.filter((entry) => !gone.has(entry.id));
+  }
+  if (frame.entries?.length) {
+    const next = entries.slice();
+    for (const entry of frame.entries) {
+      // A streaming entry keeps its place in the feed while its text grows.
+      const at = next.findIndex((existing) => existing.id === entry.id);
+      if (at >= 0) next[at] = entry;
+      else next.push(entry);
+    }
+    entries = next;
+  }
+  return {
+    ...detail,
+    entries,
+    state: frame.state ?? detail.state,
+    action: frame.action === undefined ? detail.action : frame.action ?? undefined,
+    approval: frame.approval === undefined ? detail.approval : frame.approval ?? undefined,
+    question: frame.question === undefined ? detail.question : frame.question ?? undefined,
+    todos: frame.todos ?? detail.todos,
+    title: frame.title ?? detail.title,
+    live: frame.live ?? detail.live,
+    error: frame.error === undefined ? detail.error : frame.error ?? undefined,
+  };
+}
 
 function toChat(raw: RawChat, serverId: string): Chat {
   return {
@@ -403,6 +722,7 @@ function toChat(raw: RawChat, serverId: string): Chat {
     model: raw.model,
     preview: raw.preview,
     updatedAt: raw.updatedAt ?? 0,
+    workingSince: raw.workingSince ?? undefined,
   };
 }
 

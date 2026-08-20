@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir, hostname as osHostname } from "node:os";
@@ -116,6 +117,32 @@ async function wireIpc(): Promise<void> {
   ipcMain.handle("app:info", () => ({ version: app.getVersion(), name: app.getName() }));
 
   ipcMain.handle("mc:servers", () => connection?.list() ?? []);
+
+  // A real capture of the window, written where macOS puts screenshots. The
+  // renderer cannot do this: it can only draw what it can already reach, which
+  // is not the same picture.
+  ipcMain.handle("mc:snapshot", async () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) throw new Error("no window to capture");
+    const image = await window.webContents.capturePage();
+    const stamp = new Date()
+      .toLocaleString("sv", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .replace(/[: ]/g, (match) => (match === " " ? " at " : "."));
+    const file = join(app.getPath("desktop"), `Remy ${stamp}.png`);
+    await writeFile(file, image.toPNG());
+    return file;
+  });
+
+  // Raising the window is the main process's job; the renderer can only focus
+  // the page inside it.
+  ipcMain.handle("mc:focus", () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+    app.focus({ steal: true });
+  });
 
   ipcMain.handle("mc:add-server", (_event, input: { url: string; token: string; name?: string }) => {
     if (!connection) throw new Error("no connection");

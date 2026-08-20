@@ -49,6 +49,10 @@ interface Bridge {
   ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
   onPush(handler: (serverId: string, payload: unknown) => void): () => void;
   onStatus(handler: (serverId: string, online: boolean, error?: string) => void): () => void;
+  /// Raises the desktop window. Absent in a browser, and on an older shell.
+  focus?(): Promise<void>;
+  /// Captures the window to a file, and answers with where it went.
+  snapshot?(): Promise<string>;
   addServer(input: {
     url: string;
     token: string;
@@ -125,12 +129,20 @@ function proxyTransport(): Transport {
     if (closed) return;
     const url = new URL("/api/notify/stream", window.location.origin);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    socket = new WebSocket(url);
-    socket.onopen = () => {
+    // Every handler below checks that this socket is still the current one.
+    // Closing is asynchronous, so a socket torn down by an unsubscribe is still
+    // delivering events while its replacement is already connecting — and its
+    // close would otherwise schedule a *second* live socket. Two sockets means
+    // the server counts this window twice and every notification arrives twice.
+    const ws = new WebSocket(url);
+    socket = ws;
+    ws.onopen = () => {
+      if (socket !== ws) return;
       attempt = 0;
       for (const handler of statusHandlers) handler(ID, true);
     };
-    socket.onmessage = (event) => {
+    ws.onmessage = (event) => {
+      if (socket !== ws) return;
       try {
         const payload: unknown = JSON.parse(String(event.data));
         for (const handler of pushHandlers) handler(ID, payload);
@@ -138,7 +150,8 @@ function proxyTransport(): Transport {
         // Not JSON; not worth dropping the socket over.
       }
     };
-    socket.onclose = () => {
+    ws.onclose = () => {
+      if (socket !== ws) return;
       for (const handler of statusHandlers) handler(ID, false);
       if (closed) return;
       const delay = Math.min(500 * 2 ** attempt, 30_000);

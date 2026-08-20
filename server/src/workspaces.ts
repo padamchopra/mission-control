@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { config } from "./config.js";
 import { db, runTransaction } from "./db.js";
 import { findProjectFiles } from "./discovery.js";
 import { run as exec } from "./run.js";
@@ -106,7 +107,7 @@ function gitDirFor(worktreePath: string): string | null {
 
 // Dirty state of a worktree, computed WITHOUT chdir'ing into it (so git's
 // getcwd() never touches an EINTR-prone external volume). Conservative on error.
-async function worktreeDirty(worktreePath: string): Promise<boolean> {
+export async function worktreeDirty(worktreePath: string): Promise<boolean> {
   const gitDir = gitDirFor(worktreePath);
   try {
     const args = gitDir
@@ -568,20 +569,72 @@ export async function openSessionInWorkspace(id: string): Promise<string> {
   return name;
 }
 
+/// Where a new worktree for `branch` goes.
+///
+/// Remy keeps them in a `.remy` folder: inside the workspace by default, or
+/// inside whatever directory `worktreeRoot` names. A shared root holds one
+/// folder per repository, because two repositories can easily have a branch of
+/// the same name.
+///
+/// Worktrees already checked out somewhere else — including the older
+/// `.claude/worktrees` — are left exactly where they are. `git worktree list`
+/// is what finds them, so only new ones land here.
+export function plannedWorktreePath(workspacePath: string, branch: string, root: string): string {
+  const base = root && root !== workspacePath
+    ? join(root, ".remy", basename(workspacePath))
+    : join(workspacePath, ".remy");
+  return join(base, branch);
+}
+
 async function managedWorktreePath(workspacePath: string, branch: string): Promise<string> {
+  const path = plannedWorktreePath(workspacePath, branch, config.worktreeRoot);
+  // Only worth ignoring when the worktree lands inside the repository. A root
+  // outside it is not in the working tree at all, so git never sees it.
+  if (!relative(workspacePath, path).startsWith("..")) {
+    await excludeFromRepository(workspacePath, "/.remy/");
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  return path;
+}
+
+/// Hides a path from `git status` without touching the repository's
+/// `.gitignore`: `info/exclude` is per-clone and is never committed, so nobody
+/// else's checkout sees the rule and no tracked file changes.
+async function excludeFromRepository(workspacePath: string, rule: string): Promise<void> {
   const { stdout } = await exec("git", ["-C", workspacePath, "rev-parse", "--git-path", "info/exclude"], { cwd: homedir() });
   const rawExcludePath = stdout.trim();
   const excludePath = isAbsolute(rawExcludePath) ? rawExcludePath : resolve(workspacePath, rawExcludePath);
-  const ignoreRule = "/.claude/worktrees/";
   const existing = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
-  if (!existing.split("\n").some((line) => line.trim() === ignoreRule)) {
-    const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
-    writeFileSync(excludePath, `${existing}${separator}${ignoreRule}\n`);
-  }
+  if (existing.split("\n").some((line) => line.trim() === rule)) return;
+  const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+  mkdirSync(dirname(excludePath), { recursive: true });
+  writeFileSync(excludePath, `${existing}${separator}${rule}\n`);
+}
 
-  const path = join(workspacePath, ".claude", "worktrees", branch);
-  mkdirSync(dirname(path), { recursive: true });
-  return path;
+/// Puts a branch on a worktree Remy left detached, once there is a name for it.
+///
+/// A worktree started from a remote ref has no branch — `git worktree add
+/// --detach` is what keeps it from claiming one before anybody knows what the
+/// work is. This claims it afterwards.
+///
+/// Refuses anything that is not Remy's own detached worktree: a checkout you
+/// made, or one already on a branch, is never moved.
+export async function nameDetachedWorktree(cwd: string, branch: string): Promise<boolean> {
+  if (!branch || !cwd.includes(`${sep}.remy${sep}`)) return false;
+  try {
+    await exec("git", ["check-ref-format", "--branch", branch], { cwd: homedir() });
+    // A branch here means someone already named it, including a previous run.
+    const { stdout } = await exec("git", ["-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: homedir() })
+      .catch(() => ({ stdout: "" }));
+    if (stdout.trim()) return false;
+    await exec("git", ["-C", cwd, "switch", "-c", branch], { cwd: homedir(), timeout: 30_000 });
+    invalidateWorkspacesCache();
+    return true;
+  } catch {
+    // A name already taken, or a worktree that moved underneath us. The thread
+    // keeps working; it simply stays detached.
+    return false;
+  }
 }
 
 export function isLegacyManagedWorktreePath(workspacePath: string, worktreePath: string): boolean {

@@ -39,3 +39,23 @@ export function isProjectIconFile(value: unknown): value is string {
 export function projectIcon(id: ProjectIconId | string | null | undefined): LucideIcon {
   return PROJECT_ICONS[id && isProjectIcon(id) ? id : "folder"];
 }
+
+/// The workspace a path belongs to. A chat runs in a checkout — the primary one
+/// or one of its worktrees — so every known path is considered and the longest
+/// match wins, which keeps a worktree from being read as its parent repo.
+export function workspaceForPath(
+  path: string,
+  workspaces: { path: string; worktrees: { path: string }[] }[],
+): number {
+  let best = -1;
+  let bestLength = 0;
+  workspaces.forEach((workspace, index) => {
+    for (const candidate of [workspace.path, ...workspace.worktrees.map((tree) => tree.path)]) {
+      if (!candidate || candidate.length <= bestLength) continue;
+      if (path !== candidate && !path.startsWith(`${candidate}/`)) continue;
+      best = index;
+      bestLength = candidate.length;
+    }
+  });
+  return best;
+}

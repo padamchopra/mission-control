@@ -24,6 +24,7 @@ import {
   trimEntries,
 } from "./chat-storage.js";
 import { config } from "./config.js";
+import { suggestName } from "./namer.js";
 import { broadcast, sendNotification } from "./notify.js";
 import { syncSleepAssertion } from "./sleep.js";
 import {
@@ -46,6 +47,7 @@ import {
   type ConvTodo,
 } from "./transcript.js";
 import { uploadRoot } from "./uploads.js";
+import { nameDetachedWorktree } from "./workspaces.js";
 
 // Chats are conversations Remy owns end to end: the server runs
 // Claude through the Agent SDK, keeps the transcript itself, and streams it to
@@ -126,6 +128,9 @@ export interface ChatSummary {
   state: ChatState;
   action?: string;
   preview?: string;
+  /// When the chat started the run it is in, if it is in one. Absent once it
+  /// settles, so a client never shows a clock for a chat that is done.
+  workingSince?: number;
   context?: ContextUsage;
   turns: number;
   costUsd?: number;
@@ -233,7 +238,11 @@ function str(value: unknown): string | undefined {
 
 class Chat {
   record: ChatRecord;
-  state: ChatState = "idle";
+  private currentState: ChatState = "idle";
+  /// When the current run of work began, so a client can say how long a chat
+  /// has been at it. A turn that stops to ask you something is still the same
+  /// run, so this survives `needs_input` and clears only when the chat settles.
+  workingSince?: number;
   action?: string;
   approval?: ChatApproval;
   question?: ChatQuestionRequest;
@@ -269,6 +278,20 @@ class Chat {
     return this.live !== undefined;
   }
 
+  get state(): ChatState {
+    return this.currentState;
+  }
+
+  /// Every transition runs through here so the "how long" clock is kept by the
+  /// one place that knows a run started, rather than by each of the dozen
+  /// callers that move the state.
+  set state(next: ChatState) {
+    if (next === this.currentState) return;
+    const busy = next === "working" || next === "needs_input";
+    this.workingSince = busy ? (this.workingSince ?? nowMs()) : undefined;
+    this.currentState = next;
+  }
+
   summary(): ChatSummary {
     const lastText = [...this.record.entries]
       .reverse()
@@ -284,6 +307,7 @@ class Chat {
       state: this.state,
       action: this.action,
       preview: lastText?.text ? clip(lastText.text, 140) : undefined,
+      workingSince: this.workingSince,
       context: this.record.context,
       turns: this.record.turns,
       costUsd: this.record.costUsd,
@@ -307,9 +331,13 @@ class Chat {
   async send(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (this.record.entries.length === 0 && this.record.title === "New chat") {
+    const first = this.record.entries.length === 0;
+    if (first && this.record.title === "New chat") {
       this.record.title = titleFrom(trimmed);
     }
+    // A better name is worth having but not worth waiting for, so it runs
+    // alongside the turn and lands whenever it lands.
+    if (first) void this.rename(trimmed);
     this.append({ id: `u-${randomUUID()}`, kind: "user", text: clip(trimmed, MAX_TEXT) });
     this.record.error = undefined;
     // A prompt typed while Claude is blocked on a permission is queued behind
@@ -398,6 +426,39 @@ class Chat {
     if (!this.live || this.state !== "idle") return;
     if (nowMs() - this.lastActivity < IDLE_SHUTDOWN_MS) return;
     this.stop();
+  }
+
+  /// Replaces the first-line title with one the naming model wrote, and puts a
+  /// branch on the worktree if this thread is running in one Remy left
+  /// detached. Only ever touches a title nobody has changed in the meantime —
+  /// yours wins.
+  private async rename(request: string): Promise<void> {
+    const before = this.record.title;
+    const suggested = await suggestName(request, config.remyModel);
+    if (!suggested || this.deleted) return;
+
+    // The branch is claimed even when the title has since been changed by hand:
+    // one is about the work, the other is about the list.
+    let branched = false;
+    if (suggested.branch) {
+      const prefix = config.worktreeBranchPrefix;
+      branched = await nameDetachedWorktree(
+        this.record.cwd,
+        prefix ? `${prefix}/${suggested.branch}` : suggested.branch,
+      );
+    }
+
+    const renamed = this.record.title === before && suggested.title !== before;
+    if (renamed) {
+      this.record.title = suggested.title;
+      this.record.updatedAt = nowMs();
+      this.persist();
+    }
+    if (!renamed && !branched) return;
+    // stateFields carries the title, so an open thread renames itself without
+    // refetching; `chats` is what makes a client re-read the worktrees.
+    this.push();
+    broadcast({ type: "chats" });
   }
 
   // ── the SDK session ──────────────────────────────────────────────────────
@@ -851,6 +912,7 @@ class Chat {
     return {
       state: this.state,
       action: this.action ?? null,
+      workingSince: this.workingSince ?? null,
       approval: this.approval ?? null,
       question: this.question ?? null,
       todos: this.record.todos,

@@ -40,6 +40,8 @@ import { questionBroker } from "./questions.js";
 import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
+import { githubAvatar, githubLogin, tooling } from "./tooling.js";
+import { lastUpdateRun, syncRepoUpdateSchedule, updateRepositories } from "./repo-update.js";
 import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
 import {
@@ -221,6 +223,19 @@ const server = createServer(async (req, res) => {
       return json(res, 202, startServerUpdate());
     }
 
+    // Your GitHub picture, stored the same way as one picked off a disk.
+    if (url.pathname === "/server/avatar/github" && req.method === "POST") {
+      try {
+        const avatar = await githubAvatar();
+        return json(res, 200, patchSettings({ avatar }));
+      } catch (error) {
+        return json(res, 502, { error: (error as Error).message || "could not read your GitHub picture" });
+      }
+    }
+    // What git, gh, and Claude Code report about themselves on this machine.
+    if (url.pathname === "/server/tooling" && req.method === "GET") {
+      return json(res, 200, await tooling());
+    }
     if (url.pathname === "/server/settings" && req.method === "GET") {
       return json(res, 200, { ...publicSettings(), preventSleepSupported: sleepSupported() });
     }
@@ -228,7 +243,18 @@ const server = createServer(async (req, res) => {
       const body = await readJson(req);
       const settings = patchSettings(body);
       syncSleepAssertion();
+      // Turning the schedule off has to stop the timer now, not at its next tick.
+      syncRepoUpdateSchedule();
       return json(res, 200, { ...settings, preventSleepSupported: sleepSupported() });
+    }
+
+    // Refreshing repositories: what the schedule does, and what the button in
+    // Settings does when you would rather not wait for it.
+    if (url.pathname === "/server/repo-update" && req.method === "GET") {
+      return json(res, 200, { run: lastUpdateRun() ?? null });
+    }
+    if (url.pathname === "/server/repo-update" && req.method === "POST") {
+      return json(res, 200, { run: await updateRepositories() });
     }
 
     // Composer quick replies, shared across every client connected to this server.
@@ -319,6 +345,30 @@ const server = createServer(async (req, res) => {
         } catch (error) {
           return json(res, 404, { error: (error as Error).message || "no such chat" });
         }
+      }
+      // Keeping the conversation and dropping the thread. A turn still running
+      // would be archived half-written, so it is refused rather than caught.
+      if (req.method === "POST" && parts[2] === "archive") {
+        const chat = getChat(id);
+        if (!chat) return json(res, 404, { error: "no such chat" });
+        if (chat.state === "working" || chat.state === "needs_input") {
+          return json(res, 409, { error: "this thread is still running" });
+        }
+        const archive = archiveChat({
+          session: chat.title,
+          agent: "claude",
+          cwd: chat.cwd,
+          conversation: {
+            available: true,
+            agent: "claude",
+            title: chat.title,
+            model: chat.model,
+            todos: chat.todos,
+            entries: chat.entries,
+          },
+        });
+        deleteChat(id);
+        return json(res, 200, { archive });
       }
       if (req.method === "POST" && parts[2] === "message") {
         const body = await readJson(req);
@@ -954,4 +1004,14 @@ setSleepBusyCheck(() =>
   listChats().some((chat) => chat.state === "working" || chat.state === "needs_input"),
 );
 syncSleepAssertion();
+syncRepoUpdateSchedule();
+
+// Seed the branch prefix once, from whoever this machine is signed in as. Remy
+// names itself when `gh` cannot say, so a branch always carries a prefix.
+if (!config.worktreeBranchPrefix) {
+  void githubLogin().then((login) => {
+    if (config.worktreeBranchPrefix) return;
+    patchSettings({ worktreeBranchPrefix: login ?? "remy" });
+  });
+}
 startLoopScheduler(pushSessionList);
