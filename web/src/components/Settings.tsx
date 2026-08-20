@@ -251,7 +251,7 @@ function UpdateButton({
     inApp: boolean;
     phase: AppUpdatePhase;
     percent?: number;
-    download: (url: string) => Promise<void>;
+    download: (url?: string) => Promise<void>;
     install: () => Promise<void>;
   };
 }) {
@@ -285,12 +285,12 @@ function UpdateButton({
       await runInstall();
       return;
     }
-    if (!latest.downloadUrl) {
+    if (!update.inApp && !latest.downloadUrl) {
       window.open(latest.pageUrl, "_blank", "noreferrer");
       return;
     }
     try {
-      await update.download(latest.downloadUrl);
+      await update.download(latest.downloadUrl ?? latest.pageUrl);
     } catch (caught) {
       toast.error("Couldn't download the update", {
         description: caught instanceof Error ? caught.message : "Try again in a bit.",

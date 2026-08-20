@@ -208,6 +208,7 @@ that job fails on purpose so an unsigned build never ships.
   Remy (System Settings → Privacy & Security → Full Disk Access).
 - **Stay awake** prevents *idle* sleep. Lid-close on a MacBook is a different
   event and can still sleep the machine.
-- **Server updates** from a `setup.sh` / launchd install can use the
-  authenticated update endpoint after one manual `git pull` + rebuild. A DMG
-  install updates by downloading the next Remy release.
+- **App updates** in the shipped Remy window are Download, then Relaunch. That
+  uses the zip on GitHub Releases, not the DMG. A `setup.sh` / launchd server
+  can still use the authenticated update endpoint after one manual `git pull`
+  + rebuild.

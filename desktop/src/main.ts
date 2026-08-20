@@ -121,8 +121,8 @@ async function wireIpc(): Promise<void> {
     packaged: app.isPackaged,
   }));
 
-  ipcMain.handle("app:download-update", async (_event, url: string) => {
-    await downloadUpdate(url);
+  ipcMain.handle("app:download-update", async () => {
+    await downloadUpdate();
   });
 
   ipcMain.handle("app:install-update", async () => {

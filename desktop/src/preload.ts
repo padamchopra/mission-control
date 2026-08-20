@@ -12,9 +12,9 @@ contextBridge.exposeInMainWorld("remy", {
 
   info: (): Promise<{ version: string; name: string; packaged: boolean }> => ipcRenderer.invoke("app:info"),
 
-  /// Main process pulls the DMG and later swaps this .app for it. A renderer
-  /// `<a href>` on the asset URL is what opened Chrome's save dialog.
-  downloadUpdate: (url: string): Promise<void> => ipcRenderer.invoke("app:download-update", url),
+  /// Main process pulls the zip from GitHub's updater feed and later swaps
+  /// this .app for it. A renderer `<a href>` on the DMG is what opened Chrome.
+  downloadUpdate: (): Promise<void> => ipcRenderer.invoke("app:download-update"),
   installUpdate: (): Promise<void> => ipcRenderer.invoke("app:install-update"),
   onUpdateProgress: (handler: (progress: { received: number; total: number }) => void) => {
     const listener = (_event: unknown, progress: { received: number; total: number }) => handler(progress);

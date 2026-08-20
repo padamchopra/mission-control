@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export type AppUpdatePhase = "idle" | "downloading" | "ready" | "installing";
 
-/// In-app DMG download and relaunch, only present in the packaged Electron
+/// In-app zip download and relaunch, only present in the packaged Electron
 /// shell. A browser still gets a GitHub link; that is the save-dialog path.
 export function useAppUpdate() {
   const [phase, setPhase] = useState<AppUpdatePhase>("idle");
@@ -18,17 +18,17 @@ export function useAppUpdate() {
     });
   }, []);
 
-  const download = useCallback(async (url: string) => {
+  const download = useCallback(async (url?: string) => {
     const bridge = window.remy;
     if (!bridge?.downloadUpdate) {
-      window.open(url, "_blank", "noreferrer");
+      if (url) window.open(url, "_blank", "noreferrer");
       return;
     }
     setPhase("downloading");
     setReceived(0);
     setTotal(0);
     try {
-      await bridge.downloadUpdate(url);
+      await bridge.downloadUpdate();
       setPhase("ready");
     } catch (caught) {
       setPhase("idle");

@@ -42,7 +42,7 @@ interface Bridge {
   arch?: string;
   version?: string;
   info?: () => Promise<{ version: string; name: string; packaged?: boolean }>;
-  downloadUpdate?(url: string): Promise<void>;
+  downloadUpdate?(): Promise<void>;
   installUpdate?(): Promise<void>;
   onUpdateProgress?(handler: (progress: { received: number; total: number }) => void): () => void;
   servers(): Promise<ListedServer[]>;
