@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-import { REMY_VERSION, fetchLatestRelease, isLocalBuild, isNewer, type RemyRelease } from "@/lib/release";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { REMY_VERSION, fetchReleasesSince, isLocalBuild, isNewer, type RemyRelease } from "@/lib/release";
 
 export function useRelease() {
   const [current, setCurrent] = useState(window.remy?.version ?? REMY_VERSION);
-  const [latest, setLatest] = useState<RemyRelease>();
+  // The check reads this rather than closing over `current`, so learning the
+  // real version from the shell does not have to rebuild the callback.
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  const [pending, setPending] = useState<RemyRelease[]>([]);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -13,13 +17,15 @@ export function useRelease() {
     });
   }, []);
 
+  // Everything newer than this build, not just the newest of them: what you
+  // would be getting is the whole run of releases in between.
   const check = useCallback(async () => {
     setChecking(true);
     setError(undefined);
     try {
-      const release = await fetchLatestRelease();
-      setLatest(release);
-      return release;
+      const releases = await fetchReleasesSince(currentRef.current);
+      setPending(releases);
+      return releases[0];
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Couldn't check for updates.";
       setError(message);
@@ -38,7 +44,8 @@ export function useRelease() {
     void check().catch(() => {});
   }, [check, local]);
 
-  const available = !local && latest ? isNewer(latest.version, current) : false;
+  const latest = pending[0];
+  const available = !local && Boolean(latest) && isNewer(latest.version, current);
 
-  return { current, latest, available, local, checking, error, check };
+  return { current, latest, pending, available, local, checking, error, check };
 }

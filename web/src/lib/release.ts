@@ -33,6 +33,61 @@ export function isNewer(latest: string, current: string): boolean {
   return false;
 }
 
+/// GitHub's generated notes name the author and link the PR on every line,
+/// which is most of the width and none of the news. The heading it adds is the
+/// card's title anyway, and the compare link belongs on the release page.
+export function summarizeNotes(notes: string | undefined): string | undefined {
+  if (!notes) return undefined;
+  const trimmed = notes
+    .split("\n")
+    .filter((line) => !/^\s*\*\*Full Changelog\*\*/.test(line))
+    .filter((line) => !/^\s*##\s*What's Changed\s*$/i.test(line))
+    .map((line) => line.replace(/\s+by\s+@[\w-]+\s+in\s+https?:\/\/\S+/i, ""))
+    .join("\n")
+    .trim();
+  return trimmed || undefined;
+}
+
+/// Every release newer than `current`, newest first — what you would be getting,
+/// not just what the newest one changed.
+export async function fetchReleasesSince(current: string): Promise<RemyRelease[]> {
+  const response = await fetch(`https://api.github.com/repos/${REMY_REPO}/releases?per_page=30`, {
+    headers: { Accept: "application/vnd.github+json", "User-Agent": `Remy/${REMY_VERSION}` },
+  });
+  if (!response.ok) throw new Error("Couldn't reach the update feed.");
+  const body = (await response.json()) as {
+    tag_name?: string;
+    html_url?: string;
+    body?: string;
+    draft?: boolean;
+    prerelease?: boolean;
+    assets?: { name?: string; browser_download_url?: string }[];
+  }[];
+
+  return body
+    .filter((entry) => !entry.draft && !entry.prerelease)
+    .map((entry) => toRelease(entry))
+    .filter((release): release is RemyRelease => Boolean(release) && isNewer(release!.version, current))
+    .sort((a, b) => (isNewer(a.version, b.version) ? -1 : 1));
+}
+
+function toRelease(body: {
+  tag_name?: string;
+  html_url?: string;
+  body?: string;
+  assets?: { name?: string; browser_download_url?: string }[];
+}): RemyRelease | undefined {
+  const version = (body.tag_name ?? "").replace(/^v/i, "").trim();
+  if (!version) return undefined;
+  const dmg = body.assets?.find((asset) => asset.name?.toLowerCase().endsWith(".dmg"));
+  return {
+    version,
+    notes: body.body?.trim() || undefined,
+    pageUrl: body.html_url || `https://github.com/${REMY_REPO}/releases/latest`,
+    downloadUrl: dmg?.browser_download_url,
+  };
+}
+
 export async function fetchLatestRelease(): Promise<RemyRelease | undefined> {
   const response = await fetch(`https://api.github.com/repos/${REMY_REPO}/releases/latest`, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": `Remy/${REMY_VERSION}` },

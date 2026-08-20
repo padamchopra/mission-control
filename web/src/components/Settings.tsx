@@ -40,7 +40,7 @@ import { DEVICE_ICON_IDS, deviceIcon, type DeviceIconId } from "@/lib/devices";
 import { hostLabel, parsePairingLink } from "@/lib/pairing";
 import { displayPath } from "@/lib/path";
 import { workspaceForPath } from "@/lib/projects";
-import { isNewer, type RemyRelease } from "@/lib/release";
+import { isNewer, summarizeNotes, type RemyRelease } from "@/lib/release";
 import { transport } from "@/lib/transport";
 import type { TintId } from "@/lib/tints";
 import { cn } from "@/lib/utils";
@@ -55,6 +55,8 @@ import {
 } from "@/components/ui/item";
 import { ClaudeMark } from "@/components/ClaudeMark";
 import { AvatarFrom, PresetAvatar } from "@/components/UserAvatar";
+import { Markdown } from "@/components/Markdown";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
   Dialog,
   DialogContent,
@@ -101,6 +103,7 @@ export function SettingsPane({
   release: {
     current: string;
     latest?: RemyRelease;
+    pending: RemyRelease[];
     available: boolean;
     local: boolean;
     checking: boolean;
@@ -138,6 +141,7 @@ function GeneralPane({
   release: {
     current: string;
     latest?: RemyRelease;
+    pending: RemyRelease[];
     available: boolean;
     local: boolean;
     checking: boolean;
@@ -145,7 +149,7 @@ function GeneralPane({
     check: () => Promise<RemyRelease | undefined>;
   };
 }) {
-  const { current, latest, available, local, checking, check } = release;
+  const { current, latest, pending, available, local, checking, check } = release;
 
   const onCheck = async () => {
     try {
@@ -177,11 +181,7 @@ function GeneralPane({
         {local ? (
           <Badge variant="secondary">Built here</Badge>
         ) : available && latest ? (
-          <Button asChild size="sm">
-            <a href={latest.downloadUrl ?? latest.pageUrl} target="_blank" rel="noreferrer">
-              Download {latest.version}
-            </a>
-          </Button>
+          <UpdateButton latest={latest} pending={pending} current={current} />
         ) : (
           <Button size="sm" variant="ghost" disabled={checking} onClick={() => void onCheck()}>
             {checking ? "Checking…" : "Check for updates"}
@@ -199,6 +199,66 @@ function GeneralPane({
         </div>
       </div>
     </div>
+  );
+}
+
+/// The download, with what you would be getting behind it.
+///
+/// Hovering shows every release between the one running and the one on offer,
+/// not just the newest of them — the point of the card is what changes for you,
+/// and that is the whole run.
+function UpdateButton({
+  latest,
+  pending,
+  current,
+}: {
+  latest: RemyRelease;
+  pending: RemyRelease[];
+  current: string;
+}) {
+  return (
+    <HoverCard openDelay={120} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <Button asChild size="sm">
+          <a href={latest.downloadUrl ?? latest.pageUrl} target="_blank" rel="noreferrer">
+            Download {latest.version}
+          </a>
+        </Button>
+      </HoverCardTrigger>
+      <HoverCardContent align="end" className="w-96 p-0">
+        <div className="flex items-baseline gap-2 border-b border-border px-4 py-2.5">
+          <p className="text-sm font-medium">What you'd be getting</p>
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {current} → {latest.version}
+          </p>
+        </div>
+        <ScrollArea className="max-h-72">
+          <div className="flex flex-col gap-4 px-4 py-3">
+            {pending.map((entry) => {
+              const notes = summarizeNotes(entry.notes);
+              return (
+                <div key={entry.version} className="flex flex-col gap-1">
+                  <p className="font-mono text-xs text-muted-foreground tabular-nums">{entry.version}</p>
+                  {notes ? (
+                    <Markdown text={notes} className="text-xs" />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No notes for this one.</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+        <a
+          href={latest.pageUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="block border-t border-border px-4 py-2 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Read it on GitHub
+        </a>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
