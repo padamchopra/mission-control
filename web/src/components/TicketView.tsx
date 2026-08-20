@@ -441,7 +441,12 @@ export function TicketView({
               </SelectTrigger>
               <SelectContent align="end">
                 <SelectGroup>
-                  <SelectItem value="none">Nobody</SelectItem>
+                  <SelectItem value="none">
+                    {/* An avatar slot of its own, so every name in the list
+                        starts in the same column. */}
+                    <AssigneeAvatar agents={agents} />
+                    Nobody
+                  </SelectItem>
                   {/* You first: a ticket you keep is the common case, and an
                       agent only starts on one that was handed to it. */}
                   {people(agents).map((person) => (
