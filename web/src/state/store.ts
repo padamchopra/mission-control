@@ -77,6 +77,10 @@ interface State {
   agents: Agent[];
   projects: Project[];
   tickets: Ticket[];
+  /// Which daemon each board device id belongs to. A ticket names the machine
+  /// it runs on by that id rather than by a server row, because a server row is
+  /// this client's pairing and means nothing to another client.
+  boardDevices: { deviceId: string; serverId: string }[];
   boardLoading: boolean;
   loading: boolean;
   /// Set when every configured server failed, so the UI can say why rather than
@@ -161,6 +165,7 @@ export const useStore = create<State>((set, get) => ({
   agents: [],
   projects: [],
   tickets: [],
+  boardDevices: [],
   boardLoading: false,
   detailLoading: false,
   loading: !useFixture,
@@ -633,7 +638,7 @@ export const useStore = create<State>((set, get) => ({
     if (useFixture) return;
     const servers = await transport.servers();
     if (servers.length === 0) {
-      set({ agents: [], projects: [], tickets: [], boardLoading: false });
+      set({ agents: [], projects: [], tickets: [], boardDevices: [], boardLoading: false });
       return;
     }
     if (get().tickets.length === 0) set({ boardLoading: true });
@@ -641,11 +646,13 @@ export const useStore = create<State>((set, get) => ({
       servers.map(async (server) => {
         try {
           const board = await transport.request<{
+            deviceId?: string;
             agents?: RawAgent[];
             projects?: RawProject[];
             tickets?: RawTicket[];
           }>(server.id, "/board");
           return {
+            devices: board.deviceId ? [{ deviceId: board.deviceId, serverId: server.id }] : [],
             agents: (board.agents ?? []).map((raw) => ({ ...raw, serverId: server.id }) as Agent),
             projects: (board.projects ?? []).map((raw) => ({
               ...raw,
@@ -660,7 +667,7 @@ export const useStore = create<State>((set, get) => ({
           };
         } catch {
           // An older server has no board, which is not worth an error banner.
-          return { agents: [], projects: [], tickets: [] };
+          return { devices: [], agents: [], projects: [], tickets: [] };
         }
       }),
     );
@@ -671,6 +678,7 @@ export const useStore = create<State>((set, get) => ({
       agents: dedupe(results.flatMap((r) => r.agents)),
       projects: dedupe(results.flatMap((r) => r.projects)),
       tickets: dedupe(results.flatMap((r) => r.tickets)).sort((a, b) => a.rank.localeCompare(b.rank)),
+      boardDevices: results.flatMap((r) => r.devices),
       boardLoading: false,
     });
   },

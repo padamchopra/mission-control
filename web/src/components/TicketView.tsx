@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, GitBranch, Link2, Link2Off, MessagesSquare, Plus, Send, Trash2 } from "lucide-react";
+import {
+  ArrowUpRight,
+  Folder,
+  GitBranch,
+  Link2,
+  Link2Off,
+  MessagesSquare,
+  Plus,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -44,10 +54,20 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { EditableName } from "@/components/EditableName";
 import { Markdown } from "@/components/Markdown";
 import { PaneHeader } from "@/components/PaneHeader";
+import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { NewTicketDialog } from "@/components/Board";
 import { AgentAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
-import { DERIVED_STATUSES, STATUS_LABEL, TICKET_STATUSES, byRank, shortDate } from "@/lib/tickets";
+import { deviceIcon } from "@/lib/devices";
+import { localWorkspace } from "@/lib/projects";
+import {
+  DERIVED_STATUSES,
+  STATUS_LABEL,
+  TICKET_STATUSES,
+  byRank,
+  deviceForTicket,
+  shortDate,
+} from "@/lib/tickets";
 import { useStore } from "@/state/store";
 import type { Ticket, TicketActivity, TicketStatus } from "@/state/types";
 
@@ -64,13 +84,18 @@ export function TicketView({
   onBack,
   onOpenTicket,
   onOpenThread,
+  onOpenWorkspace,
 }: {
   ticket: Ticket;
   onBack: () => void;
   onOpenTicket: (key: string) => void;
   onOpenThread: (chatId: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
 }) {
   const projects = useStore((s) => s.projects);
+  const servers = useStore((s) => s.servers);
+  const workspaces = useStore((s) => s.workspaces);
+  const boardDevices = useStore((s) => s.boardDevices);
   const agents = useStore((s) => s.agents);
   const chats = useStore((s) => s.chats);
   const tickets = useStore((s) => s.tickets);
@@ -88,6 +113,8 @@ export function TicketView({
   const [draft, setDraft] = useState(ticket.body);
 
   const project = projects.find((entry) => entry.id === ticket.projectId);
+  const workspace = project ? localWorkspace(project, workspaces) : undefined;
+  const device = deviceForTicket(ticket, boardDevices, servers);
   const parent = ticket.parentId ? tickets.find((entry) => entry.id === ticket.parentId) : undefined;
   const children = useMemo(
     () => tickets.filter((entry) => entry.parentId === ticket.id).sort(byRank),
@@ -421,8 +448,60 @@ export function TicketView({
             </Property>
           )}
 
+          <Property label="Device" htmlFor="ticket-device">
+            <Select
+              value={device?.id ?? ""}
+              onValueChange={(value) => {
+                const next = boardDevices.find((entry) => entry.serverId === value);
+                if (next) void save({ deviceId: next.deviceId }, "the device");
+              }}
+            >
+              <SelectTrigger id="ticket-device" size="sm" className="w-full">
+                <SelectValue placeholder="Unknown" />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectGroup>
+                  {servers.map((server) => {
+                    const Icon = deviceIcon(server.icon);
+                    return (
+                      <SelectItem
+                        key={server.id}
+                        value={server.id}
+                        // A machine whose daemon never said which device it is
+                        // cannot be named in the log, so it cannot be chosen.
+                        disabled={!boardDevices.some((entry) => entry.serverId === server.id)}
+                      >
+                        <Icon className="size-3.5" />
+                        {server.name}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Where a thread for this ticket runs. Only machines with the repo can take it.
+            </p>
+          </Property>
+
           <Property label="Workspace">
-            <span className="text-sm">{project?.name ?? "—"}</span>
+            {workspace ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-1.5 rounded text-left text-sm hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                onClick={() => onOpenWorkspace(workspace.id)}
+              >
+                <WorkspaceMark home={false} workspace={workspace} size="sm" />
+                <span className="truncate">{workspace.name}</span>
+              </button>
+            ) : (
+              // The project exists on some machine; this one just has not cloned
+              // it, so there is nothing here to open.
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Folder className="size-4 shrink-0" />
+                {project?.name ?? "—"}
+              </span>
+            )}
           </Property>
         </aside>
       </div>

@@ -60,6 +60,7 @@ export function AppSidebar({
   onSection,
   onSelectChat,
   onOpenTicket,
+  onOpenWorkspace,
   openSettings,
   closeSettings,
   updateAvailable,
@@ -76,6 +77,7 @@ export function AppSidebar({
   onSection: (id: string) => void;
   onSelectChat: (id: string) => void;
   onOpenTicket: (key: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   openSettings: (tab?: SettingsTab) => void;
   closeSettings: () => void;
   updateAvailable?: boolean;
@@ -155,6 +157,7 @@ export function AppSidebar({
                               now={now}
                               onSelect={() => onSelectChat(chat.id)}
                               onOpenTicket={onOpenTicket}
+                              onOpenWorkspace={onOpenWorkspace}
                             />
                           </ContextMenuTrigger>
                           <ThreadMenu chat={chat} />
@@ -290,6 +293,7 @@ function ThreadRow({
   now,
   onSelect,
   onOpenTicket,
+  onOpenWorkspace,
   ...trigger
 }: {
   chat: Chat;
@@ -299,6 +303,7 @@ function ThreadRow({
   now: number;
   onSelect: () => void;
   onOpenTicket: (key: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   // `ContextMenuTrigger asChild` hands its ref and handlers down; without
   // spreading them onto the button, right-click never reaches the menu.
 } & ComponentProps<"button">) {
@@ -382,7 +387,14 @@ function ThreadRow({
     <HoverCard openDelay={450}>
       <HoverCardTrigger asChild>{row}</HoverCardTrigger>
       <HoverCardContent side="right" align="start" className="w-72">
-        <ThreadContext chat={chat} workspace={workspace} server={server} ticket={ticket} />
+        <ThreadContext
+          chat={chat}
+          workspace={workspace}
+          server={server}
+          ticket={ticket}
+          onOpenTicket={onOpenTicket}
+          onOpenWorkspace={onOpenWorkspace}
+        />
       </HoverCardContent>
     </HoverCard>
   );
@@ -394,11 +406,15 @@ function ThreadContext({
   workspace,
   server,
   ticket,
+  onOpenTicket,
+  onOpenWorkspace,
 }: {
   chat: Chat;
   workspace?: Workspace;
   server?: Server;
   ticket?: Ticket;
+  onOpenTicket: (key: string) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
 }) {
   const DeviceIcon = deviceIcon(server?.icon);
   const branch = workspace?.worktrees.find((tree) => tree.path === chat.cwd)?.branch;
@@ -413,10 +429,21 @@ function ThreadContext({
             {server.name}
           </span>
         )}
-        <span className="flex items-center gap-1.5">
-          <WorkspaceMark home={!workspace} workspace={workspace} server={server} size="sm" />
-          {workspace?.name ?? displayPath(chat.cwd)}
-        </span>
+        {workspace ? (
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded text-left hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={() => onOpenWorkspace(workspace.id)}
+          >
+            <WorkspaceMark home={false} workspace={workspace} server={server} size="sm" />
+            {workspace.name}
+          </button>
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <WorkspaceMark home workspace={undefined} server={server} size="sm" />
+            {displayPath(chat.cwd)}
+          </span>
+        )}
         {branch && (
           <span className="flex items-center gap-1.5 font-mono break-all">
             <GitBranch className="size-3.5 shrink-0" />
@@ -425,10 +452,14 @@ function ThreadContext({
         )}
       </div>
       {ticket && (
-        <div className="flex flex-col gap-0.5 border-t border-border pt-2">
+        <button
+          type="button"
+          className="flex flex-col gap-0.5 rounded border-t border-border pt-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={() => onOpenTicket(ticket.key)}
+        >
           <span className="font-mono text-[11px] text-muted-foreground">{ticket.key}</span>
-          <span className="text-xs leading-snug">{ticket.title}</span>
-        </div>
+          <span className="text-xs leading-snug hover:underline">{ticket.title}</span>
+        </button>
       )}
     </div>
   );

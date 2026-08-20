@@ -310,6 +310,7 @@ export function App() {
           onSection={(id) => go(routeForSection(id as Section))}
           onSelectChat={openChat}
           onOpenTicket={(key) => go({ name: "ticket", key })}
+          onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
           openSettings={openSettings}
           closeSettings={closeSettings}
           updateAvailable={release.available}
@@ -339,6 +340,7 @@ export function App() {
               onBack={() => go({ name: "board" })}
               onOpenTicket={(key) => go({ name: "ticket", key })}
               onOpenThread={openChat}
+              onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
             />
           ) : (
             <MissingTicket ticketKey={route.key} onBack={() => go({ name: "board" })} />

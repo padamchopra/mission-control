@@ -1,4 +1,4 @@
-import type { Agent, Chat, Ticket, TicketStatus } from "~/state/types";
+import type { Agent, Chat, Server, Ticket, TicketStatus } from "~/state/types";
 
 /// The board's vocabulary, in one place because the columns, the card menu, the
 /// detail pane and the palette all have to agree on it.
@@ -15,6 +15,18 @@ export const TICKET_STATUSES: TicketStatus[] = [
 
 /// The columns a board shows. Cancelled is a status you can set but not a
 /// column anyone wants standing in front of them all day.
+/// The machine a ticket runs on. `deviceId` is the durable answer and survives
+/// replication; the daemon that happened to answer with the ticket is the
+/// fallback for a board written before the field existed.
+export function deviceForTicket(
+  ticket: { deviceId?: string; serverId: string },
+  devices: { deviceId: string; serverId: string }[],
+  servers: Server[],
+): Server | undefined {
+  const match = ticket.deviceId ? devices.find((entry) => entry.deviceId === ticket.deviceId) : undefined;
+  return servers.find((server) => server.id === (match ? match.serverId : ticket.serverId));
+}
+
 export const BOARD_COLUMNS: TicketStatus[] = [
   "backlog",
   "todo",

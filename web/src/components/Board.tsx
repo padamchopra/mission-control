@@ -65,6 +65,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar";
 import { PaneHeader } from "@/components/PaneHeader";
 import { WorkspaceIcon } from "@/components/WorkspaceIcon";
+import { deviceIcon } from "@/lib/devices";
+import { localWorkspace } from "@/lib/projects";
 import { tintOf } from "@/lib/tints";
 import { AgentAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
@@ -74,6 +76,7 @@ import {
   TICKET_STATUSES,
   agentFor,
   currentThread,
+  deviceForTicket,
   neighboursAt,
   shortDate,
   subTicketProgress,
@@ -82,7 +85,7 @@ import {
 } from "@/lib/tickets";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
-import type { Agent, Chat, Project, Ticket, TicketStatus, Workspace } from "@/state/types";
+import type { Agent, Chat, Project, Server, Ticket, TicketStatus, Workspace } from "@/state/types";
 
 /// The board: one column per status, cards in rank order.
 ///
@@ -110,6 +113,8 @@ export function Board({
   const agents = useStore((s) => s.agents);
   const chats = useStore((s) => s.chats);
   const workspaces = useStore((s) => s.workspaces);
+  const servers = useStore((s) => s.servers);
+  const boardDevices = useStore((s) => s.boardDevices);
   const loading = useStore((s) => s.boardLoading);
   const loadBoard = useStore((s) => s.loadBoard);
   const moveTicket = useStore((s) => s.moveTicket);
@@ -249,6 +254,7 @@ export function Board({
                 ticket={dragging}
                 agent={agentFor(agents, dragging)}
                 thread={currentThread(chats, dragging)}
+                device={deviceForTicket(dragging, boardDevices, servers)}
                 progress={subTicketProgress(scoped, dragging)}
                 className="rotate-1 shadow-lg"
               />
@@ -271,10 +277,6 @@ export function Board({
 /// A workspace on this machine that is this project, when there is one. The
 /// board is a synced thing and a workspace is a local folder, so a project can
 /// legitimately have none here.
-function localWorkspace(project: Project, workspaces: Workspace[]): Workspace | undefined {
-  return workspaces.find((workspace) => project.workspaceIds.includes(workspace.id));
-}
-
 /// Whose work is on the board, as faces. Says which workspaces are in view
 /// without spending a breadcrumb on it.
 function WorkspaceFaces({ projects, workspaces }: { projects: Project[]; workspaces: Workspace[] }) {
@@ -394,6 +396,8 @@ function Column({
   chats: Chat[];
   onOpenTicket: (key: string) => void;
 }) {
+  const servers = useStore((s) => s.servers);
+  const boardDevices = useStore((s) => s.boardDevices);
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
   return (
@@ -417,6 +421,7 @@ function Column({
             allTickets={allTickets}
             agent={agentFor(agents, ticket)}
             thread={currentThread(chats, ticket)}
+            device={deviceForTicket(ticket, boardDevices, servers)}
             onOpen={() => onOpenTicket(ticket.key)}
           />
         ))}
@@ -431,15 +436,18 @@ function CardBody({
   ticket,
   agent,
   thread,
+  device,
   progress,
   className,
 }: {
   ticket: Ticket;
   agent?: Agent;
   thread?: Chat;
+  device?: Server;
   progress: { done: number; total: number };
   className?: string;
 }) {
+  const DeviceIcon = deviceIcon(device?.icon);
   return (
     <div
       className={cn(
@@ -486,7 +494,17 @@ function CardBody({
         </div>
       )}
 
-      <p className="pl-[1.375rem] text-[11px] text-muted-foreground">Created {shortDate(ticket.createdAt)}</p>
+      <div className="flex items-center gap-2 pl-[1.375rem] text-[11px] text-muted-foreground">
+        <span>Created {shortDate(ticket.createdAt)}</span>
+        {device && (
+          // Which machine would pick this up. On a one-machine board it is the
+          // same answer every time; that is still the answer.
+          <span className="ml-auto flex min-w-0 shrink items-center gap-1">
+            <DeviceIcon className="size-3 shrink-0" />
+            <span className="truncate">{device.name}</span>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -496,12 +514,14 @@ function TicketCard({
   allTickets,
   agent,
   thread,
+  device,
   onOpen,
 }: {
   ticket: Ticket;
   allTickets: Ticket[];
   agent?: Agent;
   thread?: Chat;
+  device?: Server;
   onOpen: () => void;
 }) {
   const moveTicket = useStore((s) => s.moveTicket);
@@ -556,6 +576,7 @@ function TicketCard({
             ticket={ticket}
             agent={agent}
             thread={thread}
+            device={device}
             progress={subTicketProgress(allTickets, ticket)}
             className="bg-transparent hover:bg-transparent"
           />
