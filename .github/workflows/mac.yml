@@ -110,7 +110,7 @@ jobs:
       - name: Install
         run: npm run install:all
 
-      - name: Build, sign, and notarize DMG
+      - name: Build, sign, and notarize
         run: npm run pack:mac
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -122,13 +122,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: remy-macos
-          path: desktop/release/*.dmg
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
 
       - uses: ncipollo/release-action@v1
         with:
           tag: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
-          artifacts: desktop/release/*.dmg
+          artifacts: desktop/release/*.dmg,desktop/release/*.zip,desktop/release/*.blockmap,desktop/release/latest*.yml
           generateReleaseNotes: true
           allowUpdates: true
           omitBodyDuringUpdate: true

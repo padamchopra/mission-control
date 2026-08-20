@@ -7,9 +7,20 @@ import { contextBridge, ipcRenderer } from "electron";
 /// the UI cannot be talked into reaching somewhere else.
 contextBridge.exposeInMainWorld("remy", {
   platform: process.platform,
+  arch: process.arch,
   version: process.env.npm_package_version,
 
-  info: (): Promise<{ version: string; name: string }> => ipcRenderer.invoke("app:info"),
+  info: (): Promise<{ version: string; name: string; packaged: boolean }> => ipcRenderer.invoke("app:info"),
+
+  /// Main process pulls the zip from GitHub's updater feed and later swaps
+  /// this .app for it. A renderer `<a href>` on the DMG is what opened Chrome.
+  downloadUpdate: (): Promise<void> => ipcRenderer.invoke("app:download-update"),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke("app:install-update"),
+  onUpdateProgress: (handler: (progress: { received: number; total: number }) => void) => {
+    const listener = (_event: unknown, progress: { received: number; total: number }) => handler(progress);
+    ipcRenderer.on("app:update-progress", listener);
+    return () => ipcRenderer.off("app:update-progress", listener);
+  },
 
   servers: (): Promise<{ id: string; name: string; url: string; icon?: string; builtin?: boolean }[]> =>
     ipcRenderer.invoke("mc:servers"),

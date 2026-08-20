@@ -21,6 +21,7 @@
     "electron@38.8.6": true
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "ws": "^8.21.3"
   },
   "build": {
@@ -50,7 +51,8 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
       "artifactName": "Remy-${version}-${arch}.${ext}",
       "hardenedRuntime": true,
@@ -60,6 +62,11 @@
     },
     "dmg": {
       "title": "Remy ${version}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "padamchopra",
+      "repo": "remy"
     }
   }
 }

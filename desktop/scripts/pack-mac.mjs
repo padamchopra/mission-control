@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 const desktop = join(dirname(fileURLToPath(import.meta.url)), "..");
 const builder = join(desktop, "node_modules/.bin/electron-builder");
 const signed = Boolean(process.env.CSC_LINK);
-const args = ["--mac", "dmg", "--publish", "never"];
+// Zip is what electron-updater installs; the DMG is the first-run drag onto
+// Applications. `--publish never` still writes latest-mac.yml from `publish`.
+const args = ["--mac", "--publish", "never"];
 if (!signed) args.push("--config.mac.identity=-");
 
 const result = spawnSync(builder, args, { cwd: desktop, stdio: "inherit", env: process.env });
