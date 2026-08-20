@@ -1,4 +1,4 @@
-import { Archive, Bot, Boxes, Check, Copy, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, Trash2, X } from "lucide-react";
+import { Archive, Bot, Boxes, Check, Copy, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +37,7 @@ import {
 import { EditableName } from "@/components/EditableName";
 import { IconPicker } from "@/components/IconPicker";
 import { DEVICE_ICON_IDS, deviceIcon, type DeviceIconId } from "@/lib/devices";
-import { hostLabel, parsePairingLink } from "@/lib/pairing";
+import { formatPairCode, hostLabel, parsePairingLink } from "@/lib/pairing";
 import { displayPath } from "@/lib/path";
 import { workspaceForPath } from "@/lib/projects";
 import { isNewer, summarizeNotes, type RemyRelease } from "@/lib/release";
@@ -80,8 +80,8 @@ import {
 import { AgentsPane } from "@/components/AgentSettings";
 import { useAppUpdate, type AppUpdatePhase } from "@/hooks/use-app-update";
 import { useStore } from "@/state/store";
-import type { Chat, Server, ToolStatus } from "@/state/types";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { Chat, Server, TailnetDevice, ToolStatus } from "@/state/types";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 export type SettingsTab = "general" | "version-control" | "providers" | "agents" | "devices" | "archive";
 
@@ -1244,6 +1244,9 @@ function DevicesPane() {
   // Pairing lives in the daemon on this machine rather than in any one window,
   // so the desktop app, a browser and the phone all pair once and see one list.
   const home = servers.find((server) => server.local) ?? servers[0];
+  // Nothing can pair with a machine nothing can reach, so the list below says
+  // so rather than offering buttons that cannot work.
+  const homeReachable = useIdentity(home?.id)?.exposed === true;
 
   const unpair = async (server: Server) => {
     setBusy(true);
@@ -1280,6 +1283,7 @@ function DevicesPane() {
           onUpdate={(patch) => updateServer(server.id, patch)}
         />
       ))}
+      <DiscoveredDevices homeId={home?.id} reachable={homeReachable} />
       <AddDevice onAdd={addServer} />
     </div>
   );
@@ -1358,7 +1362,7 @@ function DeviceCard({
         )}
       </div>
       <NotifyField server={server} homeId={homeId} />
-      {server.local ? <PairingField serverId={server.id} identity={identity} /> : null}
+      {server.local ? <ReachableField serverId={server.id} identity={identity} /> : null}
       {server.online ? <StayAwakeField serverId={server.id} /> : null}
     </div>
   );
@@ -1445,17 +1449,46 @@ function NotifyField({ server, homeId }: { server: Server; homeId?: string }) {
   );
 }
 
-/// The link that pairs another machine with this one — the thing you come to
-/// this pane to fetch when you are sitting at the machine you want to add.
-function PairingField({ serverId, identity }: { serverId: string; identity?: Identity }) {
-  const [exposing, setExposing] = useState(false);
-  const [exposed, setExposed] = useState<Identity>();
-  const current = exposed ?? identity;
+/// Whether anything off this machine can reach it, and the link that pairs
+/// another machine with it once something can.
+///
+/// One switch, because it is one fact. The daemon binds loopback, so
+/// `tailscale serve` is the whole of what lets anything in — every paired
+/// machine included, not just pairing. Turning it off is the honest opposite of
+/// turning it on, which is why this is a switch and not a button that only goes
+/// one way. The link sits underneath because it cannot exist before there is an
+/// address to put in it.
+function ReachableField({ serverId, identity }: { serverId: string; identity?: Identity }) {
+  const [changed, setChanged] = useState<Identity>();
+  const [saving, setSaving] = useState(false);
+  const switchId = `reachable-${serverId}`;
+  const shown = changed ?? identity;
 
-  if (!current) return null;
+  if (!shown) return null;
+
+  const hasTailscale = Boolean(shown.tailnetHost);
+
+  const toggle = async (next: boolean) => {
+    setSaving(true);
+    try {
+      setChanged(
+        await transport.request<Identity>(serverId, "/server/identity", {
+          method: "PATCH",
+          body: { exposed: next },
+        }),
+      );
+      toast.success(next ? "Your other machines can reach this one." : "Nothing else can reach this machine.");
+    } catch (caught) {
+      toast.error(next ? "Couldn't make this machine reachable" : "Couldn't close this machine off", {
+        description: apiError(caught),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const copy = async () => {
-    const link = `remy://configure?url=${encodeURIComponent(current.url)}&token=${encodeURIComponent(current.token)}`;
+    const link = `remy://configure?url=${encodeURIComponent(shown.url)}&token=${encodeURIComponent(shown.token)}`;
     try {
       await navigator.clipboard.writeText(link);
       toast.success("Copied this machine's pairing link.");
@@ -1464,51 +1497,207 @@ function PairingField({ serverId, identity }: { serverId: string; identity?: Ide
     }
   };
 
-  const putOnTailnet = async () => {
-    setExposing(true);
-    try {
-      setExposed(await transport.request<Identity>(serverId, "/server/expose", { method: "POST" }));
-      toast.success("This machine is on the tailnet.");
-    } catch (caught) {
-      toast.error("Couldn't put this machine on the tailnet", { description: apiError(caught) });
-    } finally {
-      setExposing(false);
-    }
-  };
-
   return (
-    <div className="rounded-lg border border-border bg-muted/40 px-3.5 py-3">
-      <Field orientation="horizontal" className="items-center">
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 px-3.5 py-3">
+      <Field orientation="horizontal" data-disabled={!hasTailscale || undefined} className="items-center">
         <FieldContent>
-          <FieldLabel>Pairing link</FieldLabel>
+          <FieldLabel htmlFor={switchId}>Reachable from your other machines</FieldLabel>
           <FieldDescription className="text-xs">
-            {current.exposed
-              ? "Paste it into Devices on another machine to pair the two."
-              : "Nothing outside this machine can reach it yet."}
+            {!hasTailscale
+              ? "Tailscale isn't running here, so nothing can reach this machine."
+              : shown.exposed
+                ? `Your machines reach it at ${shown.tailnetHost}. Nothing outside your tailnet can.`
+                : "Only this machine can reach it. Turn this on to pair anything with it."}
           </FieldDescription>
         </FieldContent>
-        {current.exposed ? (
+        <Switch
+          id={switchId}
+          checked={shown.exposed}
+          disabled={saving || !hasTailscale}
+          onCheckedChange={(next) => void toggle(next)}
+        />
+      </Field>
+
+      {shown.exposed && (
+        <Field orientation="horizontal" className="items-center border-t border-border pt-3">
+          <FieldContent>
+            <FieldLabel>Pairing link</FieldLabel>
+            <FieldDescription className="text-xs">
+              For a machine that never shows up below.
+            </FieldDescription>
+          </FieldContent>
           <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copy()}>
             <Copy />
             Copy link
           </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            disabled={exposing}
-            onClick={() => void putOnTailnet()}
-          >
-            Put it on the tailnet
-          </Button>
-        )}
-      </Field>
+        </Field>
+      )}
     </div>
   );
 }
 
-/// Pairing with a machine from the link it showed you.
+/// Your machines on the tailnet, and what it takes to pair one.
+///
+/// Tailscale already knows every device you own, so this is a list to pick from
+/// rather than a link to carry. Clicking Pair asks that machine; a person there
+/// compares a six-digit code and allows it. Nothing is shared until they do.
+function DiscoveredDevices({ homeId, reachable }: { homeId?: string; reachable: boolean }) {
+  const refresh = useStore((s) => s.refresh);
+  const [devices, setDevices] = useState<TailnetDevice[]>();
+  const [attempt, setAttempt] = useState<PairAttempt>();
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(
+    async (force = false) => {
+      if (!homeId) return;
+      try {
+        const answer = await transport.request<{ devices?: TailnetDevice[] }>(
+          homeId,
+          `/tailnet${force ? "?refresh=1" : ""}`,
+        );
+        setDevices(answer.devices ?? []);
+      } catch {
+        // A daemon from before discovery landed, or no Tailscale here.
+        setDevices([]);
+      }
+    },
+    [homeId],
+  );
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // While an ask is outstanding, poll it: the answer arrives when somebody at
+  // the other machine presses Allow.
+  useEffect(() => {
+    if (!homeId || !attempt || attempt.state !== "waiting") return;
+    const timer = window.setInterval(() => {
+      void transport
+        .request<PairAttempt>(homeId, `/pair/attempt/${encodeURIComponent(attempt.id)}`)
+        .then((next) => {
+          setAttempt(next);
+          if (next.state === "approved") {
+            toast.success(`Paired ${next.name}.`);
+            void refresh();
+            void load(true);
+          }
+          if (next.state === "denied") toast.error(`${next.name} denied that request.`);
+          if (next.state === "failed") {
+            toast.error("Couldn't finish pairing", { description: next.error });
+          }
+        })
+        .catch(() => {
+          // Keep waiting; the deadline on the daemon ends this eventually.
+        });
+    }, 1_500);
+    return () => window.clearInterval(timer);
+  }, [homeId, attempt, refresh, load]);
+
+  const pair = async (device: TailnetDevice) => {
+    if (!homeId || !device.url) return;
+    setBusy(true);
+    try {
+      setAttempt(
+        await transport.request<PairAttempt>(homeId, "/pair/start", {
+          method: "POST",
+          body: { url: device.url, name: device.name },
+        }),
+      );
+    } catch (caught) {
+      toast.error(`Couldn't ask ${device.name} to pair`, { description: apiError(caught) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const candidates = (devices ?? []).filter((device) => device.remy && !device.paired);
+  const others = (devices ?? []).filter((device) => !device.remy || device.paired);
+
+  if (devices === undefined) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <Label>On your tailnet</Label>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => void load(true)}>
+          <RefreshCw />
+          Look again
+        </Button>
+      </div>
+
+      {attempt && attempt.state === "waiting" ? (
+        <div className="flex flex-col items-center gap-1 rounded-lg border border-border bg-muted/40 px-3.5 py-4">
+          <span className="text-sm">Waiting for {attempt.name}</span>
+          <span className="font-mono text-2xl tracking-[0.2em] tabular-nums">
+            {formatPairCode(attempt.code)}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Allow it on {attempt.name} if it shows this code.
+          </span>
+        </div>
+      ) : null}
+
+      {devices.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+          {reachable
+            ? "No other machines of yours are on the tailnet."
+            : "Turn on Reachable from your other machines to pair anything."}
+        </p>
+      ) : (
+        <ItemGroup className="gap-1">
+          {[...candidates, ...others].map((device) => (
+            <Item key={device.host} variant="outline" size="sm">
+              <ItemMedia>
+                <Laptop className="size-4 text-muted-foreground" />
+              </ItemMedia>
+              <ItemContent>
+                <ItemTitle>{device.name}</ItemTitle>
+                <ItemDescription>
+                  {device.paired
+                    ? "Already paired."
+                    : device.remy
+                      ? "Remy is running here."
+                      : device.online
+                        ? "Remy isn't answering here."
+                        : "Asleep or offline."}
+                </ItemDescription>
+              </ItemContent>
+              <ItemActions>
+                {device.paired ? (
+                  <Badge variant="secondary">Paired</Badge>
+                ) : device.remy ? (
+                  <Button
+                    size="sm"
+                    disabled={busy || attempt?.state === "waiting" || !reachable}
+                    onClick={() => void pair(device)}
+                  >
+                    Pair
+                  </Button>
+                ) : null}
+              </ItemActions>
+            </Item>
+          ))}
+        </ItemGroup>
+      )}
+    </div>
+  );
+}
+
+/// The state of an ask this machine started, as the daemon reports it.
+interface PairAttempt {
+  id: string;
+  code: string;
+  url: string;
+  name: string;
+  at: number;
+  state: "waiting" | "approved" | "denied" | "expired" | "failed";
+  error?: string;
+  peerId?: string;
+}
+
+/// Pairing with a machine from a link it showed you. The way in for a machine
+/// that discovery cannot see — one not on the tailnet, or reached some other way.
 function AddDevice({ onAdd }: { onAdd: (input: { url: string; token: string }) => Promise<void> }) {
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1537,7 +1726,7 @@ function AddDevice({ onAdd }: { onAdd: (input: { url: string; token: string }) =
 
   return (
     <div className="flex flex-col gap-2">
-      <Label htmlFor="pairing-link">Add a device</Label>
+      <Label htmlFor="pairing-link">Pair with a link instead</Label>
       <div className="flex gap-2">
         <Input
           id="pairing-link"
@@ -1550,14 +1739,11 @@ function AddDevice({ onAdd }: { onAdd: (input: { url: string; token: string }) =
           spellCheck={false}
           disabled={busy}
         />
-        <Button onClick={() => void submit()} disabled={busy || !link.trim()}>
+        <Button variant="outline" onClick={() => void submit()} disabled={busy || !link.trim()}>
           <Plus />
           Add
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Open Remy on the other machine and copy its pairing link.
-      </p>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );

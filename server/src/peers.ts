@@ -1,14 +1,11 @@
-import { execFile } from "node:child_process";
 import { hostname } from "node:os";
-import { promisify } from "node:util";
 import { deviceId, eventsSince, mergeRemote, versionVector } from "./board-log.js";
 import { config } from "./config.js";
 import { db } from "./db.js";
 import { reprojectAll as reprojectAgents } from "./agents.js";
 import { reprojectAll as reprojectProjects } from "./projects.js";
 import { reprojectAll as reprojectTickets } from "./tickets.js";
-
-const exec = promisify(execFile);
+import { serveTarget, tailnetHost, tailscale } from "./tailnet.js";
 
 /// The other machines this one is paired with.
 ///
@@ -98,7 +95,7 @@ export function peerViews(): PeerView[] {
 /// Where a peer's address has to point. The daemon answers on loopback only, so
 /// the reachable address is whatever fronts it — `tailscale serve` on the
 /// tailnet, in practice. Anything that is not plain HTTP is not that.
-function peerUrl(value: unknown): string {
+export function peerAddress(value: unknown): string {
   if (typeof value !== "string") throw new Error("that link has no server address");
   const trimmed = value.trim();
   let parsed: URL;
@@ -214,60 +211,6 @@ export function removePeer(id: string): void {
 
 // --- This machine's own identity ------------------------------------------
 
-/// Candidate paths for the Tailscale CLI. The Mac App Store build keeps it
-/// inside the app bundle, where it is on nobody's PATH.
-const TAILSCALE_PATHS = [
-  "tailscale",
-  "/usr/local/bin/tailscale",
-  "/opt/homebrew/bin/tailscale",
-  "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-];
-
-async function tailscale(args: string[]): Promise<string | undefined> {
-  for (const bin of TAILSCALE_PATHS) {
-    try {
-      const { stdout } = await exec(bin, args, { timeout: 5_000, maxBuffer: 4 * 1024 * 1024 });
-      return stdout;
-    } catch (error) {
-      // A missing binary means try the next path; anything else means Tailscale
-      // is here and answered badly, which is not something another path fixes.
-      if ((error as { code?: string }).code === "ENOENT") continue;
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-/// This machine's name on the tailnet, without the trailing dot.
-async function tailnetHost(): Promise<string | undefined> {
-  const stdout = await tailscale(["status", "--json"]);
-  if (!stdout) return undefined;
-  try {
-    const status = JSON.parse(stdout) as { Self?: { DNSName?: string } };
-    const dns = status.Self?.DNSName?.replace(/\.$/, "");
-    return dns || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/// Whether `tailscale serve` is already fronting this daemon, and on which
-/// port. Serve is the only way in: the daemon itself binds loopback.
-async function serveTarget(): Promise<{ https: boolean } | undefined> {
-  const stdout = await tailscale(["serve", "status", "--json"]);
-  if (!stdout) return undefined;
-  try {
-    const status = JSON.parse(stdout) as { Web?: Record<string, unknown> };
-    const hosts = Object.keys(status.Web ?? {});
-    if (hosts.length === 0) return undefined;
-    // A serve key is `host:port`. 443 is the HTTPS listener; anything else is
-    // tailnet HTTP, still WireGuard-encrypted but without TLS on top.
-    return { https: hosts.some((host) => host.endsWith(":443")) };
-  } catch {
-    return undefined;
-  }
-}
-
 export interface IdentityView {
   deviceId: string;
   name: string;
@@ -299,20 +242,35 @@ export async function identity(): Promise<IdentityView> {
 
 /// Puts this daemon on the tailnet, the same way `deploy/setup.sh` does. Serve,
 /// never funnel: the tailnet can reach it, the public internet cannot.
-export async function expose(): Promise<IdentityView> {
-  const attempts = [
-    ["serve", "--bg", "--https=443", `http://127.0.0.1:${config.port}`],
-    ["serve", "--bg", `--http=${config.port}`, `http://127.0.0.1:${config.port}`],
-  ];
+export async function setExposed(on: boolean): Promise<IdentityView> {
+  // Prefer HTTPS; fall back to tailnet HTTP for a tailnet without certs, which
+  // is still WireGuard-encrypted and still tailnet-only, just without TLS on
+  // top. Turning it off removes the mappings one at a time rather than running
+  // `serve reset`: this machine may be serving something that is not Remy.
+  const attempts = on
+    ? [
+        ["serve", "--bg", "--https=443", `http://127.0.0.1:${config.port}`],
+        ["serve", "--bg", `--http=${config.port}`, `http://127.0.0.1:${config.port}`],
+      ]
+    : [
+        ["serve", "--https=443", "off"],
+        ["serve", `--http=${config.port}`, "off"],
+      ];
+
   for (const args of attempts) {
-    if ((await tailscale(args)) !== undefined) break;
+    const ran = (await tailscale(args)) !== undefined;
+    // Turning on stops at the first listener that takes it; turning off has to
+    // clear every form it might have been turned on with.
+    if (ran && on) break;
   }
+
   const next = await identity();
-  if (!next.exposed) {
+  if (next.exposed !== on) {
+    if (!next.tailnetHost) throw new Error("Tailscale is not running on this machine.");
     throw new Error(
-      next.tailnetHost
+      on
         ? "Tailscale would not serve this machine. Check `tailscale serve status`."
-        : "Tailscale is not running on this machine.",
+        : "Tailscale would not stop serving this machine. Check `tailscale serve status`.",
     );
   }
   return next;
@@ -326,7 +284,7 @@ export async function expose(): Promise<IdentityView> {
 /// and then hand them our own address and token so they can call us too. A
 /// pairing that only went one way would sync one way, which is not a pair.
 export async function pairWith(input: Record<string, unknown>): Promise<PeerView> {
-  const url = peerUrl(input.url);
+  const url = peerAddress(input.url);
   const token = peerToken(input.token);
 
   const them = await callPeer<Partial<IdentityView>>({ url, token }, "/server/identity");
@@ -334,18 +292,41 @@ export async function pairWith(input: Record<string, unknown>): Promise<PeerView
   if (!id) throw new Error("that machine is not running Remy");
   if (id === deviceId) throw new Error("that link is for this machine");
 
-  const peer = upsert({
-    id,
+  return completePair({
+    deviceId: id,
     name: peerName(input.name ?? them.name, new URL(url).hostname),
     url,
     token,
+  });
+}
+
+/// Stores a machine as a peer and completes the other half of the pair.
+///
+/// Both ways in end here — a link you pasted, and an approval on the other
+/// machine — because from this point they are the same thing: we hold that
+/// machine's address and token, and it needs ours to call back. A machine that
+/// cannot be reached back still pairs: it can pull from us, and the sync loop
+/// keeps trying.
+export async function completePair(claim: {
+  deviceId: string;
+  name?: string;
+  url: string;
+  token: string;
+}): Promise<PeerView> {
+  if (!claim.deviceId) throw new Error("that machine is not running Remy");
+  if (claim.deviceId === deviceId) throw new Error("that is this machine");
+
+  const url = peerAddress(claim.url);
+  const peer = upsert({
+    id: claim.deviceId,
+    name: peerName(claim.name, new URL(url).hostname),
+    url,
+    token: peerToken(claim.token),
     notify: false,
     pairedAt: Date.now(),
     lastSeen: Date.now(),
   });
 
-  // Their side of the pair. A machine that cannot be reached back still pairs:
-  // it can pull from us, and the sync loop keeps trying.
   const mine = await identity();
   if (mine.exposed) {
     try {
@@ -354,12 +335,12 @@ export async function pairWith(input: Record<string, unknown>): Promise<PeerView
         body: { deviceId: mine.deviceId, name: mine.name, url: mine.url, token: mine.token },
       });
     } catch {
-      // Their half can also be completed by pairing from over there.
+      // Their half can also be completed from over there.
     }
   }
 
   await syncWithPeer(peer);
-  const view = peerViews().find((item) => item.id === id);
+  const view = peerViews().find((item) => item.id === peer.id);
   if (!view) throw new Error("that device did not pair");
   return view;
 }
@@ -370,7 +351,7 @@ export function acceptAnnouncement(body: Record<string, unknown>): PeerView {
   const id = typeof body.deviceId === "string" ? body.deviceId.trim() : "";
   if (!id) throw new Error("that announcement has no device");
   if (id === deviceId) throw new Error("that announcement is from this machine");
-  const url = peerUrl(body.url);
+  const url = peerAddress(body.url);
   const peer = upsert({
     id,
     name: peerName(body.name, new URL(url).hostname),

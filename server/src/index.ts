@@ -44,15 +44,28 @@ import {
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, deliverFromPeer, pushSession, pushSessionList } from "./notify.js";
+import { discover } from "./tailnet.js";
+import {
+  approvePair,
+  askToPair,
+  checkPairing,
+  denyPair,
+  forgetPairing,
+  pairStatus,
+  pendingPairRequests,
+  startPairing,
+} from "./pairing.js";
 import {
   acceptAnnouncement,
   acceptEvents,
-  expose,
+  completePair,
   identity,
+  listPeers,
   pairWith,
   peerViews,
   proxyToPeer,
   removePeer,
+  setExposed,
   startPeerSync,
   syncAnswer,
   syncNow,
@@ -224,10 +237,30 @@ function sameMessage(transcriptText: string | undefined, queued: string): boolea
 
 const server = createServer(async (req, res) => {
   try {
-    if (!authorized(req)) return json(res, 401, { error: "unauthorized" });
-
     const url = new URL(req.url ?? "/", "http://localhost");
     const parts = url.pathname.split("/").filter(Boolean);
+
+    // The only two routes that answer without a token, because a machine that
+    // has never paired holds no token to offer. Neither one changes anything a
+    // person here has not approved, and neither discloses anything: asking gets
+    // back an opaque id, and the id is the only way to collect the answer.
+    // Reachable over your own tailnet alone — the daemon binds loopback.
+    if (url.pathname === "/pair/request" && req.method === "POST") {
+      const body = await readJson(req);
+      try {
+        const asked = askToPair(body);
+        // Every window on this machine should raise the prompt at once.
+        broadcast({ type: "pair-requests" });
+        return json(res, 201, asked);
+      } catch (error) {
+        return json(res, 429, { error: (error as Error).message });
+      }
+    }
+    if (url.pathname === "/pair/status" && req.method === "GET") {
+      return json(res, 200, pairStatus(url.searchParams.get("id") ?? ""));
+    }
+
+    if (!authorized(req)) return json(res, 401, { error: "unauthorized" });
 
     if (req.method === "GET" && url.pathname === "/health") {
       return json(res, 200, { ok: true });
@@ -291,13 +324,100 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/server/identity" && req.method === "GET") {
       return json(res, 200, await identity());
     }
-    // Puts this daemon on the tailnet with `tailscale serve`, so a paired
-    // machine has an address to call. Serve, never funnel.
-    if (url.pathname === "/server/expose" && req.method === "POST") {
+    // Whether anything off this machine can reach it. The daemon binds
+    // loopback, so `tailscale serve` is the whole answer — and it is what the
+    // phone and every paired machine come in through, not only pairing. Serve,
+    // never funnel: the tailnet reaches it, the public internet cannot.
+    if (url.pathname === "/server/identity" && req.method === "PATCH") {
+      const body = await readJson(req);
+      if (typeof body.exposed !== "boolean") {
+        return json(res, 400, { error: "say whether this machine should be reachable" });
+      }
       try {
-        return json(res, 200, await expose());
+        return json(res, 200, await setExposed(body.exposed));
       } catch (error) {
         return json(res, 409, { error: (error as Error).message });
+      }
+    }
+
+    // Your machines on the tailnet, each marked with whether Remy answered and
+    // whether it is already paired. Tailscale already knows your devices, so
+    // nothing has to be typed or carried to get this list.
+    if (url.pathname === "/tailnet" && req.method === "GET") {
+      const found = await discover(url.searchParams.get("refresh") === "1");
+      const paired = new Set(listPeers().map((peer) => peer.url));
+      const self = await identity();
+      return json(res, 200, {
+        devices: found
+          .filter((device) => device.host !== self.tailnetHost)
+          .map((device) => ({
+            host: device.host,
+            name: device.name,
+            os: device.os,
+            online: device.online,
+            remy: Boolean(device.url),
+            ...(device.url ? { url: device.url } : {}),
+            paired: Boolean(device.url && paired.has(device.url)),
+          })),
+      });
+    }
+
+    // Asking a discovered machine to pair. The code comes back so this machine
+    // can show it beside the one shown over there.
+    if (url.pathname === "/pair/start" && req.method === "POST") {
+      const body = await readJson(req);
+      try {
+        const self = await identity();
+        return json(res, 201, await startPairing({
+          url: body.url,
+          name: body.name,
+          self: { url: self.url, name: self.name },
+        }));
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message });
+      }
+    }
+    // Where that ask has got to. Approval is also completion: the answer
+    // carries their token, so the peer lands here in the same call.
+    if (parts[0] === "pair" && parts[1] === "attempt" && parts.length === 3) {
+      const attemptId = decodeURIComponent(parts[2]);
+      if (req.method === "GET") {
+        try {
+          const attempt = await checkPairing(attemptId, completePair);
+          if (attempt.state === "approved") broadcast({ type: "peers" });
+          return json(res, 200, attempt);
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message });
+        }
+      }
+      if (req.method === "DELETE") {
+        forgetPairing(attemptId);
+        return json(res, 200, { ok: true });
+      }
+    }
+
+    // Requests from other machines, waiting on a person here.
+    if (url.pathname === "/pair/pending" && req.method === "GET") {
+      return json(res, 200, { requests: pendingPairRequests() });
+    }
+    if (parts[0] === "pair" && parts[1] === "pending" && parts.length === 4 && req.method === "POST") {
+      const requestId = decodeURIComponent(parts[2]);
+      const decision = parts[3];
+      if (decision === "deny") {
+        denyPair(requestId);
+        broadcast({ type: "pair-requests" });
+        return json(res, 200, { ok: true });
+      }
+      if (decision === "approve") {
+        try {
+          const self = await identity();
+          const approved = approvePair(requestId, self.url);
+          broadcast({ type: "pair-requests" });
+          // They collect the token on their next poll; nothing is pushed.
+          return json(res, 200, { request: { id: approved.id, state: approved.state } });
+        } catch (error) {
+          return json(res, 409, { error: (error as Error).message });
+        }
       }
     }
 
