@@ -250,6 +250,44 @@ export function agentByHandle(handle: string): Agent | undefined {
   return row ? toAgent(row) : undefined;
 }
 
+// ── the workspace agent ─────────────────────────────────────────────────────
+
+/// The assignee that is not an agent.
+///
+/// A ticket handed to the workspace is handed to the workspace's own default
+/// model with no persona in front of it — what a thread you started yourself
+/// would run as. It exists because most work wants doing, not characterising,
+/// and writing an agent first is a step in the way.
+export const WORKSPACE_AGENT = "workspace";
+
+/// The workspace agent as an `Agent`, so anything that runs a turn takes one
+/// shape. Not a row: it cannot be renamed, edited or deleted, and an empty
+/// `model` is what makes it this machine's default rather than a choice.
+export function workspaceAgent(): Agent {
+  return {
+    id: WORKSPACE_AGENT,
+    name: "Workspace agent",
+    handle: WORKSPACE_AGENT,
+    role: "The workspace's own default model, with no instructions in front of it",
+    instructions: "",
+    provider: "claude",
+    permissionMode: "default",
+    autoStart: true,
+    handoffTo: [],
+    // Its commits are yours: there is no persona here to credit.
+    gitIdentity: "off",
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
+
+/// Whoever an assignee names: an agent on this machine, or the workspace agent.
+/// `you` is not one of these — a ticket you keep has nobody to run it.
+export function assignedAgent(id: string | undefined): Agent | undefined {
+  if (!id) return undefined;
+  return id === WORKSPACE_AGENT ? workspaceAgent() : getAgent(id);
+}
+
 // ── writing ─────────────────────────────────────────────────────────────────
 
 /// Everything a caller may set, cleaned. Keys the caller left out stay out, so
@@ -267,6 +305,9 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
     const handle = asked ?? agentHandle(patch.name);
     if (!handle) throw new Error("that handle has no usable characters");
     const free = (candidate: string) => {
+      // The workspace agent answers to `@workspace` everywhere an agent does,
+      // so no row may take that name out from under it.
+      if (candidate === WORKSPACE_AGENT) return false;
       const clash = agentByHandle(candidate);
       return !clash || clash.id === existing?.id;
     };
@@ -274,6 +315,7 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
     // derived from a name is only a default, so it gets out of the way instead
     // — which is what lets "New agent" be pressed twice.
     if (asked) {
+      if (asked === WORKSPACE_AGENT) throw new Error("@workspace is the workspace agent — pick another handle");
       if (!free(handle)) throw new Error(`another agent already uses @${handle}`);
       patch.handle = handle;
     } else {

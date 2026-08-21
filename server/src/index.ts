@@ -84,7 +84,14 @@ import {
 } from "./git.js";
 import { buildInbox } from "./inbox.js";
 import { listAuthoredPullRequests, markPullRequestRead, pullRequestTimeline } from "./pull-requests.js";
-import { createLoop, deleteLoop, listLoops, runLoop, startLoopScheduler, updateLoop } from "./loops.js";
+import {
+  createRecurrence,
+  deleteRecurrence,
+  listRecurrences,
+  runRecurrence,
+  startRecurringTickets,
+  updateRecurrence,
+} from "./recurring.js";
 import { setSleepBusyCheck, sleepSupported, syncSleepAssertion } from "./sleep.js";
 import { highlightedIndex, parsePanePrompt } from "./prompt.js";
 import { questionBroker } from "./questions.js";
@@ -628,7 +635,55 @@ const server = createServer(async (req, res) => {
         projects: listProjects(),
         agents: listAgents(),
         tickets: listTickets(projectId),
+        recurring: listRecurrences(projectId),
       });
+    }
+
+    // Recurring tickets. Read with the board above rather than on their own, so
+    // the pane that lists them costs no second request.
+    if (req.method === "POST" && url.pathname === "/recurring") {
+      const body = await readJson(req);
+      try {
+        const recurrence = createRecurrence(body);
+        broadcast({ type: "board" });
+        return json(res, 200, { recurrence });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not save that recurring ticket" });
+      }
+    }
+    if (parts[0] === "recurring" && parts[1]) {
+      const id = decodeURIComponent(parts[1]);
+      if (req.method === "PATCH" && parts.length === 2) {
+        const body = await readJson(req);
+        try {
+          const recurrence = updateRecurrence(id, body);
+          broadcast({ type: "board" });
+          return json(res, 200, { recurrence });
+        } catch (error) {
+          const message = (error as Error).message || "could not save that recurring ticket";
+          return json(res, /no such/.test(message) ? 404 : 400, { error: message });
+        }
+      }
+      if (req.method === "DELETE" && parts.length === 2) {
+        try {
+          deleteRecurrence(id);
+          broadcast({ type: "board" });
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "no such recurring ticket" });
+        }
+      }
+      // Writing today's ticket by hand, without waiting for the hour it is due.
+      if (req.method === "POST" && parts[2] === "run") {
+        try {
+          const written = runRecurrence(id);
+          broadcast({ type: "board" });
+          return json(res, 200, written);
+        } catch (error) {
+          const message = (error as Error).message || "could not write that ticket";
+          return json(res, /no such/.test(message) ? 404 : 400, { error: message });
+        }
+      }
     }
 
     if (req.method === "POST" && url.pathname === "/tickets") {
@@ -1006,10 +1061,6 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { paths: suggestWorkspacePaths(url.searchParams.get("q") ?? "") });
     }
 
-    if (url.pathname === "/loops" && req.method === "GET") {
-      return json(res, 200, { loops: listLoops() });
-    }
-
     if (url.pathname === "/archives" && req.method === "GET") {
       return json(res, 200, { archives: listArchivedChats() });
     }
@@ -1019,38 +1070,6 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true });
       } catch (error) {
         return json(res, 404, { error: (error as Error).message || "archived chat not found" });
-      }
-    }
-    if (url.pathname === "/loops" && req.method === "POST") {
-      try {
-        return json(res, 200, { loop: await createLoop(await readJson(req)) });
-      } catch (error) {
-        return json(res, 400, { error: (error as Error).message || "could not create loop" });
-      }
-    }
-    if (parts[0] === "loops" && parts[1]) {
-      const id = decodeURIComponent(parts[1]);
-      if (req.method === "PATCH" && parts.length === 2) {
-        try {
-          return json(res, 200, { loop: await updateLoop(id, await readJson(req)) });
-        } catch (error) {
-          return json(res, 400, { error: (error as Error).message || "could not update loop" });
-        }
-      }
-      if (req.method === "DELETE" && parts.length === 2) {
-        try {
-          deleteLoop(id);
-          return json(res, 200, { ok: true });
-        } catch (error) {
-          return json(res, 404, { error: (error as Error).message || "loop not found" });
-        }
-      }
-      if (req.method === "POST" && parts[2] === "run") {
-        try {
-          return json(res, 200, await runLoop(id, pushSessionList));
-        } catch (error) {
-          return json(res, 409, { error: (error as Error).message || "could not run loop" });
-        }
       }
     }
     if (url.pathname === "/workspaces" && req.method === "POST") {
@@ -1507,7 +1526,9 @@ if (!config.worktreeBranchPrefix || !config.githubLogin) {
     });
   });
 }
-startLoopScheduler(pushSessionList);
+// Recurring tickets are written by whichever machine owns them, so the clock
+// that mints them runs in the daemon rather than in a window that may be shut.
+startRecurringTickets(() => broadcast({ type: "board" }));
 
 // Board events flow between paired machines whether or not a window is open —
 // the daemon is what is paired, so the sync runs here rather than in a client.

@@ -6,7 +6,7 @@ import {
   Inbox,
   MessagesSquare,
   Plus,
-  RefreshCw,
+  Repeat,
   Search,
   SquareKanban,
   SquarePen,
@@ -42,6 +42,7 @@ import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
 import { PairRequestDialog } from "@/components/PairRequest";
 import { Board } from "@/components/Board";
+import { Recurring } from "@/components/Recurring";
 import { MissingTicket, TicketView } from "@/components/TicketView";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
 import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
@@ -60,7 +61,7 @@ import { useStore } from "@/state/store";
 import type { ChatState } from "@/state/types";
 import remyMark from "@/assets/remy-mark.png";
 
-type Section = "inbox" | "chats" | "workspaces" | "board" | "prs" | "loops";
+type Section = "inbox" | "chats" | "workspaces" | "board" | "prs" | "recurring";
 
 function routeForSection(section: Section): Route {
   if (section === "chats") return { name: "threads" };
@@ -75,7 +76,7 @@ const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "workspaces", label: "Workspaces", icon: Folder },
   { id: "board", label: "Board", icon: SquareKanban },
   { id: "prs", label: "Pull requests", icon: GitPullRequest },
-  { id: "loops", label: "Loops", icon: RefreshCw },
+  { id: "recurring", label: "Recurring", icon: Repeat },
 ];
 
 const STATE_TONE: Record<ChatState, "warning" | "info" | "secondary" | "destructive"> = {
@@ -94,7 +95,7 @@ const STATE_LABEL: Record<ChatState, string> = {
 
 const EMPTY: Record<
   Section,
-  { title: string; detail: string; action: "none" | "chat" | "workspace" | "loop"; icon: typeof Inbox }
+  { title: string; detail: string; action: "none" | "chat" | "workspace"; icon: typeof Inbox }
 > = {
   inbox: {
     title: "Inbox is clear",
@@ -128,11 +129,13 @@ const EMPTY: Record<
     action: "none",
     icon: GitPullRequest,
   },
-  loops: {
-    title: "No loops yet",
-    detail: "Schedule a recurring run on a workspace.",
-    action: "loop",
-    icon: RefreshCw,
+  recurring: {
+    // The Recurring pane draws its own empty states, which know whether the gap
+    // is a missing project or a list nobody has written to yet.
+    title: "Nothing comes back yet",
+    detail: "Write a ticket Remy hands out again every week.",
+    action: "none",
+    icon: Repeat,
   },
 };
 
@@ -333,6 +336,12 @@ export function App() {
             onOpenTicket={(key) => go({ name: "ticket", key })}
             onAddWorkspace={() => setAddWorkspaceOpen(true)}
           />
+        ) : route.name === "recurring" ? (
+          <Recurring
+            onOpenTicket={(key) => go({ name: "ticket", key })}
+            onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
+            onAddWorkspace={() => setAddWorkspaceOpen(true)}
+          />
         ) : route.name === "ticket" ? (
           openTicket ? (
             <TicketView
@@ -374,12 +383,6 @@ export function App() {
                 <Button size="sm" onClick={() => setAddWorkspaceOpen(true)}>
                   <Plus />
                   Add workspace
-                </Button>
-              )}
-              {section === "loops" && (
-                <Button size="sm">
-                  <Plus />
-                  New loop
                 </Button>
               )}
             </PaneHeader>
@@ -640,12 +643,6 @@ function EmptyState({
             <Button onClick={onAddWorkspace}>
               <Plus />
               Add workspace
-            </Button>
-          )}
-          {action === "loop" && (
-            <Button>
-              <Plus />
-              New loop
             </Button>
           )}
         </EmptyContent>

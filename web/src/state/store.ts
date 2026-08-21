@@ -18,6 +18,7 @@ import type {
   PairRequest,
   PathSuggestion,
   Project,
+  Recurrence,
   Server,
   ServerSettings,
   Ticket,
@@ -79,6 +80,8 @@ interface State {
   agents: Agent[];
   projects: Project[];
   tickets: Ticket[];
+  /// The tickets that come back. Read with the board, since they are part of it.
+  recurring: Recurrence[];
   /// Which daemon each board device id belongs to. A ticket names the machine
   /// it runs on by that id rather than by a server row, because a server row is
   /// this client's pairing and means nothing to another client.
@@ -152,6 +155,15 @@ interface State {
   /// Turns a thread you are already in into a ticket, adopting its worktree and
   /// branch rather than opening new ones.
   ticketFromThread(chatId: string): Promise<Ticket>;
+  /// Writes a recurring ticket, or edits one. `projectId` says which machine
+  /// holds it, the way a ticket's project does.
+  saveRecurrence(
+    id: string | undefined,
+    patch: Record<string, unknown> & { projectId?: string },
+  ): Promise<Recurrence>;
+  deleteRecurrence(id: string): Promise<void>;
+  /// Writes this recurrence's ticket now, without waiting for its hour.
+  runRecurrence(id: string): Promise<Ticket>;
   saveAgent(id: string | undefined, patch: Record<string, unknown>): Promise<Agent>;
   deleteAgent(id: string): Promise<void>;
   /// Renames a project, or the slug its tickets are keyed by. Changing the slug
@@ -170,6 +182,7 @@ export const useStore = create<State>((set, get) => ({
   agents: [],
   projects: [],
   tickets: [],
+  recurring: [],
   pairRequests: [],
   boardDevices: [],
   boardLoading: false,
@@ -680,7 +693,7 @@ export const useStore = create<State>((set, get) => ({
     if (useFixture) return;
     const servers = await transport.servers();
     if (servers.length === 0) {
-      set({ agents: [], projects: [], tickets: [], boardDevices: [], boardLoading: false });
+      set({ agents: [], projects: [], tickets: [], recurring: [], boardDevices: [], boardLoading: false });
       return;
     }
     if (get().tickets.length === 0) set({ boardLoading: true });
@@ -692,6 +705,7 @@ export const useStore = create<State>((set, get) => ({
             agents?: RawAgent[];
             projects?: RawProject[];
             tickets?: RawTicket[];
+            recurring?: RawRecurrence[];
           }>(server.id, "/board");
           return {
             devices: board.deviceId ? [{ deviceId: board.deviceId, serverId: server.id }] : [],
@@ -706,10 +720,11 @@ export const useStore = create<State>((set, get) => ({
               serverId: server.id,
               threads: raw.threads ?? [],
             }) as Ticket),
+            recurring: (board.recurring ?? []).map((raw) => ({ ...raw, serverId: server.id }) as Recurrence),
           };
         } catch {
           // An older server has no board, which is not worth an error banner.
-          return { devices: [], agents: [], projects: [], tickets: [] };
+          return { devices: [], agents: [], projects: [], tickets: [], recurring: [] };
         }
       }),
     );
@@ -720,6 +735,7 @@ export const useStore = create<State>((set, get) => ({
       agents: dedupe(results.flatMap((r) => r.agents)),
       projects: dedupe(results.flatMap((r) => r.projects)),
       tickets: dedupe(results.flatMap((r) => r.tickets)).sort((a, b) => a.rank.localeCompare(b.rank)),
+      recurring: dedupe(results.flatMap((r) => r.recurring)).sort((a, b) => a.nextRunAt - b.nextRunAt),
       boardDevices: results.flatMap((r) => r.devices),
       boardLoading: false,
     });
@@ -821,6 +837,37 @@ export const useStore = create<State>((set, get) => ({
     );
     await get().loadBoard();
     return { ...body.ticket, serverId: chat.serverId, threads: body.ticket.threads ?? [] } as Ticket;
+  },
+
+  async saveRecurrence(id, patch) {
+    const existing = id ? get().recurring.find((entry) => entry.id === id) : undefined;
+    const server = existing?.serverId ?? boardServer(get().servers, get().projects, String(patch.projectId ?? ""));
+    const body = await transport.request<{ recurrence: RawRecurrence }>(
+      server,
+      id ? `/recurring/${encodeURIComponent(id)}` : "/recurring",
+      { method: id ? "PATCH" : "POST", body: patch },
+    );
+    await get().loadBoard();
+    return { ...body.recurrence, serverId: server } as Recurrence;
+  },
+
+  async deleteRecurrence(id) {
+    const recurrence = get().recurring.find((entry) => entry.id === id);
+    if (!recurrence) return;
+    await transport.request(recurrence.serverId, `/recurring/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await get().loadBoard();
+  },
+
+  async runRecurrence(id) {
+    const recurrence = get().recurring.find((entry) => entry.id === id);
+    if (!recurrence) throw new Error("That recurring ticket is gone.");
+    const body = await transport.request<{ ticket: RawTicket }>(
+      recurrence.serverId,
+      `/recurring/${encodeURIComponent(id)}/run`,
+      { method: "POST", body: {} },
+    );
+    await get().loadBoard();
+    return { ...body.ticket, serverId: recurrence.serverId, threads: body.ticket.threads ?? [] } as Ticket;
   },
 
   async saveAgent(id, patch) {
@@ -1046,6 +1093,7 @@ function boardServer(servers: Server[], projects: Project[], projectId: string):
 type RawAgent = Omit<Agent, "serverId">;
 type RawProject = Omit<Project, "serverId" | "workspaceIds"> & { workspaceIds?: string[] };
 type RawTicket = Omit<Ticket, "serverId" | "threads"> & { threads?: Ticket["threads"] };
+type RawRecurrence = Omit<Recurrence, "serverId">;
 
 function nameFromPath(path: string): string {
   const part = path

@@ -7,7 +7,6 @@ private enum MobileDeckTab: String, CaseIterable, Identifiable {
     case chat
     case inbox
     case workspaces
-    case loops
 
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
@@ -17,7 +16,6 @@ private enum MobileDeckTab: String, CaseIterable, Identifiable {
         case .chat: return "bubble.left.and.bubble.right"
         case .inbox: return "tray"
         case .workspaces: return "folder"
-        case .loops: return "arrow.trianglehead.2.clockwise.rotate.90"
         }
     }
 }
@@ -45,11 +43,8 @@ struct MobileFlightDeckView: View {
     @State private var showDeviceDoctor = false
     @State private var showAddWorkspace = false
     @State private var selectedWorkspace: Workspace?
-    @State private var selectedLoop: MissionLoop?
-    @State private var loops: [MissionLoop] = []
     @State private var archives: [ArchivedChat] = []
     @State private var pullRequests: [AuthoredPullRequest] = []
-    @State private var supplementaryLoading = false
 
     private var activeAPI: APIClient? {
         guard let server = servers.active else { return nil }
@@ -198,29 +193,6 @@ struct MobileFlightDeckView: View {
             )
             .preferredColorScheme(.dark)
         }
-        .fullScreenCover(item: $selectedLoop) { loop in
-            MobileLoopDetailView(
-                loop: loop,
-                workspaces: workspaces,
-                api: activeAPI,
-                deviceName: servers.active?.name ?? "Device",
-                onUpdated: { updated in
-                    if let index = loops.firstIndex(where: { $0.id == updated.id }) {
-                        loops[index] = updated
-                    }
-                    selectedLoop = updated
-                },
-                onDeleted: {
-                    loops.removeAll { $0.id == loop.id }
-                    selectedLoop = nil
-                },
-                onOpenSession: { session in
-                    selectedLoop = nil
-                    onOpenSession(session)
-                }
-            )
-            .preferredColorScheme(.dark)
-        }
     }
 
     private var header: some View {
@@ -258,10 +230,6 @@ struct MobileFlightDeckView: View {
                     .foregroundStyle(MobileFlightDeckPalette.secondary)
             } else if selectedTab == .workspaces {
                 Text("\(workspaces.count) repositories across this device")
-                    .font(.mobileDeckSans(13))
-                    .foregroundStyle(MobileFlightDeckPalette.secondary)
-            } else {
-                Text("\(loops.count) recurring agent loop\(loops.count == 1 ? "" : "s")")
                     .font(.mobileDeckSans(13))
                     .foregroundStyle(MobileFlightDeckPalette.secondary)
             }
@@ -325,8 +293,6 @@ struct MobileFlightDeckView: View {
             inboxContent
         case .workspaces:
             workspacesContent
-        case .loops:
-            loopsContent
         }
     }
 
@@ -485,54 +451,6 @@ struct MobileFlightDeckView: View {
         .refreshable { await onRefresh() }
     }
 
-    private var loopsContent: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                if loops.isEmpty {
-                    quietState("No recurring loops", supplementaryLoading ? "Loading scheduled work…" : "Recurring agent tasks will appear here.")
-                } else {
-                    ForEach(loops) { loop in
-                        Button { selectedLoop = loop } label: {
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Circle()
-                                        .fill(loop.enabled ? (loop.lastError == nil ? MobileFlightDeckPalette.green : MobileFlightDeckPalette.red) : MobileFlightDeckPalette.muted)
-                                        .frame(width: 8, height: 8)
-                                    Text(loop.name)
-                                        .font(.mobileDeckSans(16, weight: .semibold))
-                                    Spacer()
-                                    Text(loop.enabled ? (loop.lastError == nil ? "HEALTHY" : "FAILED") : "PAUSED")
-                                        .font(.mobileDeckMono(8))
-                                        .foregroundStyle(loop.enabled ? (loop.lastError == nil ? MobileFlightDeckPalette.green : MobileFlightDeckPalette.red) : MobileFlightDeckPalette.muted)
-                                }
-                                Text(loop.prompt)
-                                    .font(.mobileDeckSans(12))
-                                    .foregroundStyle(MobileFlightDeckPalette.secondary)
-                                    .lineLimit(2)
-                                HStack {
-                                    Text("\(loop.workspaceName) · \(loop.agent.displayName)")
-                                    Spacer()
-                                    Text(loop.schedule.summary)
-                                    Image(systemName: "chevron.right")
-                                        .font(.mobileDeckSans(9, weight: .bold))
-                                        .foregroundStyle(MobileFlightDeckPalette.muted)
-                                }
-                                .font(.mobileDeckMono(8))
-                                .foregroundStyle(MobileFlightDeckPalette.muted)
-                            }
-                            .padding(14)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .mobileDeckCard(radius: 14)
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .refreshable { await loadSupplementaryData(refresh: true) }
-    }
-
     private var tabBar: some View {
         HStack(spacing: 0) {
             ForEach(MobileDeckTab.allCases) { tab in
@@ -613,19 +531,14 @@ struct MobileFlightDeckView: View {
 
     private func loadSupplementaryData(refresh: Bool) async {
         guard let api = activeAPI else {
-            loops = []
             archives = []
             pullRequests = []
             return
         }
-        supplementaryLoading = loops.isEmpty && pullRequests.isEmpty
-        async let loopsCall = api.loops()
         async let archivesCall = api.archives()
         async let pullRequestsCall = api.authoredPullRequests(refresh: refresh)
-        loops = (try? await loopsCall) ?? []
         archives = (try? await archivesCall) ?? []
         pullRequests = ((try? await pullRequestsCall) ?? []).sorted { $0.updatedAt > $1.updatedAt }
-        supplementaryLoading = false
     }
 }
 

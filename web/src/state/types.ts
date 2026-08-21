@@ -329,6 +329,37 @@ export interface Ticket {
   threads: TicketThread[];
 }
 
+/// Work that comes back: a ticket Remy writes again on a cadence, already
+/// handed to whoever is meant to do it. Mirrors `RecurrenceView` in
+/// `server/src/recurring.ts`.
+export type Cadence = "daily" | "weekdays" | "weekly" | "monthly";
+
+export interface Recurrence {
+  id: string;
+  serverId: string;
+  projectId: string;
+  title: string;
+  body: string;
+  assigneeAgentId?: string;
+  cadence: Cadence;
+  /// Local time on the machine that writes the tickets.
+  hour: number;
+  minute: number;
+  /// Sunday = 0, for a weekly cadence.
+  weekday?: number;
+  /// Day of the month, 1 to 28, for a monthly one.
+  day?: number;
+  enabled: boolean;
+  /// The machine that writes the tickets.
+  deviceId?: string;
+  runs: number;
+  lastRunAt?: number;
+  lastError?: string;
+  nextRunAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /// One line of a ticket's story. The feed and the log the board syncs are the
 /// same record, so nothing here can drift from what actually happened.
 /// Who a comment named: the handle as it was typed, and who that turned out to

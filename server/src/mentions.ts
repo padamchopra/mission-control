@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { createSdkMcpServer, query, tool, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { agentCommand } from "./agent.js";
-import { getAgent, type Agent } from "./agents.js";
+import { assignedAgent, type Agent } from "./agents.js";
 import { agentEnvironment } from "./chat.js";
 import { config } from "./config.js";
 import { listProjects } from "./projects.js";
@@ -191,7 +191,9 @@ export function answerMentions(ticketId: string, mentions: Mention[], comment: s
   if (actor !== YOU) return;
   const agents = mentions
     .filter((mention) => mention.id !== YOU)
-    .map((mention) => getAgent(mention.id))
+    // `@workspace` answers too: it is the workspace's own model, which is the
+    // one to ask when nobody has written an agent for this yet.
+    .map((mention) => assignedAgent(mention.id))
     .filter((agent): agent is Agent => Boolean(agent));
   if (agents.length === 0) return;
 

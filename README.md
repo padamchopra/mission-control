@@ -40,7 +40,9 @@ Start a thread in a workspace, pick a model and how much the agent may do unaske
 
 <img src="docs/images/palette.png" alt="The command palette listing threads that need you and threads still working" width="100%" />
 
-The Board is for planning rather than chatting: tickets, agents with their own instructions, and a handoff from one to the next. Agents sign their commits, so `git log` says which one wrote what.
+The Board is for planning rather than chatting: tickets, agents with their own instructions, and a handoff from one to the next. Agents sign their commits, so `git log` says which one wrote what. A ticket can be yours, an agent's, or the workspace's own model — an assignee you get without writing an agent first.
+
+Work that comes back gets a **Recurring** ticket: pick how often, pick who does it, and Remy writes the ticket onto the board every day, weekday, week or month.
 
 ## Add your other machines
 

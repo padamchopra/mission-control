@@ -1,7 +1,8 @@
+import { Folder } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
-import { STATUS_LABEL, STATUS_TEXT, YOU } from "@/lib/tickets";
+import { STATUS_LABEL, STATUS_TEXT, WORKSPACE_AGENT, YOU } from "@/lib/tickets";
 import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import type { Agent, TicketStatus } from "@/state/types";
@@ -173,6 +174,21 @@ export function AssigneeAvatar({
           <UserAvatar className={cn(size === "md" ? "size-6" : "size-5", className)} />
         </TooltipTrigger>
         <TooltipContent>You</TooltipContent>
+      </Tooltip>
+    );
+  }
+  // The workspace itself, which is not an agent and so has no colour of its own.
+  if (assignee === WORKSPACE_AGENT) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Avatar className={cn(size === "md" ? "size-6" : "size-5", className)} aria-label="Workspace agent">
+            <AvatarFallback className="bg-muted text-muted-foreground">
+              <Folder className={size === "md" ? "size-3.5" : "size-3"} />
+            </AvatarFallback>
+          </Avatar>
+        </TooltipTrigger>
+        <TooltipContent>Workspace agent</TooltipContent>
       </Tooltip>
     );
   }

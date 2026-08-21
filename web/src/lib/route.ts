@@ -14,7 +14,7 @@ export type Route =
   | { name: "board"; scope?: string }
   | { name: "ticket"; key: string }
   | { name: "prs" }
-  | { name: "loops" }
+  | { name: "recurring" }
   | { name: "settings"; tab: SettingsTab; item?: string };
 
 export interface AppLocation {
@@ -31,7 +31,7 @@ const SETTINGS_TABS: SettingsTab[] = [
 ];
 
 /// The section a route belongs to, which is what the sidebar highlights.
-export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs" | "loops" | "board" {
+export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs" | "recurring" | "board" {
   if (route.name === "threads") return "chats";
   if (route.name === "settings") return "chats";
   // A ticket sits inside the board the way a thread sits inside Threads.
@@ -51,7 +51,7 @@ export function parseLocation(hash: string): AppLocation {
   if (head === "inbox") return { route: { name: "inbox" } };
   if (head === "workspaces") return { route: { name: "workspaces", workspaceId: rest } };
   if (head === "pull-requests") return { route: { name: "prs" } };
-  if (head === "loops") return { route: { name: "loops" } };
+  if (head === "recurring") return { route: { name: "recurring" } };
   // The board's segment is the key prefixes it is filtered to, comma joined —
   // `#/board/REMY,ATLAS` — so a filtered view is a link you can send someone.
   if (head === "board") return { route: { name: "board", scope: rest } };
