@@ -1452,7 +1452,7 @@ function ReachableField({ serverId, identity }: { serverId: string; identity?: I
 
   if (!shown) return null;
 
-  const hasTailscale = Boolean(shown.tailnetHost);
+  const hasTailscale = shown.tailnet ? shown.tailnet === "running" : Boolean(shown.tailnetHost);
 
   const toggle = async (next: boolean) => {
     setSaving(true);
@@ -1490,7 +1490,9 @@ function ReachableField({ serverId, identity }: { serverId: string; identity?: I
           <FieldLabel htmlFor={switchId}>Reachable from your other machines</FieldLabel>
           <FieldDescription className="text-xs">
             {!hasTailscale
-              ? "Tailscale isn't running here, so nothing can reach this machine."
+              ? shown.tailnet === "missing"
+                ? "Tailscale isn't installed here, so nothing can reach this machine."
+                : "Tailscale isn't running here, so nothing can reach this machine."
               : shown.exposed
                 ? `Your machines reach it at ${shown.tailnetHost}. Nothing outside your tailnet can.`
                 : "Only this machine can reach it. Turn this on to pair anything with it."}
@@ -1820,6 +1822,9 @@ interface Identity {
   token: string;
   exposed: boolean;
   tailnetHost?: string;
+  /// Absent from a machine on an older build, which only said whether it had a
+  /// tailnet name — so the name is still what decides when this is missing.
+  tailnet?: "missing" | "stopped" | "running";
 }
 
 function useIdentity(serverId: string | undefined): Identity | undefined {
