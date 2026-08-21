@@ -61,6 +61,10 @@ export interface Workspace {
   origin?: string | null;
   icon?: string | null;
   tint?: string | null;
+  /// What a thread started here runs on, when this workspace does not follow
+  /// the Mac. Null in both means it does.
+  provider?: string | null;
+  model?: string | null;
   worktrees: GitWorktree[];
 }
 
@@ -170,6 +174,8 @@ export interface ServerSettings {
   avatar: string;
   defaultGitIdentity: "off" | "author" | "full";
   defaultProvider: string;
+  /// Absent from a Mac on an older build, which started every thread on Ask.
+  defaultPermissionMode?: string;
   notifySelf?: boolean;
 }
 

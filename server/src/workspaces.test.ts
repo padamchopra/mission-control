@@ -4,33 +4,64 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-process.env.HOME = mkdtempSync(join(tmpdir(), "remy-workspaces-test-"));
+// workspaces.ts opens the database at import time, so the suite runs against a
+// throwaway directory. node:test gives each file its own process.
+const stateDir = mkdtempSync(join(tmpdir(), "remy-workspaces-test-"));
+process.env.MC_CONFIG_DIR = stateDir;
+process.env.HOME = stateDir;
 
-const { isLegacyManagedWorktreePath, plannedWorktreePath } = await import("./workspaces.js");
+const { addWorkspace, updateWorkspace } = await import("./workspaces.js");
 
-test("recognizes only Remy's legacy sibling worktree directory", () => {
-  const workspace = "/code/mobile";
+/// A folder is all a workspace needs to be; the git metadata is attached when
+/// there is any, and these tests are about the choice stored beside it.
+async function workspace(name: string) {
+  return addWorkspace(name, mkdtempSync(join(tmpdir(), `remy-ws-${name}-`)));
+}
 
-  assert.equal(isLegacyManagedWorktreePath(workspace, "/code/mobile-worktrees/pr-7211"), true);
-  assert.equal(isLegacyManagedWorktreePath(workspace, "/code/mobile-worktrees/nested/pr-7211"), true);
-  assert.equal(isLegacyManagedWorktreePath(workspace, "/code/mobile-worktrees-other/pr-7211"), false);
-  assert.equal(isLegacyManagedWorktreePath(workspace, "/code/custom-worktrees/pr-7211"), false);
-  assert.equal(isLegacyManagedWorktreePath(workspace, "/code/mobile/.claude/worktrees/pr-7211"), false);
-  assert.equal(isLegacyManagedWorktreePath(workspace, "/code/mobile-worktrees"), false);
+test("follows the machine until the workspace is given a provider of its own", async () => {
+  const added = await workspace("plain");
+  assert.equal(added.provider, null);
+  assert.equal(added.model, null);
 });
 
-test("keeps new worktrees in .remy inside the workspace by default", () => {
-  assert.equal(plannedWorktreePath("/code/mobile", "pr-7211", ""), "/code/mobile/.remy/pr-7211");
-  // A root that is the workspace itself must not nest the repo name twice.
-  assert.equal(plannedWorktreePath("/code/mobile", "pr-7211", "/code/mobile"), "/code/mobile/.remy/pr-7211");
-  assert.equal(plannedWorktreePath("/code/mobile", "feature/login", ""), "/code/mobile/.remy/feature/login");
+test("stores a workspace's provider and model as one choice", async () => {
+  const added = await workspace("codex");
+  const saved = await updateWorkspace(added.id, { provider: "codex", model: "gpt-5.6-terra" });
+  assert.equal(saved.provider, "codex");
+  assert.equal(saved.model, "gpt-5.6-terra");
 });
 
-test("separates repositories inside a shared worktree root", () => {
-  assert.equal(plannedWorktreePath("/code/mobile", "main", "/vol/trees"), "/vol/trees/.remy/mobile/main");
-  // Two repositories with the same branch name must not collide.
-  assert.notEqual(
-    plannedWorktreePath("/code/mobile", "main", "/vol/trees"),
-    plannedWorktreePath("/code/web", "main", "/vol/trees"),
-  );
+test("drops a model the workspace's provider would refuse", async () => {
+  const added = await workspace("mixed");
+  // `sonnet` is Claude's word, and Codex has never heard of it, so the pair
+  // lands on Codex's own default rather than on a model it would reject.
+  const saved = await updateWorkspace(added.id, { provider: "codex", model: "sonnet" });
+  assert.equal(saved.provider, "codex");
+  assert.equal(saved.model, null);
+});
+
+test("moving to another provider takes the model with it", async () => {
+  const added = await workspace("moved");
+  await updateWorkspace(added.id, { provider: "claude", model: "opus" });
+  const saved = await updateWorkspace(added.id, { provider: "codex" });
+  assert.equal(saved.provider, "codex");
+  assert.equal(saved.model, null);
+});
+
+test("clearing the provider puts the workspace back on the machine's default", async () => {
+  const added = await workspace("cleared");
+  await updateWorkspace(added.id, { provider: "claude", model: "opus" });
+  const saved = await updateWorkspace(added.id, { provider: null });
+  // A model with no provider in front of it belongs to nobody, so it goes too.
+  assert.equal(saved.provider, null);
+  assert.equal(saved.model, null);
+});
+
+test("leaves the choice alone when a patch does not mention it", async () => {
+  const added = await workspace("renamed");
+  await updateWorkspace(added.id, { provider: "claude", model: "haiku" });
+  const saved = await updateWorkspace(added.id, { name: "Renamed" });
+  assert.equal(saved.name, "Renamed");
+  assert.equal(saved.provider, "claude");
+  assert.equal(saved.model, "haiku");
 });

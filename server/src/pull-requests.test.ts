@@ -18,6 +18,8 @@ const workspace: Workspace = {
   origin: "github.com/acme/control",
   icon: null,
   tint: null,
+  provider: null,
+  model: null,
   worktrees: [
     { path: "/code/control", branch: "main", isMain: true, dirty: false },
     { path: "/code/control-pr", branch: "feature/flight-deck", isMain: false, dirty: false },

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, CircleSlash } from "lucide-react";
+import remyMark from "@/assets/remy-mark.png";
 import { Button } from "@/components/ui/button";
 import {
   CommandDialog,
@@ -24,8 +25,12 @@ import { cn } from "@/lib/utils";
 /// have in mind rather than the provider it belongs to.
 ///
 /// `OFF` is a value only Remy's own jobs offer: a thread has to run on
-/// something.
+/// something. `REMY_DEFAULT` is the opposite kind of answer — not a model but
+/// the absence of one, for a caller that follows the machine rather than
+/// choosing. It is stored as inheritance, so changing the machine's default
+/// reaches everything holding it.
 export const OFF = "off";
+export const REMY_DEFAULT = "default";
 
 /// Matching for a list of eight short names, rather than cmdk's fuzzy default.
 ///
@@ -63,6 +68,8 @@ export function ModelPicker({
   value,
   onPick,
   allowOff,
+  allowDefault,
+  defaultChoice,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -70,9 +77,13 @@ export function ModelPicker({
   onPick: (choice: ModelChoice) => void;
   /// Offers declining the job altogether, for Remy's own model.
   allowOff?: boolean;
+  /// Offers following the machine's thread default, for a workspace.
+  allowDefault?: boolean;
+  defaultChoice?: ModelChoice;
 }) {
   const providers = useProviders();
   const off = allowOff && value.model === OFF;
+  const inherited = allowDefault && value.provider === REMY_DEFAULT;
 
   const pick = (choice: ModelChoice) => {
     onOpenChange(false);
@@ -96,6 +107,21 @@ export function ModelPicker({
           would be a scroll for nothing. */}
       <CommandList className="max-h-[440px]">
         <CommandEmpty>No model by that name.</CommandEmpty>
+        {allowDefault && (
+          <CommandGroup heading="From Remy">
+            <CommandItem
+              value="Remy default inherited"
+              onSelect={() => pick({ provider: REMY_DEFAULT, model: "" })}
+            >
+              <img src={remyMark} alt="" className="size-4 rounded-[4px]" />
+              <span>Remy default</span>
+              {defaultChoice && (
+                <span className="text-xs text-muted-foreground">{modelLabel(providers, defaultChoice)}</span>
+              )}
+              {inherited ? <Check className="ml-auto" /> : null}
+            </CommandItem>
+          </CommandGroup>
+        )}
         {providers.map((provider) => {
           const missing = provider.available === false;
           return (
@@ -121,7 +147,7 @@ export function ModelPicker({
                   {model.detail && (
                     <span className="min-w-0 truncate text-xs text-muted-foreground">{model.detail}</span>
                   )}
-                  {!off && provider.id === value.provider && model.value === (value.model ?? "") ? (
+                  {!off && !inherited && provider.id === value.provider && model.value === (value.model ?? "") ? (
                     <Check className="ml-auto" />
                   ) : null}
                 </CommandItem>
@@ -154,6 +180,8 @@ export function ModelPickerButton({
   onPick,
   variant = "field",
   allowOff,
+  allowDefault,
+  defaultChoice,
   disabled,
   title,
   id,
@@ -163,6 +191,8 @@ export function ModelPickerButton({
   onPick: (choice: ModelChoice) => void;
   variant?: "composer" | "field";
   allowOff?: boolean;
+  allowDefault?: boolean;
+  defaultChoice?: ModelChoice;
   /// Read-only, for a thread that is mid-turn. The value still shows.
   disabled?: boolean;
   title?: string;
@@ -171,8 +201,11 @@ export function ModelPickerButton({
 }) {
   const providers = useProviders();
   const [open, setOpen] = useState(false);
-  const label = value.model === OFF ? "Off" : modelLabel(providers, value);
-  const mark = <ProviderMark provider={value.provider} />;
+  const inherited = allowDefault && value.provider === REMY_DEFAULT;
+  const label = inherited ? "Remy default" : value.model === OFF ? "Off" : modelLabel(providers, value);
+  const mark = inherited
+    ? <img src={remyMark} alt="" className="size-4 rounded-[4px]" />
+    : <ProviderMark provider={value.provider} />;
 
   if (disabled && variant === "composer") {
     return (
@@ -208,7 +241,15 @@ export function ModelPickerButton({
           <ChevronDown className="ml-auto opacity-50" />
         </Button>
       )}
-      <ModelPicker open={open} onOpenChange={setOpen} value={value} onPick={onPick} allowOff={allowOff} />
+      <ModelPicker
+        open={open}
+        onOpenChange={setOpen}
+        value={value}
+        onPick={onPick}
+        allowOff={allowOff}
+        allowDefault={allowDefault}
+        defaultChoice={defaultChoice}
+      />
     </>
   );
 }

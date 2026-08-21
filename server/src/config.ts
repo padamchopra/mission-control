@@ -3,6 +3,9 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { getKv, setKv } from "./db.js";
 import { knowsModel, providerId, providerModel, type ProviderId } from "./providers.js";
+// Type-only, so this module keeps no runtime dependency on the one that runs a
+// thread — chat.ts already depends on this one.
+import type { ChatPermissionMode } from "./chat.js";
 
 export { configDir } from "./paths.js";
 
@@ -34,6 +37,9 @@ export interface Config {
   /// otherwise. The pair is validated together: a provider only ever holds one
   /// of its own models.
   defaultProvider: ProviderId;
+  /// What a new thread may do without being asked. An agent or the thread
+  /// itself can still say otherwise; this is where one starts when neither has.
+  defaultPermissionMode: ChatPermissionMode;
   /// The face on your messages: empty for the default, `preset:<id>` for one
   /// of the built-in ones, or a `data:` URL for a picture you chose.
   avatar: string;
@@ -70,6 +76,10 @@ export type CheckoutMode = "main" | "worktree";
 export type WorktreeBase = "remote" | "local";
 export type RepoUpdateEvery = "off" | "hourly" | "sixHourly" | "daily";
 export type GitIdentity = "off" | "author" | "full";
+
+/// Listed here rather than imported, so the type above can stay type-only. The
+/// same shape `agents.ts` keeps, and for the same reason.
+const PERMISSION_MODES: ChatPermissionMode[] = ["default", "auto", "acceptEdits", "plan", "bypassPermissions"];
 
 const SLEEP_MODES: PreventSleepMode[] = ["off", "whileBusy", "always"];
 const CHECKOUT_MODES: CheckoutMode[] = ["main", "worktree"];
@@ -179,6 +189,7 @@ function load(): Config {
     worktreeRoot: worktreeRootPath(parsed.worktreeRoot),
     defaultProvider: providerId(parsed.defaultProvider),
     defaultModel: providerModel(parsed.defaultProvider, parsed.defaultModel),
+    defaultPermissionMode: oneOf(PERMISSION_MODES, parsed.defaultPermissionMode, "default"),
     remyProvider: providerId(parsed.remyProvider),
     remyModel: remyModelValue(parsed.remyProvider, parsed.remyModel ?? "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
@@ -202,6 +213,7 @@ export interface PublicSettings {
   worktreeRoot: string;
   defaultModel: string;
   defaultProvider: ProviderId;
+  defaultPermissionMode: ChatPermissionMode;
   remyProvider: ProviderId;
   remyModel: string;
   repoUpdate: RepoUpdateEvery;
@@ -219,6 +231,7 @@ export function publicSettings(): PublicSettings {
     worktreeRoot: config.worktreeRoot,
     defaultModel: config.defaultModel,
     defaultProvider: config.defaultProvider,
+    defaultPermissionMode: config.defaultPermissionMode,
     remyProvider: config.remyProvider,
     remyModel: config.remyModel,
     repoUpdate: config.repoUpdate,
@@ -269,6 +282,9 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
       "remyModel",
       patch.remyModel === OFF ? OFF : modelFor(provider, patch.remyModel, remyModelValue(provider, config.remyModel)),
     );
+  }
+  if (patch.defaultPermissionMode !== undefined) {
+    set("defaultPermissionMode", oneOf(PERMISSION_MODES, patch.defaultPermissionMode, config.defaultPermissionMode));
   }
   if (patch.repoUpdate !== undefined) {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));

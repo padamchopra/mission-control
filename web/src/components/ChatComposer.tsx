@@ -83,6 +83,7 @@ export function ChatComposer({
   const [choice, setChoice] = useState<ModelChoice>({ provider: "claude", model: "" });
   const [modelPicked, setModelPicked] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionValue>("default");
+  const [permissionPicked, setPermissionPicked] = useState(false);
   const [checkout, setCheckout] = useState<(typeof CHECKOUTS)[number]["value"]>("main");
   const [branch, setBranch] = useState<string>();
   const [text, setText] = useState("");
@@ -119,12 +120,29 @@ export function ChatComposer({
   const CheckoutIcon = checkout === "worktree" ? FolderGit2 : Folder;
   const branchName = branch ?? mainBranch;
 
-  // This machine's default until you pick something, and then yours for as long
-  // as the composer is open.
+  // The workspace's own choice if it has one, this machine's otherwise, until
+  // you pick something — and then yours for as long as the composer is open.
   useEffect(() => {
     if (modelPicked) return;
-    setChoice({ provider: settings?.defaultProvider ?? "claude", model: settings?.defaultModel ?? "" });
-  }, [settings?.defaultProvider, settings?.defaultModel, modelPicked]);
+    setChoice(
+      workspace?.provider
+        ? { provider: workspace.provider, model: workspace.model ?? "" }
+        : { provider: settings?.defaultProvider ?? "claude", model: settings?.defaultModel ?? "" },
+    );
+  }, [
+    workspace?.provider,
+    workspace?.model,
+    settings?.defaultProvider,
+    settings?.defaultModel,
+    modelPicked,
+  ]);
+
+  // A permission mode is the machine's alone: what a thread may do is not a
+  // property of the folder it runs in.
+  useEffect(() => {
+    if (permissionPicked) return;
+    setPermissionMode(permissionOf(settings?.defaultPermissionMode).value);
+  }, [settings?.defaultPermissionMode, permissionPicked]);
 
   // Switching workspace re-applies this machine's defaults rather than keeping
   // the last workspace's branch.
@@ -277,7 +295,10 @@ export function ChatComposer({
                   icon={PermissionIcon}
                   label={permissionLabel}
                   value={permissionMode}
-                  onChange={(value) => setPermissionMode(value as PermissionValue)}
+                  onChange={(value) => {
+                    setPermissionPicked(true);
+                    setPermissionMode(value as PermissionValue);
+                  }}
                   options={PERMISSIONS}
                   title={asks ? undefined : `${providerName} answers and exits, so it never stops to ask.`}
                 />

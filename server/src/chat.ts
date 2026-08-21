@@ -1305,6 +1305,10 @@ export function createChat(input: {
   model?: string;
   permissionMode?: unknown;
   agentId?: string;
+  /// What the workspace this thread opens in runs on, when it does not follow
+  /// the machine. The caller resolves it: which workspace holds a directory
+  /// takes the worktree list, and this does not wait on git.
+  workspaceDefault?: { provider?: string | null; model?: string | null };
 }): ChatSummary {
   // Refuse loudly rather than running a conversation this server cannot keep.
   assertChatStorage();
@@ -1314,13 +1318,21 @@ export function createChat(input: {
   // the caller asked for explicitly still wins over them.
   const agent = input.agentId ? getAgent(input.agentId) : undefined;
   if (input.agentId && !agent) throw new Error("no such agent");
-  const provider = providerId(input.provider ?? agent?.provider ?? config.defaultProvider);
+  // A workspace that runs on something of its own stands where the machine's
+  // default would — that is the whole of what setting one means. An agent still
+  // outranks it, because an agent was written to think with what it names.
+  const machine = input.workspaceDefault?.provider
+    ? { provider: input.workspaceDefault.provider, model: input.workspaceDefault.model ?? "" }
+    : { provider: config.defaultProvider, model: config.defaultModel };
+  const provider = providerId(input.provider ?? agent?.provider ?? machine.provider);
   // Fail here rather than on the first message, so a host without the tool says
   // so while the thread is still being created.
   agentCommand(provider);
   // A model belongs to the provider that answers to it, so one meant for the
   // other provider is dropped rather than passed to a CLI that would refuse it.
-  const model = providerModel(provider, input.model || agent?.model || "");
+  // `??` rather than `||`, so asking for a provider's own Default is read as the
+  // choice it is instead of a gap to fill with somebody else's model.
+  const model = providerModel(provider, input.model ?? agent?.model ?? machine.model);
   const record: ChatRecord = {
     id: randomUUID(),
     title: input.title?.trim() || "New chat",
@@ -1328,7 +1340,7 @@ export function createChat(input: {
     provider,
     ...(model ? { model } : {}),
     ...(agent ? { agentId: agent.id } : {}),
-    permissionMode: permissionMode(input.permissionMode, agent?.permissionMode ?? "default"),
+    permissionMode: permissionMode(input.permissionMode, agent?.permissionMode ?? config.defaultPermissionMode),
     createdAt: nowMs(),
     updatedAt: nowMs(),
     entries: [],

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSyn
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { config } from "./config.js";
+import { providerId, providerModel } from "./providers.js";
 import { db, runTransaction } from "./db.js";
 import { findProjectFiles } from "./discovery.js";
 import { run as exec } from "./run.js";
@@ -19,6 +20,10 @@ export interface Workspace {
   origin: string | null;
   icon: string | null;
   tint: string | null;
+  /// What a thread started here runs on, when this workspace does not follow
+  /// the machine. Null in both means it does, which is the usual answer.
+  provider: string | null;
+  model: string | null;
   worktrees: GitWorktree[];
 }
 
@@ -41,6 +46,8 @@ interface StoredWorkspace {
   path: string;
   icon: string | null;
   tint: string | null;
+  provider: string | null;
+  model: string | null;
 }
 
 interface ParsedWorktree {
@@ -50,21 +57,43 @@ interface ParsedWorktree {
 
 function load(): StoredWorkspace[] {
   return (
-    db.prepare("select id, name, path, icon, tint from workspaces").all() as {
+    db.prepare("select id, name, path, icon, tint, provider, model from workspaces").all() as {
       id: string;
       name: string;
       path: string;
       icon: string | null;
       tint: string | null;
+      provider: string | null;
+      model: string | null;
     }[]
-  ).map((row) => ({ id: row.id, name: row.name, path: row.path, icon: row.icon, tint: row.tint }));
+  ).map((row) => ({
+    id: row.id,
+    name: row.name,
+    path: row.path,
+    icon: row.icon,
+    tint: row.tint,
+    provider: row.provider,
+    model: row.model,
+  }));
 }
 
 function save(workspaces: StoredWorkspace[]): void {
   runTransaction(() => {
     db.exec("delete from workspaces");
-    const insert = db.prepare("insert into workspaces (id, name, path, icon, tint) values (?, ?, ?, ?, ?)");
-    for (const workspace of workspaces) insert.run(workspace.id, workspace.name, workspace.path, workspace.icon, workspace.tint);
+    const insert = db.prepare(
+      "insert into workspaces (id, name, path, icon, tint, provider, model) values (?, ?, ?, ?, ?, ?, ?)",
+    );
+    for (const workspace of workspaces) {
+      insert.run(
+        workspace.id,
+        workspace.name,
+        workspace.path,
+        workspace.icon,
+        workspace.tint,
+        workspace.provider,
+        workspace.model,
+      );
+    }
   });
 }
 
@@ -288,7 +317,12 @@ async function computeWorkspaces(): Promise<Workspace[]> {
   }));
   const migrated = resolved.flatMap((item) => item ? [item.workspace] : []);
   if (resolved.some((item) => item?.migrated)) {
-    const byID = new Map(migrated.map(({ id, name, path, icon, tint }) => [id, { id, name, path, icon, tint }]));
+    const byID = new Map(
+      migrated.map(({ id, name, path, icon, tint, provider, model }) => [
+        id,
+        { id, name, path, icon, tint, provider, model },
+      ]),
+    );
     save(stored.map((workspace) => byID.get(workspace.id) ?? workspace));
   }
   return migrated;
@@ -297,7 +331,15 @@ async function computeWorkspaces(): Promise<Workspace[]> {
 export async function addWorkspace(name: string, rawPath: string): Promise<Workspace> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("workspace name required");
-  const workspace = await hydrateWorkspace({ id: randomUUID(), name: trimmedName, path: rawPath, icon: null, tint: null });
+  const workspace = await hydrateWorkspace({
+    id: randomUUID(),
+    name: trimmedName,
+    path: rawPath,
+    icon: null,
+    tint: null,
+    provider: null,
+    model: null,
+  });
   const workspaces = load();
   const existing = workspaces.find((entry) => entry.path === workspace.path);
   if (existing) {
@@ -307,7 +349,15 @@ export async function addWorkspace(name: string, rawPath: string): Promise<Works
     invalidateWorkspacesCache();
     return { ...existing, origin: workspace.origin, worktrees: workspace.worktrees };
   }
-  workspaces.push({ id: workspace.id, name: workspace.name, path: workspace.path, icon: workspace.icon, tint: workspace.tint });
+  workspaces.push({
+    id: workspace.id,
+    name: workspace.name,
+    path: workspace.path,
+    icon: workspace.icon,
+    tint: workspace.tint,
+    provider: workspace.provider,
+    model: workspace.model,
+  });
   save(workspaces);
   invalidateWorkspacesCache();
   return workspace;
@@ -315,7 +365,7 @@ export async function addWorkspace(name: string, rawPath: string): Promise<Works
 
 export async function updateWorkspace(
   id: string,
-  patch: { name?: string; icon?: string | null; tint?: string | null },
+  patch: { name?: string; icon?: string | null; tint?: string | null; provider?: string | null; model?: string | null },
 ): Promise<Workspace> {
   const stored = load();
   const entry = stored.find((workspace) => workspace.id === id);
@@ -330,6 +380,20 @@ export async function updateWorkspace(
   }
   if (patch.tint !== undefined) {
     entry.tint = normalizeWorkspaceTint(patch.tint);
+  }
+  // A provider and a model are one choice, so they are stored as one: nothing
+  // for a provider means this workspace follows the machine, and then a model
+  // of its own would be a model belonging to nobody.
+  if (patch.provider !== undefined || patch.model !== undefined) {
+    const asked = patch.provider === undefined ? entry.provider : patch.provider;
+    if (!asked) {
+      entry.provider = null;
+      entry.model = null;
+    } else {
+      const provider = providerId(asked);
+      entry.provider = provider;
+      entry.model = providerModel(provider, patch.model === undefined ? entry.model : patch.model) || null;
+    }
   }
   save(stored);
   invalidateWorkspacesCache();
@@ -553,7 +617,7 @@ async function workspaceByID(id: string): Promise<Workspace> {
   if (!stored) throw new Error("workspace not found");
   const workspace = await hydrateWorkspace(stored);
   if (stored.path !== workspace.path) {
-    save(load().map((entry) => (entry.id === id ? { id, name: stored.name, path: workspace.path, icon: stored.icon, tint: stored.tint } : entry)));
+    save(load().map((entry) => (entry.id === id ? { ...stored, path: workspace.path } : entry)));
   }
   return workspace;
 }

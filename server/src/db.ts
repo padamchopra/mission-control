@@ -235,6 +235,18 @@ function migrate(database: DatabaseSync): void {
   } catch {
     // Column already exists on databases created after this migration.
   }
+  // A workspace can run on something other than this machine's default. Null in
+  // both means it follows the machine, which is what every existing row does.
+  try {
+    database.exec("alter table workspaces add column provider text");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
+  try {
+    database.exec("alter table workspaces add column model text");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
   // Loops were scheduled prompts with no ticket behind them. Recurring tickets
   // replaced them, and a table nothing reads is worth dropping rather than
   // carrying.
