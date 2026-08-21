@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EditableName } from "@/components/EditableName";
 import { IconPicker } from "@/components/IconPicker";
+import { ModelPickerButton, REMY_DEFAULT } from "@/components/ModelPicker";
 import { WorkspaceFileIcon } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
@@ -95,6 +96,48 @@ function TicketSlugField({ workspace }: { workspace: Workspace }) {
   );
 }
 
+/// What a thread started in this workspace thinks with.
+///
+/// The machine has a default and most workspaces want it, so the choice here is
+/// really "follow Remy, or not" — a repository that reads better on one provider
+/// says so once, here, instead of at the top of every thread. Remy default is
+/// stored as inheritance rather than as today's answer, so changing the machine
+/// default reaches this workspace without anyone coming back to it.
+function ModelField({ workspace }: { workspace: Workspace }) {
+  const settings = useStore((s) => s.settings);
+  const updateWorkspace = useStore((s) => s.updateWorkspace);
+  const inherited = { provider: settings?.defaultProvider ?? "claude", model: settings?.defaultModel ?? "" };
+
+  const pick = (choice: { provider: string; model: string }) => {
+    const patch = choice.provider === REMY_DEFAULT
+      ? { provider: null, model: null }
+      : { provider: choice.provider, model: choice.model };
+    void updateWorkspace(workspace.id, patch).catch((error) => {
+      toast.error("Couldn't change what this workspace runs on", { description: apiError(error) });
+    });
+  };
+
+  return (
+    <Field orientation="horizontal" className="items-center">
+      <FieldContent>
+        <FieldLabel htmlFor="workspace-model">What a thread here thinks with</FieldLabel>
+        <FieldDescription className="text-xs">You can still change this per thread.</FieldDescription>
+      </FieldContent>
+      <ModelPickerButton
+        id="workspace-model"
+        allowDefault
+        defaultChoice={inherited}
+        value={
+          workspace.provider
+            ? { provider: workspace.provider, model: workspace.model ?? "" }
+            : { provider: REMY_DEFAULT, model: "" }
+        }
+        onPick={pick}
+      />
+    </Field>
+  );
+}
+
 export function devicesForWorkspace(workspace: Workspace, all: Workspace[], servers: Server[]): Server[] {
   const related = all.filter((entry) =>
     entry.id === workspace.id
@@ -163,6 +206,8 @@ export function WorkspaceSettings({
               <p className="truncate font-mono text-xs text-muted-foreground">{displayPath(workspace.path)}</p>
             </div>
           </div>
+
+          <ModelField workspace={workspace} />
 
           <TicketSlugField workspace={workspace} />
 

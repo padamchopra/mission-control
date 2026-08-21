@@ -68,6 +68,7 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
   const [model, setModel] = useState("");
   const [modelPicked, setModelPicked] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionValue>("default");
+  const [permissionPicked, setPermissionPicked] = useState(false);
   const [checkout, setCheckout] = useState<(typeof CHECKOUTS)[number]["value"]>("main");
   const [branch, setBranch] = useState<string>();
   const [text, setText] = useState("");
@@ -122,10 +123,17 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
   const CheckoutIcon = checkout === "worktree" ? FolderGit2 : Folder;
   const branchName = branch ?? mainBranch;
 
+  // The workspace's own model if it has one, the Mac's otherwise. The provider
+  // is left to the Mac either way: it knows which workspace this folder is.
   useEffect(() => {
     if (modelPicked) return;
-    setModel(settings?.defaultModel ?? "");
-  }, [settings?.defaultModel, modelPicked]);
+    setModel((workspace?.provider ? workspace.model : settings?.defaultModel) ?? "");
+  }, [workspace?.provider, workspace?.model, settings?.defaultModel, modelPicked]);
+
+  useEffect(() => {
+    if (permissionPicked) return;
+    setPermissionMode(permissionOf(settings?.defaultPermissionMode).value);
+  }, [settings?.defaultPermissionMode, permissionPicked]);
 
   useEffect(() => {
     const mode = settings?.defaultCheckout ?? "main";
@@ -239,7 +247,10 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
               icon={PermissionIcon}
               label={permission.label}
               value={permissionMode}
-              onChange={(value) => setPermissionMode(value as PermissionValue)}
+              onChange={(value) => {
+                setPermissionPicked(true);
+                setPermissionMode(value as PermissionValue);
+              }}
               options={PERMISSIONS}
             />
             <Pressable

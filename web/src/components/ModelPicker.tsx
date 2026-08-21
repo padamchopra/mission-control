@@ -25,7 +25,10 @@ import { cn } from "@/lib/utils";
 /// have in mind rather than the provider it belongs to.
 ///
 /// `OFF` is a value only Remy's own jobs offer: a thread has to run on
-/// something.
+/// something. `REMY_DEFAULT` is the opposite kind of answer — not a model but
+/// the absence of one, for a caller that follows the machine rather than
+/// choosing. It is stored as inheritance, so changing the machine's default
+/// reaches everything holding it.
 export const OFF = "off";
 export const REMY_DEFAULT = "default";
 
@@ -74,7 +77,7 @@ export function ModelPicker({
   onPick: (choice: ModelChoice) => void;
   /// Offers declining the job altogether, for Remy's own model.
   allowOff?: boolean;
-  /// Offers following the machine's thread default, for an agent.
+  /// Offers following the machine's thread default, for an agent or workspace.
   allowDefault?: boolean;
   defaultChoice?: ModelChoice;
 }) {

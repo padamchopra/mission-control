@@ -940,13 +940,15 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/chats") {
       const body = await readJson(req);
       try {
+        const cwd = String(body.cwd ?? "").trim();
+        // The worktree list is what says which workspace a directory belongs
+        // to, so it is read here rather than inside `createChat`.
+        const workspaces = await listWorkspaces();
+        const holder = workspaces.find((workspace) =>
+          cwd === workspace.path || workspace.worktrees.some((worktree) => cwd === worktree.path));
         if (scopedChatId) {
           const current = getChat(scopedChatId);
-          const cwd = String(body.cwd ?? "").trim();
-          const workspaces = await listWorkspaces();
-          const registered = workspaces.some((workspace) =>
-            cwd === workspace.path || workspace.worktrees.some((worktree) => cwd === worktree.path));
-          if (!current || (cwd !== current.cwd && !registered)) {
+          if (!current || (cwd !== current.cwd && !holder)) {
             return json(res, 403, { error: "register that workspace before starting a thread there" });
           }
         }
@@ -954,9 +956,12 @@ const server = createServer(async (req, res) => {
           cwd: String(body.cwd ?? ""),
           title: typeof body.title === "string" ? body.title : undefined,
           provider: typeof body.provider === "string" && body.provider ? body.provider : undefined,
-          model: typeof body.model === "string" && body.model ? body.model : undefined,
+          // An empty model is a choice — that provider's own default — so it is
+          // passed through rather than collapsed into "nothing was asked".
+          model: typeof body.model === "string" ? body.model : undefined,
           permissionMode: scopedChatId ? undefined : body.permissionMode,
           agentId: typeof body.agentId === "string" && body.agentId ? body.agentId : undefined,
+          ...(holder?.provider ? { workspaceDefault: { provider: holder.provider, model: holder.model } } : {}),
         }) });
       } catch (error) {
         return json(res, 400, { error: (error as Error).message || "could not create the chat" });
@@ -1241,6 +1246,9 @@ const server = createServer(async (req, res) => {
               name: body.name === undefined ? undefined : String(body.name),
               icon: body.icon === undefined ? undefined : body.icon === null ? null : String(body.icon),
               tint: body.tint === undefined ? undefined : body.tint === null ? null : String(body.tint),
+              // Null is how a workspace goes back to following the machine.
+              provider: body.provider === undefined ? undefined : body.provider === null ? null : String(body.provider),
+              model: body.model === undefined ? undefined : body.model === null ? null : String(body.model),
             }),
           });
         } catch (error) {

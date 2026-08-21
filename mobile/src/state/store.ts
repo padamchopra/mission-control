@@ -43,6 +43,8 @@ interface RawWorkspace {
   origin?: string | null;
   icon?: string | null;
   tint?: string | null;
+  provider?: string | null;
+  model?: string | null;
   worktrees?: GitWorktree[];
 }
 
@@ -705,6 +707,8 @@ function toWorkspace(raw: RawWorkspace, serverId: string): Workspace {
     origin: raw.origin,
     icon: raw.icon,
     tint: raw.tint,
+    provider: raw.provider ?? null,
+    model: raw.model ?? null,
     worktrees: raw.worktrees ?? [],
   };
 }

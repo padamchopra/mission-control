@@ -1305,6 +1305,10 @@ export function createChat(input: {
   model?: string;
   permissionMode?: unknown;
   agentId?: string;
+  /// What the workspace this thread opens in runs on, when it does not follow
+  /// the machine. The caller resolves it: which workspace holds a directory
+  /// takes the worktree list, and this does not wait on git.
+  workspaceDefault?: { provider?: string | null; model?: string | null };
 }): ChatSummary {
   // Refuse loudly rather than running a conversation this server cannot keep.
   assertChatStorage();
@@ -1314,14 +1318,22 @@ export function createChat(input: {
   // the caller asked for explicitly still wins over them.
   const agent = input.agentId ? getAgent(input.agentId) : undefined;
   if (input.agentId && !agent) throw new Error("no such agent");
-  const inherited = agent ? resolvedAgentModel(agent) : undefined;
-  const provider = providerId(input.provider ?? inherited?.provider ?? config.defaultProvider);
+  // A workspace that runs on something of its own stands where the machine's
+  // default would. An agent still outranks it, including one that follows the
+  // machine default rather than naming a model of its own.
+  const workspace = input.workspaceDefault?.provider
+    ? { provider: input.workspaceDefault.provider, model: input.workspaceDefault.model ?? "" }
+    : { provider: config.defaultProvider, model: config.defaultModel };
+  const inherited = agent ? resolvedAgentModel(agent) : workspace;
+  const provider = providerId(input.provider ?? inherited.provider);
   // Fail here rather than on the first message, so a host without the tool says
   // so while the thread is still being created.
   agentCommand(provider);
   // A model belongs to the provider that answers to it, so one meant for the
   // other provider is dropped rather than passed to a CLI that would refuse it.
-  const model = providerModel(provider, input.model || inherited?.model || "");
+  // `??` rather than `||`, so asking for a provider's own Default is read as the
+  // choice it is instead of a gap to fill with somebody else's model.
+  const model = providerModel(provider, input.model ?? inherited.model);
   const record: ChatRecord = {
     id: randomUUID(),
     title: input.title?.trim() || "New chat",
@@ -1329,7 +1341,7 @@ export function createChat(input: {
     provider,
     ...(model ? { model } : {}),
     ...(agent ? { agentId: agent.id } : {}),
-    permissionMode: permissionMode(input.permissionMode, agent?.permissionMode ?? "default"),
+    permissionMode: permissionMode(input.permissionMode, agent?.permissionMode ?? config.defaultPermissionMode),
     createdAt: nowMs(),
     updatedAt: nowMs(),
     entries: [],

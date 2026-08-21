@@ -87,6 +87,10 @@ export interface Workspace {
   origin?: string | null;
   icon?: string | null;
   tint?: string | null;
+  /// What a thread started here runs on, when this workspace does not follow
+  /// the machine. Null in both means it does.
+  provider?: string | null;
+  model?: string | null;
   worktrees: GitWorktree[];
 }
 
@@ -226,6 +230,9 @@ export interface ServerSettings {
   /// What a new thread and every inherited agent thinks with. It pairs with
   /// `defaultModel`: a provider only ever holds one of its own models.
   defaultProvider: string;
+  /// What a new thread may do without being asked. A workspace, an agent or the
+  /// thread itself can still say otherwise.
+  defaultPermissionMode: string;
 }
 
 /// What one repository did the last time Remy refreshed them.

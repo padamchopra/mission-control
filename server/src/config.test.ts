@@ -36,6 +36,15 @@ test("starts on the defaults a fresh install should have", () => {
   assert.equal(settings.remyModel, "haiku");
 });
 
+test("starts a thread on Ask until the machine is told otherwise", () => {
+  assert.equal(publicSettings().defaultPermissionMode, "default");
+  assert.equal(patchSettings({ defaultPermissionMode: "acceptEdits" }).defaultPermissionMode, "acceptEdits");
+  // A mode this machine has never heard of keeps the one it had, rather than
+  // quietly landing a thread on something more permissive than was asked for.
+  assert.equal(patchSettings({ defaultPermissionMode: "yolo" }).defaultPermissionMode, "acceptEdits");
+  assert.equal(patchSettings({ defaultPermissionMode: "default" }).defaultPermissionMode, "default");
+});
+
 test("keeps Remy's own model separate from the chat default", () => {
   patchSettings({ defaultModel: "opus" });
   assert.equal(publicSettings().remyModel, "haiku");

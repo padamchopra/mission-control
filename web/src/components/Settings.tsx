@@ -54,6 +54,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { ModelPickerButton } from "@/components/ModelPicker";
+import { PERMISSIONS, permissionOf } from "@/lib/chat-options";
 import { ProviderMark } from "@/components/ProviderMark";
 import { AvatarFrom, PresetAvatar } from "@/components/UserAvatar";
 import { Markdown } from "@/components/Markdown";
@@ -229,6 +230,7 @@ function GeneralPane({
       </div>
       <AvatarField />
       <NotificationsField />
+      <ThreadDefaultsFields />
       <RemyModelField />
       <div className="flex items-start gap-3 rounded-lg border border-border px-3 py-2.5">
         <Monitor className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -588,6 +590,72 @@ function NotificationsField() {
         onCheckedChange={(next) => void toggle(next)}
       />
     </Field>
+  );
+}
+
+/// What a new thread starts as: the model it thinks with, and what it may do
+/// before it asks you.
+///
+/// One place, here, because there is one answer. The model used to be chosen in
+/// Providers as well, which read as two settings for one choice — Providers says
+/// what this machine has installed, and that is a different question from what
+/// to reach for. A workspace that wants something else says so in its own
+/// settings, and a thread can still be moved after it starts.
+function ThreadDefaultsFields() {
+  const { settings, online, save } = useServerSettings();
+  if (!online || !settings) return null;
+
+  const permission = permissionOf(settings.defaultPermissionMode);
+  const PermissionIcon = permission.icon;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="thread-default-model">What a new thread thinks with</FieldLabel>
+          <FieldDescription className="text-xs">A workspace can run on something else.</FieldDescription>
+        </FieldContent>
+        <ModelPickerButton
+          id="thread-default-model"
+          value={{ provider: settings.defaultProvider ?? "claude", model: settings.defaultModel ?? "" }}
+          onPick={(choice) =>
+            void save(
+              { defaultProvider: choice.provider, defaultModel: choice.model },
+              "what a new thread thinks with",
+            )
+          }
+        />
+      </Field>
+
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="thread-default-permission">What a new thread may do</FieldLabel>
+          <FieldDescription className="text-xs">You can still change this per thread.</FieldDescription>
+        </FieldContent>
+        <Select
+          value={permission.value}
+          onValueChange={(value) => void save({ defaultPermissionMode: value }, "what a new thread may do")}
+        >
+          <SelectTrigger id="thread-default-permission" size="sm" className="w-56 shrink-0">
+            <PermissionIcon className="size-4 opacity-70" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {PERMISSIONS.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <SelectItem key={option.value} value={option.value}>
+                    <Icon className="size-4 opacity-70" />
+                    {option.label}
+                  </SelectItem>
+                );
+              })}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+    </div>
   );
 }
 
@@ -966,8 +1034,14 @@ function AgentsSettings({ item, onSelectItem }: { item?: string; onSelectItem: (
   );
 }
 
+/// What this machine has installed to run a thread on.
+///
+/// Only that. Which of them a new thread reaches for is a different question,
+/// and it is answered once, in General — a picker here as well read as two
+/// settings for one choice.
 function ProvidersPane() {
-  const { settings, online, save } = useServerSettings();
+  const servers = useStore((s) => s.servers);
+  const online = servers.some((server) => server.online);
   const tooling = useStore((s) => s.tooling);
   const loadTooling = useStore((s) => s.loadTooling);
 
@@ -976,7 +1050,6 @@ function ProvidersPane() {
   }, [online, loadTooling]);
 
   if (!online) return <Unreachable />;
-  if (!settings) return <p className="text-sm shimmer text-muted-foreground">Reading this machine's settings…</p>;
 
   return (
     <div className="flex flex-col gap-5">
@@ -1004,23 +1077,6 @@ function ProvidersPane() {
           }
         />
       </div>
-
-      <Field orientation="horizontal" className="items-center">
-        <FieldContent>
-          <FieldLabel htmlFor="thread-default-model">What a new thread thinks with</FieldLabel>
-          <FieldDescription className="text-xs">You can still change this per thread.</FieldDescription>
-        </FieldContent>
-        <ModelPickerButton
-          id="thread-default-model"
-          value={{ provider: settings.defaultProvider ?? "claude", model: settings.defaultModel ?? "" }}
-          onPick={(choice) =>
-            void save(
-              { defaultProvider: choice.provider, defaultModel: choice.model },
-              "what a new thread thinks with",
-            )
-          }
-        />
-      </Field>
     </div>
   );
 }

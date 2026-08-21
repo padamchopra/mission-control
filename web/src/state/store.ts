@@ -63,6 +63,8 @@ interface RawWorkspace {
   origin?: string | null;
   icon?: string | null;
   tint?: string | null;
+  provider?: string | null;
+  model?: string | null;
   worktrees?: GitWorktree[];
 }
 
@@ -105,7 +107,10 @@ interface State {
   removeServer(id: string): Promise<void>;
   updateServer(id: string, patch: { name?: string; icon?: DeviceIconId; tint?: TintId }): Promise<void>;
   addWorkspace(input: { path: string; name?: string }): Promise<void>;
-  updateWorkspace(id: string, patch: { name?: string; icon?: string | null; tint?: string | null }): Promise<void>;
+  updateWorkspace(
+    id: string,
+    patch: { name?: string; icon?: string | null; tint?: string | null; provider?: string | null; model?: string | null },
+  ): Promise<void>;
   removeWorkspace(id: string): Promise<void>;
   suggestPaths(query: string): Promise<PathSuggestion[]>;
   suggestWorkspaceIcons(id: string, query: string): Promise<WorkspaceIconMatch[]>;
@@ -390,9 +395,18 @@ export const useStore = create<State>((set, get) => ({
     const workspace = get().workspaces.find((entry) => entry.id === id);
     const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? localServer(get().servers);
     if (!server) throw new Error("This machine isn't connected.");
-    await transport.request(server.id, `/workspaces/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
+    // The machine has the last word on what was stored — a model the workspace's
+    // provider would refuse comes back dropped — so the answer is what lands
+    // here rather than what was asked for.
+    const saved = await transport.request<{ workspace?: RawWorkspace }>(
+      server.id,
+      `/workspaces/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: patch },
+    );
+    const next = saved.workspace ? toWorkspace(saved.workspace, server.id) : undefined;
     set((current) => ({
-      workspaces: current.workspaces.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+      workspaces: current.workspaces.map((entry) =>
+        entry.id === id ? (next ? { ...entry, ...next } : { ...entry, ...patch }) : entry),
     }));
   },
 
@@ -1116,6 +1130,8 @@ function toWorkspace(raw: RawWorkspace, serverId: string): Workspace {
     origin: raw.origin,
     icon: raw.icon,
     tint: raw.tint,
+    provider: raw.provider ?? null,
+    model: raw.model ?? null,
     worktrees: raw.worktrees ?? [],
   };
 }
