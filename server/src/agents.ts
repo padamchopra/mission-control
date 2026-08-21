@@ -17,7 +17,7 @@ import { providerId, providerModel, type ProviderId } from "./providers.js";
 export const REMY_DEFAULT = "default";
 
 export type AgentProvider = ProviderId | typeof REMY_DEFAULT;
-export type GitIdentityMode = typeof REMY_DEFAULT | "off" | "author" | "full";
+export type GitIdentityMode = typeof REMY_DEFAULT | "off" | "author";
 
 export interface Agent {
   id: string;
@@ -55,7 +55,7 @@ const PERMISSION_MODES: ChatPermissionMode[] = [
   "plan",
   "bypassPermissions",
 ];
-const GIT_IDENTITIES: GitIdentityMode[] = [REMY_DEFAULT, "off", "author", "full"];
+const GIT_IDENTITIES: GitIdentityMode[] = [REMY_DEFAULT, "off", "author"];
 
 const EDITABLE = [
   "name",
@@ -103,6 +103,13 @@ function oneOf<T extends string>(allowed: readonly T[], value: unknown, fallback
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
+function gitIdentity(value: unknown, fallback: GitIdentityMode): GitIdentityMode {
+  // `full` is the retired agent-as-committer mode. Treat old events and clients
+  // as agent attribution so history converges without preserving that option.
+  if (value === "full") return "author";
+  return oneOf(GIT_IDENTITIES, value, fallback);
+}
+
 function agentProvider(value: unknown, fallback: AgentProvider = REMY_DEFAULT): AgentProvider {
   if (value === REMY_DEFAULT) return REMY_DEFAULT;
   if (value === "claude" || value === "codex") return value;
@@ -133,7 +140,7 @@ function fold(id: string): Agent | undefined {
         permissionMode: oneOf(PERMISSION_MODES, event.payload.permissionMode, "default"),
         autoStart: event.payload.autoStart !== false,
         handoffTo: Array.isArray(event.payload.handoffTo) ? (event.payload.handoffTo as string[]) : [],
-        gitIdentity: oneOf(GIT_IDENTITIES, event.payload.gitIdentity, REMY_DEFAULT),
+        gitIdentity: gitIdentity(event.payload.gitIdentity, REMY_DEFAULT),
         // `preset` is not editable, so it is read from the create event rather
         // than folded — and without it `seedPresetAgents` would find nothing
         // and seed the built-ins again on every boot.
@@ -149,7 +156,11 @@ function fold(id: string): Agent | undefined {
   }
   // Derived last, from the handle the fold settled on, so a renamed handle
   // takes its address with it.
-  return agent && { ...agent, gitEmail: agentGitEmail(agent.handle) };
+  return agent && {
+    ...agent,
+    gitIdentity: gitIdentity(agent.gitIdentity, REMY_DEFAULT),
+    gitEmail: agentGitEmail(agent.handle),
+  };
 }
 
 function write(agent: Agent): void {
@@ -228,7 +239,7 @@ function toAgent(row: Record<string, unknown>): Agent {
     ...(row.tint ? { tint: String(row.tint) } : {}),
     autoStart: Number(row.auto_start) === 1,
     handoffTo,
-    gitIdentity: oneOf(GIT_IDENTITIES, row.git_identity, REMY_DEFAULT),
+    gitIdentity: gitIdentity(row.git_identity, REMY_DEFAULT),
     ...(row.git_name ? { gitName: String(row.git_name) } : {}),
     // Derived rather than read back, so an address stored before you signed in
     // to `gh` does not outlive the fact.
@@ -381,7 +392,7 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
     patch.handoffTo = [...new Set(list.map(agentHandle).filter((h): h is string => Boolean(h)))];
   }
   if (input.gitIdentity !== undefined) {
-    patch.gitIdentity = oneOf(GIT_IDENTITIES, input.gitIdentity, existing?.gitIdentity ?? REMY_DEFAULT);
+    patch.gitIdentity = gitIdentity(input.gitIdentity, existing?.gitIdentity ?? REMY_DEFAULT);
   }
   if (input.gitName !== undefined) patch.gitName = text(input.gitName, 60) ?? "";
   // `gitEmail` is deliberately not settable: it is derived from the handle and
@@ -450,9 +461,6 @@ export function gitIdentityEnv(agent: Agent | undefined): NodeJS.ProcessEnv {
   return {
     GIT_AUTHOR_NAME: name,
     GIT_AUTHOR_EMAIL: email,
-    ...(identity === "full"
-      ? { GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email }
-      : {}),
   };
 }
 

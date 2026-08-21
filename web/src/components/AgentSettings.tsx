@@ -62,9 +62,8 @@ const PERMISSIONS = [
 ];
 
 const IDENTITIES = [
-  { value: "off", label: "Yours", detail: "Commits carry your name, as they do now." },
-  { value: "author", label: "Author", detail: "The agent authors it, you commit it." },
-  { value: "full", label: "Author and committer", detail: "The agent takes both names." },
+  { value: "off", label: "You", detail: "Commits carry your name." },
+  { value: "author", label: "Agent", detail: "The agent is the author; you remain the committer." },
 ];
 
 const AGENT_IDENTITIES = [
@@ -267,7 +266,7 @@ function AgentDefaults({
 
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
-          <FieldLabel htmlFor="default-git-identity">Git identity</FieldLabel>
+          <FieldLabel htmlFor="default-git-identity">Commit attribution</FieldLabel>
           <FieldDescription className="text-xs">
             Agents set to Remy default follow this choice.
           </FieldDescription>
@@ -497,13 +496,13 @@ function AgentDetail({
       <Separator />
 
       <Field>
-        <FieldLabel htmlFor="agent-identity">Git identity</FieldLabel>
+        <FieldLabel htmlFor="agent-identity">Commit attribution</FieldLabel>
         <FieldDescription className="text-xs">
-          {AGENT_IDENTITIES.find((option) => option.value === identity)?.detail} Attribution, not proof.
+          {AGENT_IDENTITIES.find((option) => option.value === identity)?.detail}
         </FieldDescription>
         <Select
           value={identity}
-          onValueChange={(next) => void save({ gitIdentity: next }, "what it signs commits with")}
+          onValueChange={(next) => void save({ gitIdentity: next }, "who its commits credit")}
         >
           <SelectTrigger id="agent-identity" size="sm" className="w-64">
             <SelectValue />

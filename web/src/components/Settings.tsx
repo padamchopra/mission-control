@@ -960,7 +960,7 @@ function AgentsSettings({ item, onSelectItem }: { item?: string; onSelectItem: (
         )
       }
       onSaveDefaultIdentity={(value) =>
-        void save({ defaultGitIdentity: value as "off" | "author" | "full" }, "what agents sign with")
+        void save({ defaultGitIdentity: value as "off" | "author" }, "who agent commits credit")
       }
     />
   );

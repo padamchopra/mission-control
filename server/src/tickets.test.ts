@@ -334,7 +334,7 @@ test("an agent handle is unique and usable in a tool call", () => {
   assert.equal(agents.updateAgent(first.id, { handle: "iris" }).handle, "iris");
 });
 
-test("git identity modes decide which variables a thread gets", () => {
+test("commit attribution decides whether an agent authors a commit", () => {
   const off = agents.createAgent({ name: "Quiet", gitIdentity: "off" });
   assert.deepEqual(agents.gitIdentityEnv(off), {});
 
@@ -345,10 +345,9 @@ test("git identity modes decide which variables a thread gets", () => {
   // Author-only deliberately leaves the human as committer.
   assert.equal(authorEnv.GIT_COMMITTER_NAME, undefined);
 
-  const full = agents.createAgent({ name: "Both", gitIdentity: "full" });
-  const fullEnv = agents.gitIdentityEnv(full);
-  assert.equal(fullEnv.GIT_COMMITTER_NAME, "Both");
-  assert.equal(fullEnv.GIT_COMMITTER_EMAIL, "both@remy.invalid");
+  const legacy = agents.createAgent({ name: "Legacy", gitIdentity: "full" });
+  assert.equal(legacy.gitIdentity, "author");
+  assert.equal(agents.gitIdentityEnv(legacy).GIT_COMMITTER_NAME, undefined);
 
   assert.deepEqual(agents.gitIdentityEnv(undefined), {}, "a thread with no agent keeps your identity");
 });
@@ -372,9 +371,9 @@ test("an inherited agent follows later model and git identity defaults", () => {
 
     config.config.defaultProvider = "codex";
     config.config.defaultModel = "gpt-5.6-terra";
-    config.config.defaultGitIdentity = "full";
+    config.config.defaultGitIdentity = "off";
     assert.deepEqual(agents.resolvedAgentModel(agent), { provider: "codex", model: "gpt-5.6-terra" });
-    assert.equal(agents.gitIdentityEnv(agent).GIT_COMMITTER_NAME, "Follower");
+    assert.deepEqual(agents.gitIdentityEnv(agent), {});
 
     const fixed = agents.updateAgent(agent.id, {
       provider: "claude",
@@ -419,7 +418,7 @@ test("existing agents inherit defaults unless a field records an override", () =
   assert.equal(agents.getAgent(inheritedId)?.gitIdentity, "default");
   assert.equal(agents.getAgent(fixedId)?.provider, "codex");
   assert.equal(agents.getAgent(fixedId)?.model, "gpt-5.6-terra");
-  assert.equal(agents.getAgent(fixedId)?.gitIdentity, "full");
+  assert.equal(agents.getAgent(fixedId)?.gitIdentity, "author");
 
   const migratedEventCount = log.eventsFor("agent", inheritedId).length;
   agents.seedPresetAgents();

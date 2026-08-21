@@ -222,7 +222,7 @@ export interface ServerSettings {
   /// Your face: empty for the default, `preset:<id>`, or a `data:` URL.
   avatar: string;
   /// What every agent set to Remy default signs with.
-  defaultGitIdentity: "off" | "author" | "full";
+  defaultGitIdentity: "off" | "author";
   /// What a new thread and every inherited agent thinks with. It pairs with
   /// `defaultModel`: a provider only ever holds one of its own models.
   defaultProvider: string;
@@ -271,10 +271,9 @@ export interface Agent {
   tint?: string;
   autoStart: boolean;
   handoffTo: string[];
-  /// What this agent's commits are signed with: `default` follows the machine,
-  /// `off` keeps your own identity, `author` credits the agent and leaves you as
-  /// the committer, and `full` is both.
-  gitIdentity: "default" | "off" | "author" | "full";
+  /// Who this agent's commits credit: `default` follows the machine, `off`
+  /// keeps your identity, and `author` credits the agent while you commit it.
+  gitIdentity: "default" | "off" | "author";
   gitName?: string;
   gitEmail?: string;
   preset?: string;

@@ -47,10 +47,9 @@ export interface Config {
   /// How often Remy refreshes the repositories it knows about. `off` never
   /// does, which is the setting for anyone who wants git touched only by them.
   repoUpdate: RepoUpdateEvery;
-  /// What every inherited agent's commits are signed with. `off` inherits this
-  /// machine's git identity, `author` credits the agent while leaving you as
-  /// the committer, and `full` makes it both. Attribution only — a git identity
-  /// says who wrote a commit, never proves it.
+  /// Who every inherited agent's commits credit. `off` keeps this machine's
+  /// git identity; `author` credits the agent while leaving you as committer.
+  /// Attribution only — a git identity says who wrote a commit, never proves it.
   defaultGitIdentity: GitIdentity;
   /// Whether notifications raised on this machine are shown on this machine.
   /// Off routes them only to the paired devices that asked for them, which is
@@ -68,13 +67,20 @@ export type PreventSleepMode = "off" | "whileBusy" | "always";
 export type CheckoutMode = "main" | "worktree";
 export type WorktreeBase = "remote" | "local";
 export type RepoUpdateEvery = "off" | "hourly" | "sixHourly" | "daily";
-export type GitIdentity = "off" | "author" | "full";
+export type GitIdentity = "off" | "author";
 
 const SLEEP_MODES: PreventSleepMode[] = ["off", "whileBusy", "always"];
 const CHECKOUT_MODES: CheckoutMode[] = ["main", "worktree"];
 const WORKTREE_BASES: WorktreeBase[] = ["remote", "local"];
 const REPO_UPDATES: RepoUpdateEvery[] = ["off", "hourly", "sixHourly", "daily"];
-const GIT_IDENTITIES: GitIdentity[] = ["off", "author", "full"];
+const GIT_IDENTITIES: GitIdentity[] = ["off", "author"];
+
+function gitIdentity(value: unknown, fallback: GitIdentity): GitIdentity {
+  // Older builds offered agent-as-committer. Keep those settings as agent
+  // attribution while retiring the distinction from every current surface.
+  if (value === "full") return "author";
+  return oneOf(GIT_IDENTITIES, value, fallback);
+}
 
 /// How long between refreshes, or nothing when they are off.
 export function repoUpdateInterval(every: RepoUpdateEvery): number | undefined {
@@ -181,7 +187,7 @@ function load(): Config {
     remyProvider: providerId(parsed.remyProvider),
     remyModel: remyModelValue(parsed.remyProvider, parsed.remyModel ?? "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
-    defaultGitIdentity: oneOf(GIT_IDENTITIES, parsed.defaultGitIdentity, "author"),
+    defaultGitIdentity: gitIdentity(parsed.defaultGitIdentity, "author"),
     worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
     githubLogin: githubAccount(parsed.githubLogin),
     avatar: avatarValue(parsed.avatar),
@@ -273,7 +279,7 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));
   }
   if (patch.defaultGitIdentity !== undefined) {
-    set("defaultGitIdentity", oneOf(GIT_IDENTITIES, patch.defaultGitIdentity, config.defaultGitIdentity));
+    set("defaultGitIdentity", gitIdentity(patch.defaultGitIdentity, config.defaultGitIdentity));
   }
   if (patch.avatar !== undefined) {
     set("avatar", avatarValue(patch.avatar));
