@@ -133,6 +133,7 @@ interface State {
   saveSettings(patch: Partial<ServerSettings>): Promise<void>;
   loadTooling(): Promise<void>;
   loadProviders(): Promise<void>;
+  setProviderEnabled(provider: string, enabled: boolean): Promise<void>;
   useGithubAvatar(): Promise<void>;
   loadRepoRun(): Promise<void>;
   updateRepos(): Promise<void>;
@@ -585,6 +586,20 @@ export const useStore = create<State>((set, get) => ({
     if (!server) return;
     const body = await transport.request<{ providers?: Provider[] }>(server.id, "/server/providers");
     if (body.providers?.length) set({ providers: body.providers });
+  },
+
+  async setProviderEnabled(provider, enabled) {
+    const server = localServer(get().servers);
+    if (!server) throw new Error("This machine isn't connected.");
+    const settings = await transport.request<ServerSettings>(
+      server.id,
+      `/server/providers/${encodeURIComponent(provider)}`,
+      { method: "PATCH", body: { enabled } },
+    );
+    set({ settings });
+    await get().loadProviders();
+    await get().refresh();
+    await get().loadBoard();
   },
 
   async useGithubAvatar() {

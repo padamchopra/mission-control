@@ -47,6 +47,7 @@ import {
 } from "./chat.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { discoveredProviders } from "./provider-discovery.js";
+import { setProviderEnabled } from "./provider-settings.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, deliverFromPeer, pushSession, pushSessionList } from "./notify.js";
 import { forgetPushDevice, pushStatus, registerPushDevice } from "./push.js";
@@ -367,8 +368,19 @@ const server = createServer(async (req, res) => {
         providers: providers.map((entry) => ({
           ...entry,
           available: status[entry.id]?.available === true,
+          enabled: config.enabledProviders.includes(entry.id),
         })),
       });
+    }
+    if (parts[0] === "server" && parts[1] === "providers" && parts[2] && parts.length === 3 && req.method === "PATCH") {
+      const body = await readJson(req);
+      try {
+        const settings = setProviderEnabled(decodeURIComponent(parts[2]), body.enabled);
+        broadcast({ type: "board" });
+        return json(res, 200, settings);
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not change that provider" });
+      }
     }
     if (url.pathname === "/server/settings" && req.method === "GET") {
       return json(res, 200, { ...publicSettings(), preventSleepSupported: sleepSupported() });

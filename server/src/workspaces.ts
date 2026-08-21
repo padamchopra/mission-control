@@ -391,6 +391,7 @@ export async function updateWorkspace(
       entry.model = null;
     } else {
       const provider = providerId(asked);
+      if (!config.enabledProviders.includes(provider)) throw new Error("that provider is turned off");
       entry.provider = provider;
       entry.model = providerModel(provider, patch.model === undefined ? entry.model : patch.model) || null;
     }
@@ -398,6 +399,20 @@ export async function updateWorkspace(
   save(stored);
   invalidateWorkspacesCache();
   return hydrateWorkspace(entry);
+}
+
+export function resetWorkspacesUsingProvider(provider: string): void {
+  const stored = load();
+  let changed = false;
+  for (const workspace of stored) {
+    if (workspace.provider !== provider) continue;
+    workspace.provider = null;
+    workspace.model = null;
+    changed = true;
+  }
+  if (!changed) return;
+  save(stored);
+  invalidateWorkspacesCache();
 }
 
 function normalizeWorkspaceIcon(icon: string | null): string | null {

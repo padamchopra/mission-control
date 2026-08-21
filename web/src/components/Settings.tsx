@@ -1053,10 +1053,24 @@ function ProvidersPane() {
   const online = servers.some((server) => server.online);
   const tooling = useStore((s) => s.tooling);
   const loadTooling = useStore((s) => s.loadTooling);
+  const providers = useStore((s) => s.providers);
+  const loadProviders = useStore((s) => s.loadProviders);
+  const setProviderEnabled = useStore((s) => s.setProviderEnabled);
+  const enabledCount = providers?.filter((provider) => provider.enabled !== false).length ?? 3;
 
   useEffect(() => {
-    if (online) void loadTooling().catch(() => {});
-  }, [online, loadTooling]);
+    if (online) void Promise.all([loadTooling(), loadProviders()]).catch(() => {});
+  }, [online, loadTooling, loadProviders]);
+
+  const toggle = async (provider: string, enabled: boolean) => {
+    try {
+      await setProviderEnabled(provider, enabled);
+    } catch (caught) {
+      toast.error("Couldn't change that provider", { description: apiError(caught) });
+    }
+  };
+
+  const providerOn = (id: string) => providers?.find((provider) => provider.id === id)?.enabled !== false;
 
   if (!online) return <Unreachable />;
 
@@ -1068,6 +1082,9 @@ function ProvidersPane() {
           label="Claude Code"
           mark={<ProviderMark provider="claude" />}
           status={tooling?.claude}
+          enabled={providerOn("claude")}
+          disableToggle={enabledCount === 1 && providerOn("claude")}
+          onEnabledChange={(enabled) => void toggle("claude", enabled)}
           detail={
             tooling?.claude.available
               ? "Threads run through the copy of Claude Code on this machine."
@@ -1079,6 +1096,9 @@ function ProvidersPane() {
           label="Codex"
           mark={<ProviderMark provider="codex" />}
           status={tooling?.codex}
+          enabled={providerOn("codex")}
+          disableToggle={enabledCount === 1 && providerOn("codex")}
+          onEnabledChange={(enabled) => void toggle("codex", enabled)}
           detail={
             tooling?.codex?.available
               ? "Threads run through Codex on this machine."
@@ -1090,6 +1110,9 @@ function ProvidersPane() {
           label="Cursor"
           mark={<ProviderMark provider="cursor" />}
           status={tooling?.cursor}
+          enabled={providerOn("cursor")}
+          disableToggle={enabledCount === 1 && providerOn("cursor")}
+          onEnabledChange={(enabled) => void toggle("cursor", enabled)}
           detail={
             tooling?.cursor?.available
               ? "Threads run through Cursor on this machine."
@@ -1107,6 +1130,9 @@ function ToolRow({
   status,
   detail,
   mark,
+  enabled,
+  disableToggle,
+  onEnabledChange,
 }: {
   name: string;
   label: string;
@@ -1114,6 +1140,9 @@ function ToolRow({
   detail?: string;
   /// A provider's own logo, where the row stands for one.
   mark?: ReactNode;
+  enabled?: boolean;
+  disableToggle?: boolean;
+  onEnabledChange?: (enabled: boolean) => void;
 }) {
   const ok = status?.available && status.authenticated !== false;
   return (
@@ -1133,7 +1162,9 @@ function ToolRow({
       <ItemContent className="gap-0.5">
         <ItemTitle>{label}</ItemTitle>
         <ItemDescription className="text-xs">
-          {status === undefined
+          {enabled === false
+            ? "Turned off. Existing threads stay available."
+            : status === undefined
             ? "Checking…"
             : (detail ?? (status.available ? "Ready." : (status.error ?? `Remy can't run ${name} here.`)))}
         </ItemDescription>
@@ -1142,6 +1173,14 @@ function ToolRow({
         {status !== undefined && !ok && <Badge variant="secondary">Not ready</Badge>}
         {status?.version && (
           <span className="font-mono text-xs text-muted-foreground tabular-nums">{status.version}</span>
+        )}
+        {onEnabledChange && (
+          <Switch
+            checked={enabled !== false}
+            disabled={disableToggle}
+            aria-label={`${enabled === false ? "Turn on" : "Turn off"} ${label}`}
+            onCheckedChange={onEnabledChange}
+          />
         )}
       </ItemActions>
     </Item>

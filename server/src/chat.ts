@@ -1706,7 +1706,11 @@ export function createChat(input: {
     ? { provider: input.workspaceDefault.provider, model: input.workspaceDefault.model ?? "" }
     : { provider: config.defaultProvider, model: config.defaultModel };
   const inherited = agent ? resolvedAgentModel(agent) : workspace;
-  const provider = providerId(input.provider ?? inherited.provider);
+  const askedProvider = providerId(input.provider ?? inherited.provider);
+  if (input.provider !== undefined && !config.enabledProviders.includes(askedProvider)) {
+    throw new Error("that provider is turned off");
+  }
+  const provider = config.enabledProviders.includes(askedProvider) ? askedProvider : config.defaultProvider;
   // Fail here rather than on the first message, so a host without the tool says
   // so while the thread is still being created.
   agentCommand(provider);
@@ -1744,6 +1748,7 @@ export function updateChat(
   if (typeof patch.title === "string" && patch.title.trim()) chat.record.title = clip(patch.title, 120);
   if (patch.provider !== undefined) {
     const next = providerId(patch.provider, chat.record.provider);
+    if (!config.enabledProviders.includes(next)) throw new Error("that provider is turned off");
     if (next !== chat.record.provider) {
       agentCommand(next);
       chat.switchProvider(next);

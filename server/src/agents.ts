@@ -320,8 +320,9 @@ export function assignedAgent(id: string | undefined): Agent | undefined {
 /// Kept out of the stored row so changing the machine default changes every
 /// agent that still follows it, including agents made before that change.
 export function resolvedAgentModel(agent: Agent): { provider: ProviderId; model: string } {
-  const provider = agent.provider === REMY_DEFAULT ? config.defaultProvider : agent.provider;
-  const asked = agent.provider === REMY_DEFAULT ? config.defaultModel : agent.model;
+  const inherited = agent.provider === REMY_DEFAULT || !config.enabledProviders.includes(agent.provider);
+  const provider = inherited ? config.defaultProvider : providerId(agent.provider);
+  const asked = inherited ? config.defaultModel : agent.model;
   return { provider, model: providerModel(provider, asked) };
 }
 
@@ -374,6 +375,7 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
         ? config.defaultProvider
         : existing?.provider ?? config.defaultProvider;
       const provider = input.provider === undefined ? current : providerId(input.provider, current);
+      if (!config.enabledProviders.includes(provider)) throw new Error("that provider is turned off");
       const model = input.model === undefined ? (existing?.model ?? "") : input.model;
       if (input.provider !== undefined || (input.model !== undefined && input.model !== "")) {
         patch.provider = provider;
@@ -435,6 +437,12 @@ export function updateAgent(id: string, input: Record<string, unknown>): Agent {
   const agent = reproject(id);
   if (!agent) throw new Error("no such agent");
   return agent;
+}
+
+export function resetAgentsUsingProvider(provider: ProviderId): void {
+  for (const agent of listAgents()) {
+    if (agent.provider === provider) updateAgent(agent.id, { provider: REMY_DEFAULT });
+  }
 }
 
 export function deleteAgent(id: string): void {
