@@ -125,7 +125,7 @@ export function Recurring({
               <Repeat />
             </EmptyMedia>
             <EmptyTitle className={loading ? "shimmer" : undefined}>
-              {loading ? "Reading the board…" : "No projects yet"}
+              {loading ? "Reading the board…" : "No workspaces yet"}
             </EmptyTitle>
             <EmptyDescription>
               {loading ? "Asking this machine what it is tracking." : "Add a workspace to plan work in it."}
@@ -300,7 +300,7 @@ function RecurrenceRow({
             // there is nothing here to open.
             <span className="flex items-center gap-1.5">
               <Folder className="size-4 shrink-0" />
-              {project?.name ?? "No project"}
+              {project?.name ?? "No workspace"}
             </span>
           )}
           {device && (
@@ -591,10 +591,10 @@ function RecurrenceDialog({
           {projects.length > 1 && !recurrence && (
             <Field orientation="horizontal" className="items-center">
               <FieldContent>
-                <FieldLabel htmlFor="recurring-project">Project</FieldLabel>
+                <FieldLabel htmlFor="recurring-workspace">Workspace</FieldLabel>
               </FieldContent>
               <Select value={project} onValueChange={setProject}>
-                <SelectTrigger id="recurring-project" size="sm" className="w-52 shrink-0">
+                <SelectTrigger id="recurring-workspace" size="sm" className="w-52 shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">

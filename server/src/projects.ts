@@ -188,7 +188,7 @@ export function listProjects(): ProjectView[] {
 
 export function createProject(input: { name: string; origin?: string }): Project {
   const name = input.name.trim().slice(0, 60);
-  if (!name) throw new Error("a project needs a name");
+  if (!name) throw new Error("a workspace needs a name");
   const id = randomUUID();
   append("project", id, "create", {
     name,
@@ -196,7 +196,7 @@ export function createProject(input: { name: string; origin?: string }): Project
     ...(input.origin ? { origin: input.origin } : {}),
   });
   const project = reproject(id);
-  if (!project) throw new Error("could not create that project");
+  if (!project) throw new Error("could not track that workspace");
   return project;
 }
 
@@ -207,12 +207,12 @@ export function createProject(input: { name: string; origin?: string }): Project
 /// already exist and the ones that do not yet.
 export function updateProject(id: string, patch: { name?: unknown; keyPrefix?: unknown }): Project {
   const existing = getProject(id);
-  if (!existing) throw new Error("no such project");
+  if (!existing) throw new Error("no such workspace");
   const fields: Record<string, unknown> = {};
 
   if (patch.name !== undefined) {
     const name = typeof patch.name === "string" ? patch.name.trim().slice(0, 60) : "";
-    if (!name) throw new Error("a project needs a name");
+    if (!name) throw new Error("a workspace needs a name");
     fields.name = name;
   }
   if (patch.keyPrefix !== undefined) {
@@ -221,14 +221,14 @@ export function updateProject(id: string, patch: { name?: unknown; keyPrefix?: u
     const clash = db
       .prepare("select id from projects where key_prefix = ? and id != ? and deleted = 0")
       .get(slug, id) as { id?: string } | undefined;
-    if (clash) throw new Error(`another project already uses ${slug}`);
+    if (clash) throw new Error(`another workspace already uses ${slug}`);
     fields.keyPrefix = slug;
   }
   if (Object.keys(fields).length === 0) return existing;
 
   append("project", id, "field", fields);
   const project = reproject(id);
-  if (!project) throw new Error("no such project");
+  if (!project) throw new Error("no such workspace");
   // Keys are derived, but the copy kept on each ticket row is what queries read,
   // so the project's tickets are rebuilt when its slug moves.
   if (fields.keyPrefix) onSlugChanged?.(id);

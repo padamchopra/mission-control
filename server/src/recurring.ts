@@ -304,7 +304,7 @@ function validate(input: Record<string, unknown>, existing?: Recurrence): Record
 
 export function createRecurrence(input: Record<string, unknown>): RecurrenceView {
   const projectId = String(input.projectId ?? "");
-  if (!getProject(projectId)) throw new Error("pick a project for this ticket");
+  if (!getProject(projectId)) throw new Error("pick a workspace for this ticket");
   const patch = validate(input);
   if (!patch.title) throw new Error("a recurring ticket needs a title");
 

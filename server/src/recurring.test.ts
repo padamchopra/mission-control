@@ -179,10 +179,10 @@ test("a deleted recurrence is gone and writes nothing more", () => {
   assert.throws(() => recurring.runRecurrence(recurrence.id), /no such recurring ticket/);
 });
 
-test("a recurrence needs a title and a project that exists", () => {
+test("a recurrence needs a title and a workspace that exists", () => {
   const project = projects.createProject({ name: "Guards" });
   assert.throws(() => recurring.createRecurrence({ projectId: project.id, title: "  " }), /needs a title/);
-  assert.throws(() => recurring.createRecurrence({ projectId: "nope", title: "Anything" }), /pick a project/);
+  assert.throws(() => recurring.createRecurrence({ projectId: "nope", title: "Anything" }), /pick a workspace/);
   assert.throws(
     () => recurring.createRecurrence({ projectId: project.id, title: "Anything", cadence: "fortnightly" }),
     /how often/,

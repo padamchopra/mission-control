@@ -158,7 +158,7 @@ export function Board({
               <SquareKanban />
             </EmptyMedia>
             <EmptyTitle className={loading ? "shimmer" : undefined}>
-              {loading ? "Reading the board…" : "No projects yet"}
+              {loading ? "Reading the board…" : "No workspaces yet"}
             </EmptyTitle>
             <EmptyDescription>
               {loading ? "Asking this machine what it is tracking." : "Add a workspace to plan work in it."}
@@ -206,7 +206,7 @@ export function Board({
             </EmptyMedia>
             <EmptyTitle>Nothing on the board</EmptyTitle>
             <EmptyDescription>
-              {chosen.size === 0 ? "Write the first ticket." : "No tickets in the projects you picked."}
+              {chosen.size === 0 ? "Write the first ticket." : "No tickets in the workspaces you picked."}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -574,10 +574,10 @@ export function NewTicketDialog({
           {projects.length > 1 && !parentId && (
             <Field orientation="horizontal" className="items-center">
               <FieldContent>
-                <FieldLabel htmlFor="ticket-project">Project</FieldLabel>
+                <FieldLabel htmlFor="ticket-workspace">Workspace</FieldLabel>
               </FieldContent>
               <Select value={project} onValueChange={setProject}>
-                <SelectTrigger id="ticket-project" size="sm" className="w-52 shrink-0">
+                <SelectTrigger id="ticket-workspace" size="sm" className="w-52 shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">

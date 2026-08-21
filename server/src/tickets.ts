@@ -444,7 +444,7 @@ function validate(input: Record<string, unknown>): Record<string, unknown> {
 export function createTicket(input: Record<string, unknown>, actor = "you"): TicketView {
   const projectId = String(input.projectId ?? "");
   const project = getProject(projectId);
-  if (!project) throw new Error("pick a project for this ticket");
+  if (!project) throw new Error("pick a workspace for this ticket");
   const patch = validate(input);
   if (!patch.title) throw new Error("a ticket needs a title");
 

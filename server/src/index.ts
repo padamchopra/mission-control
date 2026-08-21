@@ -622,7 +622,7 @@ const server = createServer(async (req, res) => {
         broadcast({ type: "board" });
         return json(res, 200, { project });
       } catch (error) {
-        return json(res, 404, { error: (error as Error).message || "no such project" });
+        return json(res, 404, { error: (error as Error).message || "no such workspace" });
       }
     }
 
