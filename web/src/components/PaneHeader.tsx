@@ -23,7 +23,18 @@ export interface Crumb {
   onClick?: () => void;
 }
 
-export function PaneHeader({ crumbs, children }: { crumbs: Crumb[]; children?: ReactNode }) {
+export function PaneHeader({
+  crumbs,
+  /// Views of the same section, when it has more than one. Beside the crumbs
+  /// rather than inside them: a tab strip is a place you go, not a place you
+  /// have been, and a breadcrumb's last item is not something to click.
+  tabs,
+  children,
+}: {
+  crumbs: Crumb[];
+  tabs?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4">
       <Breadcrumb className="min-w-0">
@@ -53,6 +64,7 @@ export function PaneHeader({ crumbs, children }: { crumbs: Crumb[]; children?: R
           })}
         </BreadcrumbList>
       </Breadcrumb>
+      {tabs}
       {children && <div className="ml-auto flex shrink-0 items-center gap-3">{children}</div>}
     </div>
   );

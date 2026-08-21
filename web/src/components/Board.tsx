@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, Folder, KanbanSquare, Layers, ListFilter, Plus, SquareKanban } from "lucide-react";
+import { KanbanSquare, Plus, SquareKanban } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,13 +35,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -62,12 +55,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar";
 import { PaneHeader } from "@/components/PaneHeader";
-import { WorkspaceIcon } from "@/components/WorkspaceIcon";
+import { ProjectScope, chosenPrefixes, scopedProjects } from "@/components/ProjectScope";
+import { TaskTabs, type TaskTab } from "@/components/TaskTabs";
 import { deviceIcon } from "@/lib/devices";
-import { localWorkspace } from "@/lib/projects";
-import { tintOf } from "@/lib/tints";
 import { AssigneeAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
 import {
@@ -84,13 +75,15 @@ import {
 } from "@/lib/tickets";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
-import type { Agent, Chat, Project, Server, Ticket, TicketStatus, Workspace } from "@/state/types";
+import type { Agent, Chat, Project, Server, Ticket, TicketStatus } from "@/state/types";
 
 /// The board: one column per status, cards in rank order.
 ///
+/// One of the two tabs in Tasks; the other lists the tickets that come back.
 /// Every project at once by default — work does not arrive one repository at a
 /// time — with a filter for narrowing it. The filter lives in the URL as the
-/// key prefixes it kept, so `#/board/REMY,ATLAS` is a view you can send someone.
+/// key prefixes it kept, so `#/board/REMY,ATLAS` is a view you can send someone,
+/// and it is the same segment the Recurring tab carries.
 ///
 /// Cards drag between columns and also move by menu. The menu is not a fallback:
 /// it is the keyboard path, and both call the same move.
@@ -98,12 +91,14 @@ import type { Agent, Chat, Project, Server, Ticket, TicketStatus, Workspace } fr
 export function Board({
   scope,
   onScope,
+  onTab,
   onOpenTicket,
   onAddWorkspace,
 }: {
   /// Comma-joined key prefixes from the URL. Empty means every project.
   scope?: string;
   onScope: (scope?: string) => void;
+  onTab: (tab: TaskTab) => void;
   onOpenTicket: (key: string) => void;
   onAddWorkspace: () => void;
 }) {
@@ -126,14 +121,8 @@ export function Board({
     });
   }, [loadBoard]);
 
-  const chosen = useMemo(
-    () => new Set((scope ?? "").split(",").map((part) => part.trim()).filter(Boolean)),
-    [scope],
-  );
-  const shown = useMemo(
-    () => (chosen.size === 0 ? projects : projects.filter((project) => chosen.has(project.keyPrefix))),
-    [projects, chosen],
-  );
+  const chosen = useMemo(() => chosenPrefixes(scope), [scope]);
+  const shown = useMemo(() => scopedProjects(projects, chosen), [projects, chosen]);
   const scoped = useMemo(() => {
     const ids = new Set(shown.map((project) => project.id));
     return tickets.filter((ticket) => ids.has(ticket.projectId));
@@ -162,7 +151,7 @@ export function Board({
   if (projects.length === 0) {
     return (
       <main className="flex min-w-0 flex-1 flex-col">
-        <PaneHeader crumbs={[{ label: "Board" }]} />
+        <PaneHeader crumbs={[{ label: "Tasks" }]} tabs={<TaskTabs tab="board" onTab={onTab} />} />
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -192,12 +181,17 @@ export function Board({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PaneHeader crumbs={[{ label: "Board" }]}>
-        <WorkspaceFaces projects={shown} workspaces={workspaces} />
+      <PaneHeader crumbs={[{ label: "Tasks" }]} tabs={<TaskTabs tab="board" onTab={onTab} />}>
         <span className="text-xs text-muted-foreground tabular-nums">
           {open} ticket{open === 1 ? "" : "s"}
         </span>
-        <ProjectFilter projects={projects} workspaces={workspaces} chosen={chosen} onScope={onScope} />
+        <ProjectScope
+          projects={projects}
+          shown={shown}
+          workspaces={workspaces}
+          scope={scope}
+          onScope={onScope}
+        />
         <Button size="sm" onClick={() => setComposing(true)}>
           <Plus />
           New ticket
@@ -270,113 +264,6 @@ export function Board({
         onCreated={onOpenTicket}
       />
     </main>
-  );
-}
-
-/// A workspace on this machine that is this project, when there is one. The
-/// board is a synced thing and a workspace is a local folder, so a project can
-/// legitimately have none here.
-/// Whose work is on the board, as faces. Says which workspaces are in view
-/// without spending a breadcrumb on it.
-function WorkspaceFaces({ projects, workspaces }: { projects: Project[]; workspaces: Workspace[] }) {
-  if (projects.length === 0) return null;
-  const shown = projects.slice(0, 3);
-  const rest = projects.length - shown.length;
-
-  return (
-    <AvatarGroup data-size="sm">
-      {shown.map((project) => {
-        const workspace = localWorkspace(project, workspaces);
-        const colors = tintOf(workspace?.tint);
-        return (
-          <Tooltip key={project.id}>
-            <TooltipTrigger asChild>
-              <Avatar className="size-6" aria-label={project.name}>
-                <AvatarFallback className={cn(colors.well, colors.fg)}>
-                  {workspace ? (
-                    <WorkspaceIcon workspaceId={workspace.id} icon={workspace.icon} className="size-3" />
-                  ) : (
-                    <span className="text-[10px] font-medium">{project.keyPrefix.slice(0, 1)}</span>
-                  )}
-                </AvatarFallback>
-              </Avatar>
-            </TooltipTrigger>
-            <TooltipContent>{project.name}</TooltipContent>
-          </Tooltip>
-        );
-      })}
-      {rest > 0 && <AvatarGroupCount className="size-6 text-[11px]">+{rest}</AvatarGroupCount>}
-    </AvatarGroup>
-  );
-}
-
-/// Which workspaces the board is showing. Every one by default; ticking some
-/// narrows it, and the URL carries what you ticked.
-function ProjectFilter({
-  projects,
-  workspaces,
-  chosen,
-  onScope,
-}: {
-  projects: Project[];
-  workspaces: Workspace[];
-  chosen: Set<string>;
-  onScope: (scope?: string) => void;
-}) {
-  const toggle = (prefix: string) => {
-    const next = new Set(chosen);
-    if (next.has(prefix)) next.delete(prefix);
-    else next.add(prefix);
-    // Everything ticked is the same view as nothing ticked, and the shorter URL
-    // is the honest one.
-    onScope(next.size === 0 || next.size === projects.length ? undefined : [...next].join(","));
-  };
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm">
-          <ListFilter />
-          {chosen.size === 0 ? "All workspaces" : `${chosen.size} workspace${chosen.size === 1 ? "" : "s"}`}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuItem onSelect={() => onScope(undefined)}>
-          {/* An icon slot of its own, so this name starts where the others do. */}
-          <span className="flex size-5 items-center justify-center rounded bg-muted text-muted-foreground">
-            <Layers className="size-3" />
-          </span>
-          <span className="truncate">All workspaces</span>
-          {chosen.size === 0 && <Check className="ml-auto" />}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {projects.map((project) => {
-          const workspace = localWorkspace(project, workspaces);
-          const colors = tintOf(workspace?.tint);
-          return (
-            <DropdownMenuItem
-              key={project.id}
-              // Kept open so several can be ticked in one go.
-              onSelect={(event) => {
-                event.preventDefault();
-                toggle(project.keyPrefix);
-              }}
-            >
-              <span className={cn("flex size-5 items-center justify-center rounded", colors.well, colors.fg)}>
-                {workspace ? (
-                  <WorkspaceIcon workspaceId={workspace.id} icon={workspace.icon} className="size-3" />
-                ) : (
-                  <Folder className="size-3" />
-                )}
-              </span>
-              <span className="truncate">{project.name}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">{project.keyPrefix}</span>
-              {chosen.has(project.keyPrefix) && <Check className="ml-auto" />}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

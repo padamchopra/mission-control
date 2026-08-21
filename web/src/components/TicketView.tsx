@@ -152,7 +152,9 @@ export function TicketView({
     <main className="flex min-w-0 flex-1 flex-col">
       <PaneHeader
         crumbs={[
-          { label: "Board", onClick: onBack },
+          // Named for the section it returns to, which is what the sidebar
+          // calls it — the board is one of that section's two tabs.
+          { label: "Tasks", onClick: onBack },
           ...(parent ? [{ label: parent.key, onClick: () => onOpenTicket(parent.key) }] : []),
           { label: ticket.key },
         ]}
@@ -748,7 +750,7 @@ function AttachThreadDialog({
 export function MissingTicket({ ticketKey, onBack }: { ticketKey: string; onBack: () => void }) {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PaneHeader crumbs={[{ label: "Board", onClick: onBack }, { label: ticketKey }]} />
+      <PaneHeader crumbs={[{ label: "Tasks", onClick: onBack }, { label: ticketKey }]} />
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">

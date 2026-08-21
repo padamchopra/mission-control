@@ -50,6 +50,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PaneHeader } from "@/components/PaneHeader";
+import { ProjectScope, chosenPrefixes, scopedProjects } from "@/components/ProjectScope";
+import { TaskTabs, type TaskTab } from "@/components/TaskTabs";
 import { AssigneeAvatar } from "@/components/TicketGlyphs";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
@@ -70,22 +72,30 @@ import type { Agent, Cadence, Project, Recurrence, Workspace } from "@/state/typ
 
 /// Work that comes back.
 ///
-/// A recurring ticket is a ticket, not a scheduled prompt: it lands on the board
-/// in Todo, already handed to whoever is meant to do it. So this pane is a list
-/// of what is coming and who has it, and everything else about it happens on the
-/// board like any other ticket.
+/// The other tab of Tasks. A recurring ticket is a ticket, not a scheduled
+/// prompt: it lands on the board beside it in Todo, already handed to whoever is
+/// meant to do it. So this is a list of what is coming and who has it, and
+/// everything else about one happens on the board like any other ticket — which
+/// is why it shares that tab's project filter rather than keeping its own.
 
 export function Recurring({
+  scope,
+  onScope,
+  onTab,
   onOpenTicket,
   onOpenWorkspace,
   onAddWorkspace,
 }: {
+  /// Comma-joined key prefixes from the URL, the same segment the board takes.
+  scope?: string;
+  onScope: (scope?: string) => void;
+  onTab: (tab: TaskTab) => void;
   onOpenTicket: (key: string) => void;
   onOpenWorkspace: (workspaceId: string) => void;
   onAddWorkspace: () => void;
 }) {
   const projects = useStore((s) => s.projects);
-  const recurring = useStore((s) => s.recurring);
+  const allRecurring = useStore((s) => s.recurring);
   const agents = useStore((s) => s.agents);
   const workspaces = useStore((s) => s.workspaces);
   const loading = useStore((s) => s.boardLoading);
@@ -99,10 +109,17 @@ export function Recurring({
     });
   }, [loadBoard]);
 
+  const chosen = useMemo(() => chosenPrefixes(scope), [scope]);
+  const shown = useMemo(() => scopedProjects(projects, chosen), [projects, chosen]);
+  const recurring = useMemo(() => {
+    const ids = new Set(shown.map((project) => project.id));
+    return allRecurring.filter((entry) => ids.has(entry.projectId));
+  }, [allRecurring, shown]);
+
   if (projects.length === 0) {
     return (
       <main className="flex min-w-0 flex-1 flex-col">
-        <PaneHeader crumbs={[{ label: "Recurring" }]} />
+        <PaneHeader crumbs={[{ label: "Tasks" }]} tabs={<TaskTabs tab="recurring" onTab={onTab} />} />
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -130,10 +147,17 @@ export function Recurring({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PaneHeader crumbs={[{ label: "Recurring" }]}>
+      <PaneHeader crumbs={[{ label: "Tasks" }]} tabs={<TaskTabs tab="recurring" onTab={onTab} />}>
         <span className="text-xs text-muted-foreground tabular-nums">
           {recurring.length} ticket{recurring.length === 1 ? "" : "s"}
         </span>
+        <ProjectScope
+          projects={projects}
+          shown={shown}
+          workspaces={workspaces}
+          scope={scope}
+          onScope={onScope}
+        />
         <Button size="sm" onClick={() => setWriting(true)}>
           <Plus />
           New recurring ticket
@@ -148,7 +172,9 @@ export function Recurring({
             </EmptyMedia>
             <EmptyTitle>Nothing comes back yet</EmptyTitle>
             <EmptyDescription>
-              Write a ticket Remy hands out again every day, week or month.
+              {chosen.size === 0
+                ? "Write a ticket Remy hands out again every day, week or month."
+                : "Nothing recurring in the workspaces you picked."}
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -179,6 +205,7 @@ export function Recurring({
 
       <RecurrenceDialog
         open={writing || Boolean(editing)}
+        projectId={shown[0]?.id}
         onOpenChange={(next) => {
           if (next) return;
           setWriting(false);
@@ -338,6 +365,7 @@ function RecurrenceDialog({
   onOpenChange,
   recurrence,
   projects,
+  projectId,
   agents,
 }: {
   open: boolean;
@@ -345,6 +373,9 @@ function RecurrenceDialog({
   /// Absent when writing a new one.
   recurrence?: Recurrence;
   projects: Project[];
+  /// Which project a new one starts on: the first in view, so the filter
+  /// decides rather than the alphabet.
+  projectId?: string;
   agents: Agent[];
 }) {
   const saveRecurrence = useStore((s) => s.saveRecurrence);
@@ -364,7 +395,7 @@ function RecurrenceDialog({
     if (!open) return;
     setTitle(recurrence?.title ?? "");
     setBody(recurrence?.body ?? "");
-    setProject(recurrence?.projectId ?? projects[0]?.id ?? "");
+    setProject(recurrence?.projectId ?? projectId ?? projects[0]?.id ?? "");
     setAssignee(recurrence?.assigneeAgentId ?? "none");
     setCadence(recurrence?.cadence ?? "weekly");
     setWeekday(recurrence?.weekday ?? 1);
@@ -372,7 +403,7 @@ function RecurrenceDialog({
     setTime(
       `${String(recurrence?.hour ?? 9).padStart(2, "0")}:${String(recurrence?.minute ?? 0).padStart(2, "0")}`,
     );
-  }, [open, recurrence, projects]);
+  }, [open, recurrence, projectId, projects]);
 
   const roster = useMemo(() => people(agents), [agents]);
   const [hour, minute] = useMemo(() => {

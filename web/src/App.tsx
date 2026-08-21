@@ -6,7 +6,6 @@ import {
   Inbox,
   MessagesSquare,
   Plus,
-  Repeat,
   Search,
   SquareKanban,
   SquarePen,
@@ -61,12 +60,13 @@ import { useStore } from "@/state/store";
 import type { ChatState } from "@/state/types";
 import remyMark from "@/assets/remy-mark.png";
 
-type Section = "inbox" | "chats" | "workspaces" | "board" | "prs" | "recurring";
+type Section = "inbox" | "chats" | "workspaces" | "tasks" | "prs";
 
 function routeForSection(section: Section): Route {
   if (section === "chats") return { name: "threads" };
   if (section === "workspaces") return { name: "workspaces" };
-  if (section === "board") return { name: "board" };
+  // Tasks opens on the board; its other tab is a route of its own.
+  if (section === "tasks") return { name: "board" };
   return { name: section };
 }
 
@@ -74,9 +74,8 @@ const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "chats", label: "Threads", icon: MessagesSquare },
   { id: "workspaces", label: "Workspaces", icon: Folder },
-  { id: "board", label: "Board", icon: SquareKanban },
+  { id: "tasks", label: "Tasks", icon: SquareKanban },
   { id: "prs", label: "Pull requests", icon: GitPullRequest },
-  { id: "recurring", label: "Recurring", icon: Repeat },
 ];
 
 const STATE_TONE: Record<ChatState, "warning" | "info" | "secondary" | "destructive"> = {
@@ -115,9 +114,9 @@ const EMPTY: Record<
     action: "workspace",
     icon: Folder,
   },
-  board: {
-    // The board pane draws its own empty states, which know whether the gap is
-    // a missing project or an empty column.
+  tasks: {
+    // Both task panes draw their own empty states, which know whether the gap
+    // is a missing project or an empty column.
     title: "Nothing on the board",
     detail: "Add a workspace to plan work in it.",
     action: "workspace",
@@ -128,14 +127,6 @@ const EMPTY: Record<
     detail: "Open a PR from a workspace on this machine.",
     action: "none",
     icon: GitPullRequest,
-  },
-  recurring: {
-    // The Recurring pane draws its own empty states, which know whether the gap
-    // is a missing project or a list nobody has written to yet.
-    title: "Nothing comes back yet",
-    detail: "Write a ticket Remy hands out again every week.",
-    action: "none",
-    icon: Repeat,
   },
 };
 
@@ -333,11 +324,15 @@ export function App() {
           <Board
             scope={route.scope}
             onScope={(scope) => go({ name: "board", ...(scope ? { scope } : {}) }, true)}
+            onTab={(tab) => go({ name: tab, ...(route.scope ? { scope: route.scope } : {}) })}
             onOpenTicket={(key) => go({ name: "ticket", key })}
             onAddWorkspace={() => setAddWorkspaceOpen(true)}
           />
         ) : route.name === "recurring" ? (
           <Recurring
+            scope={route.scope}
+            onScope={(scope) => go({ name: "recurring", ...(scope ? { scope } : {}) }, true)}
+            onTab={(tab) => go({ name: tab, ...(route.scope ? { scope: route.scope } : {}) })}
             onOpenTicket={(key) => go({ name: "ticket", key })}
             onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
             onAddWorkspace={() => setAddWorkspaceOpen(true)}
