@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 import { deviceId, eventsSince, mergeRemote, onLocalAppend, versionVector } from "./board-log.js";
 import { config, patchSettings } from "./config.js";
 import { db } from "./db.js";
-import { reprojectAll as reprojectAgents } from "./agents.js";
+import { reprojectAll as reprojectAgents, seedPresetAgents } from "./agents.js";
 import { reprojectAll as reprojectProjects } from "./projects.js";
 import { reprojectAll as reprojectRecurrences } from "./recurring.js";
 import { reprojectAll as reprojectTickets } from "./tickets.js";
@@ -513,6 +513,7 @@ function reprojectBoard(): void {
   reprojectAgents();
   reprojectTickets();
   reprojectRecurrences();
+  seedPresetAgents();
 }
 
 let syncTimer: ReturnType<typeof setInterval> | undefined;

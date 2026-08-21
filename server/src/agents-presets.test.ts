@@ -6,6 +6,7 @@ import test from "node:test";
 
 process.env.MC_CONFIG_DIR = mkdtempSync(join(tmpdir(), "remy-agent-presets-"));
 const agents = await import("./agents.js");
+const log = await import("./board-log.js");
 
 test("untouched legacy defaults upgrade to the PM, Builder, and QA chain", () => {
   agents.createAgent({ name: "Scout", handle: "scout", preset: "scout", handoffTo: ["builder"] });
@@ -21,4 +22,20 @@ test("untouched legacy defaults upgrade to the PM, Builder, and QA chain", () =>
   assert.equal(agents.agentByHandle("builder")?.handoffTo[0], "qa");
   assert.equal(agents.agentByHandle("qa")?.handoffTo[0], "builder");
   assert.ok(agents.agentByHandle("triager"), "an existing Triager should not be deleted");
+});
+
+test("built-in agents seeded on two devices converge to one roster", () => {
+  const duplicateId = "builder-from-another-device";
+  log.append("agent", duplicateId, "create", {
+    name: "Builder",
+    handle: "builder",
+    preset: "builder",
+  });
+  agents.reproject(duplicateId);
+
+  agents.seedPresetAgents();
+
+  assert.equal(agents.listAgents().filter((agent) => agent.preset === "builder").length, 1);
+  assert.equal(agents.getAgent(duplicateId), undefined);
+  assert.equal(log.eventsFor("agent", duplicateId).at(-1)?.kind, "tombstone");
 });

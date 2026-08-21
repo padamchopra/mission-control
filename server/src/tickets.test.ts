@@ -490,6 +490,10 @@ test("the built-in agents seed once and stay editable", () => {
   agents.seedPresetAgents();
   assert.equal(agents.listAgents().filter((agent) => agent.preset).length, first);
   assert.equal(first, 3, "PM, Builder, and QA should be there");
+  assert.deepEqual(
+    agents.listAgents().filter((agent) => agent.preset).map((agent) => agent.id).sort(),
+    ["remy-preset-builder", "remy-preset-critic", "remy-preset-scout"],
+  );
 
   const pm = agents.agentByHandle("pm");
   const qa = agents.agentByHandle("qa");
