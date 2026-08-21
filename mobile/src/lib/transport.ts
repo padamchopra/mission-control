@@ -1,3 +1,4 @@
+import { httpError } from "./api-error";
 import { appearanceOf, codeFor, isDeviceIcon, saveAppearance, type DeviceIconId } from "./devices";
 import { hostLabel } from "./pairing";
 import { directId, originOf, type Pairing } from "./session";
@@ -101,7 +102,7 @@ async function fetchPath<T>(target: Pairing, path: string, init?: { method?: str
     ...(init?.body === undefined ? {} : { body: JSON.stringify(init.body) }),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(text || `${response.status} ${response.statusText}`);
+  if (!response.ok) throw httpError(response.status, text);
   return (text ? JSON.parse(text) : null) as T;
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 import { PanelLeft, PanelLeftClose, Plus } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { color, space, type } from "../theme";
@@ -33,9 +33,9 @@ export function PairedShell({
   const chats = useStore((s) => s.chats);
   const tickets = useStore((s) => s.tickets);
   const loading = useStore((s) => s.loading);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const sidebarProgress = useRef(new Animated.Value(1)).current;
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const sidebarProgress = useRef(new Animated.Value(0)).current;
   const sidebarMounted = useRef(true);
   const [section, setSection] = useState<AppSection>("threads");
   const [threadId, setThreadId] = useState<string>();
@@ -112,7 +112,10 @@ export function PairedShell({
     <View style={styles.root}>
       <View style={[styles.chrome, { paddingTop: insets.top + 6 }]}>
         <GlassButton
-          onPress={() => setSidebarOpen((open) => !open)}
+          onPress={() => {
+            Keyboard.dismiss();
+            setSidebarOpen((open) => !open);
+          }}
           accessibilityLabel={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
         >
           {sidebarOpen ? (

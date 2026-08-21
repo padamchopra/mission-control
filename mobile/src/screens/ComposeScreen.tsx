@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { ArrowUp, Box, ChevronDown, Folder, FolderGit2, GitBranch } from "lucide-react-native";
 import { color, radius, space } from "../theme";
-import { apiError } from "../lib/api-error";
+import { apiError, chatIdFrom } from "../lib/api-error";
 import { MODELS, PERMISSIONS, modelLabel, permissionOf, type PermissionValue } from "../lib/chat-options";
 import { deviceIcon } from "../lib/devices";
 import { useStore } from "../state/store";
@@ -184,6 +184,8 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
       });
       onCreated(created.id);
     } catch (caught) {
+      const started = chatIdFrom(caught);
+      if (started) onCreated(started);
       setError(apiError(caught));
     } finally {
       setBusy(false);
@@ -218,7 +220,6 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
             placeholderTextColor={color.mutedForeground}
             multiline
             editable={!busy}
-            autoFocus
             style={styles.input}
             textAlignVertical="top"
             scrollEnabled={false}

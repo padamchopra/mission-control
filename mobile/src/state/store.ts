@@ -398,6 +398,11 @@ export const useStore = create<State>((set, get) => ({
     if (input.mode === "worktree") {
       const existing = workspace?.worktrees.find((tree) => tree.branch === input.branch && !tree.isMain);
       if (existing) return { path: existing.path };
+      // A first send from origin/main leaves a detached tree at `.remy/origin/main`
+      // until the namer claims a branch. Reuse it rather than failing on the folder.
+      const marker = `/.remy/${input.branch}`;
+      const detached = workspace?.worktrees.find((tree) => !tree.isMain && tree.path.endsWith(marker));
+      if (detached) return { path: detached.path };
     }
     const server = get().servers.find((entry) => entry.id === workspace?.serverId) ?? homeServer(get().servers);
     if (!server) throw new Error("This Mac isn't connected.");
@@ -429,10 +434,17 @@ export const useStore = create<State>((set, get) => ({
     });
     const id = created.chat?.id;
     if (!id) throw new Error("Couldn't start that thread.");
-    await transport.request(server.id, `/chats/${encodeURIComponent(id)}/message`, {
-      method: "POST",
-      body: { text },
-    });
+    try {
+      await transport.request(server.id, `/chats/${encodeURIComponent(id)}/message`, {
+        method: "POST",
+        body: { text },
+      });
+    } catch (error) {
+      await get().refresh();
+      const failed = error instanceof Error ? error : new Error(String(error));
+      (failed as Error & { chatId?: string }).chatId = id;
+      throw failed;
+    }
     await get().refresh();
     return { id, serverId: server.id };
   },
