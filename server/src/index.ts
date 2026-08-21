@@ -92,6 +92,7 @@ import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { githubAvatar, githubLogin, tooling } from "./tooling.js";
+import { PROVIDERS } from "./providers.js";
 import { lastUpdateRun, syncRepoUpdateSchedule, updateRepositories } from "./repo-update.js";
 import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
@@ -303,9 +304,21 @@ const server = createServer(async (req, res) => {
         return json(res, 502, { error: (error as Error).message || "could not read your GitHub picture" });
       }
     }
-    // What git, gh, and Claude Code report about themselves on this machine.
+    // What git, gh, Claude Code and Codex report about themselves on this machine.
     if (url.pathname === "/server/tooling" && req.method === "GET") {
       return json(res, 200, await tooling());
+    }
+    // What a thread can run on here: the catalogue, and which of them this
+    // machine actually has installed, so a picker can say what is missing
+    // rather than offering something that fails at spawn time.
+    if (url.pathname === "/server/providers" && req.method === "GET") {
+      const status = await tooling();
+      return json(res, 200, {
+        providers: PROVIDERS.map((entry) => ({
+          ...entry,
+          available: status[entry.command as "claude" | "codex"]?.available === true,
+        })),
+      });
     }
     if (url.pathname === "/server/settings" && req.method === "GET") {
       return json(res, 200, { ...publicSettings(), preventSleepSupported: sleepSupported() });
@@ -759,6 +772,7 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { chat: createChat({
           cwd: String(body.cwd ?? ""),
           title: typeof body.title === "string" ? body.title : undefined,
+          provider: typeof body.provider === "string" && body.provider ? body.provider : undefined,
           model: typeof body.model === "string" && body.model ? body.model : undefined,
           permissionMode: body.permissionMode,
           agentId: typeof body.agentId === "string" && body.agentId ? body.agentId : undefined,
@@ -778,6 +792,7 @@ const server = createServer(async (req, res) => {
         try {
           return json(res, 200, { chat: updateChat(id, {
             title: typeof body.title === "string" ? body.title : undefined,
+            provider: typeof body.provider === "string" && body.provider ? body.provider : undefined,
             model: body.model === null ? null : typeof body.model === "string" ? body.model : undefined,
             permissionMode: body.permissionMode,
           }) });
@@ -803,11 +818,11 @@ const server = createServer(async (req, res) => {
         }
         const archive = archiveChat({
           session: chat.title,
-          agent: "claude",
+          agent: chat.provider,
           cwd: chat.cwd,
           conversation: {
             available: true,
-            agent: "claude",
+            agent: chat.provider,
             title: chat.title,
             model: chat.model,
             todos: chat.todos,

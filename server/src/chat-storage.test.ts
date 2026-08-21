@@ -26,6 +26,7 @@ function chat(id: string, overrides: Partial<ChatRow> = {}): ChatRow {
     id,
     title: `Chat ${id}`,
     cwd: "/tmp",
+    provider: "claude",
     permissionMode: "default",
     createdAt: 1,
     updatedAt: 2,
@@ -49,6 +50,16 @@ test("stores a chat and reads it back with its feed in order", () => {
   assert.equal(loaded.turns, 3);
   assert.equal(loaded.costUsd, 0.5);
   assert.deepEqual(loaded.entries.map((e) => e.id), ["e1", "e2", "e3"]);
+});
+
+test("a thread on Codex keeps the id that resumes it there", () => {
+  storage.saveChat(chat("codex", { provider: "codex", model: "gpt-5.6-terra", codexThreadId: "thread-7" }));
+
+  const loaded = storage.loadChats(100).find((c) => c.id === "codex");
+  assert.equal(loaded?.provider, "codex");
+  assert.equal(loaded?.model, "gpt-5.6-terra");
+  assert.equal(loaded?.codexThreadId, "thread-7");
+  assert.equal(loaded?.claudeSessionId, undefined);
 });
 
 test("re-saving an entry updates it in place, keeping its position", () => {

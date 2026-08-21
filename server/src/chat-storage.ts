@@ -1,5 +1,6 @@
 import type { StatementSync } from "node:sqlite";
 import { db } from "./db.js";
+import { providerId, type ProviderId } from "./providers.js";
 import type { ConvEntry, ConvTodo, ContextUsage } from "./transcript.js";
 import type { ChatPermissionMode } from "./chat.js";
 
@@ -8,12 +9,16 @@ export interface ChatRow {
   id: string;
   title: string;
   cwd: string;
+  /// Which agent this thread thinks with, and so which of the two resume ids
+  /// below carries it across turns.
+  provider: ProviderId;
   model?: string;
   permissionMode: ChatPermissionMode;
   agentId?: string;
   createdAt: number;
   updatedAt: number;
   claudeSessionId?: string;
+  codexThreadId?: string;
   turns: number;
   costUsd?: number;
   context?: ContextUsage;
@@ -36,17 +41,19 @@ export function assertChatStorage(): void {
 function writeChat(row: ChatRow): void {
   db.prepare(
     `insert into chats (
-       id, title, cwd, model, permission_mode, created_at, updated_at,
-       claude_session_id, turns, cost_usd, context_json, todos_json, error, agent_id
-     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       id, title, cwd, provider, model, permission_mode, created_at, updated_at,
+       claude_session_id, codex_thread_id, turns, cost_usd, context_json, todos_json, error, agent_id
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      on conflict(id) do update set
        title = excluded.title,
        agent_id = excluded.agent_id,
        cwd = excluded.cwd,
+       provider = excluded.provider,
        model = excluded.model,
        permission_mode = excluded.permission_mode,
        updated_at = excluded.updated_at,
        claude_session_id = excluded.claude_session_id,
+       codex_thread_id = excluded.codex_thread_id,
        turns = excluded.turns,
        cost_usd = excluded.cost_usd,
        context_json = excluded.context_json,
@@ -56,11 +63,13 @@ function writeChat(row: ChatRow): void {
     row.id,
     row.title,
     row.cwd,
+    row.provider,
     row.model ?? null,
     row.permissionMode,
     row.createdAt,
     row.updatedAt,
     row.claudeSessionId ?? null,
+    row.codexThreadId ?? null,
     row.turns,
     row.costUsd ?? null,
     row.context ? JSON.stringify(row.context) : null,
@@ -137,12 +146,14 @@ function toChatRow(row: Record<string, unknown>): ChatRow {
     id: String(row.id),
     title: String(row.title),
     cwd: String(row.cwd),
+    provider: providerId(row.provider),
     ...(row.model ? { model: String(row.model) } : {}),
     permissionMode: String(row.permission_mode) as ChatPermissionMode,
     ...(row.agent_id ? { agentId: String(row.agent_id) } : {}),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     ...(row.claude_session_id ? { claudeSessionId: String(row.claude_session_id) } : {}),
+    ...(row.codex_thread_id ? { codexThreadId: String(row.codex_thread_id) } : {}),
     turns: Number(row.turns ?? 0),
     ...(typeof row.cost_usd === "number" ? { costUsd: row.cost_usd } : {}),
     ...(row.context_json ? { context: parse<ContextUsage>(String(row.context_json)) } : {}),

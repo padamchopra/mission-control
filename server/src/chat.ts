@@ -15,6 +15,15 @@ import {
 import { agentCommand } from "./agent.js";
 import { getAgent, gitIdentityEnv, type Agent } from "./agents.js";
 import {
+  codexEntry,
+  codexTodos,
+  codexTokens,
+  runCodexTurn,
+  type CodexEvent,
+  type CodexRun,
+} from "./codex.js";
+import { providerId, providerModel, provider as providerOf, type ProviderId } from "./providers.js";
+import {
   assertChatStorage,
   chatStorageError,
   deleteEntries,
@@ -51,11 +60,18 @@ import { forgetChat, syncTicketFromThread } from "./tickets.js";
 import { uploadRoot } from "./uploads.js";
 import { nameDetachedWorktree } from "./workspaces.js";
 
-// Chats are conversations Remy owns end to end: the server runs
-// Claude through the Agent SDK, keeps the transcript itself, and streams it to
-// every connected client. Unlike a tmux session there is no terminal behind
-// this — the feed *is* the session, so approvals and questions have to be
-// answered here rather than by driving a cursor.
+// Chats are conversations Remy owns end to end: the server runs the coding
+// agent, keeps the transcript itself, and streams it to every connected client.
+// Unlike a tmux session there is no terminal behind this — the feed *is* the
+// session, so approvals and questions have to be answered here rather than by
+// driving a cursor.
+//
+// A thread runs on one of two providers, and they are shaped differently.
+// Claude is a session held open through the Agent SDK: one process across many
+// turns, which can stop mid-turn and ask. Codex is a process per turn that
+// answers a prompt and exits, resumed by the thread id it hands back, with
+// nowhere to come back and ask — so it runs inside a sandbox instead. Both land
+// in the same feed, so a client renders one vocabulary either way.
 
 export type ChatState = "idle" | "working" | "needs_input" | "error";
 export type ChatPermissionMode =
@@ -106,11 +122,17 @@ interface ChatRecord {
   id: string;
   title: string;
   cwd: string;
+  /// Which agent this thread thinks with.
+  provider: ProviderId;
   model?: string;
   permissionMode: ChatPermissionMode;
   createdAt: number;
   updatedAt: number;
   claudeSessionId?: string;
+  /// Codex's own id for this conversation, which is what resumes it. Kept
+  /// alongside `claudeSessionId` rather than replacing it, so a thread moved to
+  /// the other provider and back picks up where each of them left off.
+  codexThreadId?: string;
   /// The persona this thread runs as, if it was started as one. Decides the
   /// instructions appended to the preset and the name on its commits.
   agentId?: string;
@@ -126,6 +148,7 @@ export interface ChatSummary {
   id: string;
   title: string;
   cwd: string;
+  provider: ProviderId;
   model?: string;
   permissionMode: ChatPermissionMode;
   agentId?: string;
@@ -141,8 +164,9 @@ export interface ChatSummary {
   turns: number;
   costUsd?: number;
   error?: string;
-  /// True while a chat is holding a live Claude process, so the client can say
-  /// which chats are warm and which will resume on the next message.
+  /// True while a chat is holding a live agent process, so the client can say
+  /// which chats are warm and which will resume on the next message. A Codex
+  /// thread is warm only while a turn is running: it holds nothing between them.
   live: boolean;
 }
 
@@ -257,6 +281,15 @@ class Chat {
   question?: ChatQuestionRequest;
 
   private live?: { query: Query; queue: PromptQueue };
+  /// The Codex turn running now, and the prompts typed while it runs. Codex
+  /// takes one prompt per process, so a second message waits its turn rather
+  /// than joining the one in flight.
+  private codex?: CodexRun;
+  private codexQueue: string[] = [];
+  /// What the turn running now prefixes its entry ids with. Codex numbers its
+  /// items within a turn, and a turn is a process, so without this the second
+  /// turn would write over the first.
+  private codexTurnId = "";
   private pending = new Map<string, (result: PermissionResult) => void>();
   private byToolUseId = new Map<string, ConvEntry>();
   private byId = new Map<string, ConvEntry>();
@@ -284,7 +317,7 @@ class Chat {
   }
 
   get isLive(): boolean {
-    return this.live !== undefined;
+    return this.live !== undefined || this.codex !== undefined;
   }
 
   get state(): ChatState {
@@ -316,6 +349,7 @@ class Chat {
       id: this.record.id,
       title: this.record.title,
       cwd: this.record.cwd,
+      provider: this.record.provider,
       model: this.record.model,
       permissionMode: this.record.permissionMode,
       ...(this.record.agentId ? { agentId: this.record.agentId } : {}),
@@ -362,16 +396,35 @@ class Chat {
     this.state = this.pending.size > 0 ? "needs_input" : "working";
     this.action = undefined;
     this.lastActivity = nowMs();
+    if (this.record.provider === "codex") {
+      // A turn already running keeps the prompt until it finishes; nothing is
+      // lost and the order is the order they were typed in.
+      this.codexQueue.push(trimmed);
+      if (!this.codex) void this.drainCodex();
+      this.push();
+      this.persist();
+      return;
+    }
     const session = await this.start();
     session.queue.push(userMessage(trimmed));
     this.push();
     this.persist();
   }
 
-  /// Interrupts the running turn. Anything Claude is blocked on is denied first —
-  /// a permission request that outlives its turn would block the next one.
+  /// Interrupts the running turn. Anything the agent is blocked on is denied
+  /// first — a permission request that outlives its turn would block the next.
   async interrupt(): Promise<void> {
     this.settlePending("User stopped the turn.");
+    // Anything typed while it was working was never sent, so it goes too.
+    this.codexQueue = [];
+    const codex = this.codex;
+    if (codex) {
+      codex.stop();
+      this.state = "idle";
+      this.action = undefined;
+      this.push();
+      return;
+    }
     const live = this.live;
     if (!live) {
       this.state = "idle";
@@ -422,10 +475,12 @@ class Chat {
     this.push();
   }
 
-  /// Ends the Claude process but keeps the chat: the next message resumes the
+  /// Ends the agent's process but keeps the chat: the next message resumes the
   /// same conversation through its recorded session id.
   stop(): void {
     this.settlePending("Session stopped.");
+    this.codexQueue = [];
+    this.codex?.stop();
     const live = this.live;
     // Closing the prompt stream only ends the session once the current turn
     // finishes, so interrupt first when one is running.
@@ -451,7 +506,7 @@ class Chat {
   /// yours wins.
   private async rename(request: string): Promise<void> {
     const before = this.record.title;
-    const suggested = await suggestName(request, config.remyModel);
+    const suggested = await suggestName(request, config.remyProvider, config.remyModel);
     if (!suggested || this.deleted) return;
 
     // The branch is claimed even when the title has since been changed by hand:
@@ -767,7 +822,14 @@ class Chat {
   }
 
   private recordUsage(usage: Record<string, unknown>, model?: string): void {
-    const tokens = num(usage.input_tokens) + num(usage.cache_read_input_tokens) + num(usage.cache_creation_input_tokens);
+    this.noteTokens(
+      num(usage.input_tokens) + num(usage.cache_read_input_tokens) + num(usage.cache_creation_input_tokens),
+      model,
+    );
+  }
+
+  /// How full the window is, from whichever provider just reported it.
+  private noteTokens(tokens: number, model?: string): void {
     if (tokens <= 0) return;
     if (tokens > this.peakTokens) this.peakTokens = tokens;
     // A window bigger than the configured one proves the session is running a
@@ -781,6 +843,189 @@ class Chat {
       compactions: this.compactions,
       droppedTokens: this.record.context?.droppedTokens ?? 0,
     };
+  }
+
+  /// Moves the thread to the other provider.
+  ///
+  /// Each keeps its own transcript, so the new one arrives knowing nothing of
+  /// what was said before — Remy's feed is the only place the whole
+  /// conversation exists. The handover is written into it, both because it
+  /// explains an assistant that suddenly needs telling again and because a
+  /// thread moved back resumes the session it left.
+  switchProvider(next: ProviderId): void {
+    if (next === this.record.provider) return;
+    this.record.provider = next;
+    // A model belongs to a provider, so it does not travel with the thread.
+    this.record.model = undefined;
+    this.append({
+      id: `p-${randomUUID()}`,
+      kind: "assistant",
+      text: `— moved to ${providerOf(next)?.label ?? next} —`,
+    });
+  }
+
+  // ── the Codex turn ───────────────────────────────────────────────────────
+
+  /// Runs the queued prompts, one process each, until there are none left.
+  private async drainCodex(): Promise<void> {
+    while (this.codexQueue.length > 0 && !this.deleted) {
+      const prompt = this.codexQueue.shift()!;
+      await this.codexTurn(prompt);
+    }
+  }
+
+  private async codexTurn(prompt: string): Promise<void> {
+    const agent = this.record.agentId ? getAgent(this.record.agentId) : undefined;
+    // Unique per turn and across restarts, so a resumed thread cannot collide
+    // with the entries already on disk.
+    this.codexTurnId = `${randomUUID().slice(0, 8)}-`;
+    let run: CodexRun;
+    try {
+      run = runCodexTurn(
+        {
+          // Absent Codex is a message, not a crash: the thread keeps its feed
+          // and says what is missing.
+          command: agentCommand("codex")!,
+          prompt: this.codexPrompt(prompt, agent),
+          cwd: this.record.cwd,
+          ...(this.record.model ? { model: this.record.model } : {}),
+          permissionMode: this.record.permissionMode,
+          ...(this.record.codexThreadId ? { threadId: this.record.codexThreadId } : {}),
+          // Uploaded media is referenced by path in the message that carries it.
+          additionalDirectories: [uploadRoot],
+          env: agentEnvironment(agent),
+        },
+        (event) => {
+          try {
+            this.handleCodexEvent(event);
+          } catch (error) {
+            console.error("codex event handling failed:", error);
+          }
+        },
+      );
+    } catch (error) {
+      this.failTurn(error);
+      return;
+    }
+    this.codex = run;
+    this.state = "working";
+    this.push();
+    try {
+      await run.done;
+    } catch (error) {
+      this.failTurn(error);
+      return;
+    } finally {
+      if (this.codex === run) this.codex = undefined;
+      this.record.updatedAt = nowMs();
+      this.flush();
+      this.persist();
+    }
+    // Only the last of a run of queued prompts settles the thread, so a client
+    // is not told it is idle between two prompts it is about to work through.
+    if (this.codexQueue.length > 0) {
+      this.push();
+      return;
+    }
+    this.state = "idle";
+    this.action = undefined;
+    this.push();
+    this.notifyTurnEnd().catch(() => {});
+  }
+
+  /// The prompt Codex is given. An agent's instructions go in front of the
+  /// first turn: `codex exec` has no system prompt to append them to, and the
+  /// turns after the first inherit them from the transcript it resumes.
+  private codexPrompt(prompt: string, agent?: Agent): string {
+    const instructions = agent?.instructions.trim();
+    if (!instructions || this.record.codexThreadId) return prompt;
+    return `${instructions}\n\n---\n\n${prompt}`;
+  }
+
+  private handleCodexEvent(event: CodexEvent): void {
+    this.lastActivity = nowMs();
+    switch (event.type) {
+      case "thread.started":
+        // Recorded before anything else can fail: this is what a later turn
+        // resumes, and without it the conversation starts over.
+        if (event.thread_id && event.thread_id !== this.record.codexThreadId) {
+          this.record.codexThreadId = event.thread_id;
+          this.persist();
+        }
+        return;
+      case "turn.started":
+        this.state = "working";
+        this.record.turns += 1;
+        this.push();
+        return;
+      case "turn.completed":
+        this.noteTokens(codexTokens(event.usage), this.record.model);
+        return;
+      case "turn.failed":
+        this.recordFailure(event.error?.message ?? "the turn failed");
+        return;
+      case "error":
+        this.recordFailure(event.message ?? "the turn failed");
+        return;
+      case "item.started":
+      case "item.updated":
+      case "item.completed": {
+        const todos = codexTodos(event.item);
+        if (todos.length) {
+          this.record.todos = todos;
+          this.push();
+          return;
+        }
+        const entry = codexEntry(event.item, this.codexTurnId);
+        if (!entry) return;
+        this.upsert(entry);
+        if (entry.kind === "tool") {
+          this.action = `${entry.verb ?? ""} ${entry.arg ?? ""}`.trim();
+          this.push();
+        }
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  /// An entry Codex has sent before, filled in. One item arrives as started,
+  /// updated and completed under one id, so it is one line in the feed that
+  /// gains its output rather than three that repeat it.
+  private upsert(entry: ConvEntry): void {
+    const existing = this.byId.get(entry.id);
+    if (!existing) {
+      this.append(entry);
+      return;
+    }
+    Object.assign(existing, entry);
+    this.markDirty(entry.id);
+  }
+
+  /// A turn that could not run at all — Codex missing, or the process dying.
+  private failTurn(error: unknown): void {
+    if (this.codex) this.codex = undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    this.recordFailure(message);
+    this.state = "error";
+    this.codexQueue = [];
+    this.flush();
+    this.push();
+    this.persist();
+    void sendNotification({
+      session: this.record.id,
+      click: `remy://chat/${this.record.id}`,
+      title: `${this.record.title} failed`,
+      message: clip(message, 200),
+      highPriority: true,
+    });
+  }
+
+  private recordFailure(detail: string): void {
+    if (/abort|interrupt|cancel|SIGTERM/i.test(detail)) return;
+    this.record.error = detail;
+    this.append({ id: `e-${randomUUID()}`, kind: "assistant", text: `⚠️ ${clip(detail, 400)}` });
   }
 
   // ── permissions ──────────────────────────────────────────────────────────
@@ -983,7 +1228,10 @@ function sessionAllowRules(tool: string): PermissionUpdate[] {
 const chats = new Map<string, Chat>();
 
 for (const stored of loadChats(MAX_ENTRIES)) {
-  chats.set(stored.id, new Chat({ ...stored, permissionMode: permissionMode(stored.permissionMode) }));
+  chats.set(
+    stored.id,
+    new Chat({ ...stored, provider: providerId(stored.provider), permissionMode: permissionMode(stored.permissionMode) }),
+  );
 }
 
 /// Why chats cannot be used on this server, if they can't. Surfaced by the API
@@ -1010,6 +1258,7 @@ function expandChatCwd(raw: string): string {
 export function createChat(input: {
   cwd: string;
   title?: string;
+  provider?: unknown;
   model?: string;
   permissionMode?: unknown;
   agentId?: string;
@@ -1018,18 +1267,22 @@ export function createChat(input: {
   assertChatStorage();
   const cwd = expandChatCwd(input.cwd);
   if (!existsSync(cwd)) throw new Error("that directory does not exist on this machine");
-  // Fail here rather than on the first message, so a host without Claude Code
-  // says so while the chat is still being created.
-  agentCommand("claude");
-  // An agent brings its own model and permission mode, and anything the caller
-  // asked for explicitly still wins over them.
+  // An agent brings its own provider, model and permission mode, and anything
+  // the caller asked for explicitly still wins over them.
   const agent = input.agentId ? getAgent(input.agentId) : undefined;
   if (input.agentId && !agent) throw new Error("no such agent");
-  const model = input.model || agent?.model;
+  const provider = providerId(input.provider ?? agent?.provider ?? config.defaultProvider);
+  // Fail here rather than on the first message, so a host without the tool says
+  // so while the thread is still being created.
+  agentCommand(provider);
+  // A model belongs to the provider that answers to it, so one meant for the
+  // other provider is dropped rather than passed to a CLI that would refuse it.
+  const model = providerModel(provider, input.model || agent?.model || "");
   const record: ChatRecord = {
     id: randomUUID(),
     title: input.title?.trim() || "New chat",
     cwd,
+    provider,
     ...(model ? { model } : {}),
     ...(agent ? { agentId: agent.id } : {}),
     permissionMode: permissionMode(input.permissionMode, agent?.permissionMode ?? "default"),
@@ -1048,18 +1301,36 @@ export function createChat(input: {
 
 export function updateChat(
   id: string,
-  patch: { title?: string; model?: string | null; permissionMode?: unknown },
+  patch: { title?: string; provider?: unknown; model?: string | null; permissionMode?: unknown },
 ): ChatSummary {
   const chat = mustGet(id);
   if (typeof patch.title === "string" && patch.title.trim()) chat.record.title = clip(patch.title, 120);
+  if (patch.provider !== undefined) {
+    const next = providerId(patch.provider, chat.record.provider);
+    if (next !== chat.record.provider) {
+      agentCommand(next);
+      chat.switchProvider(next);
+    }
+  }
   if (patch.model === null) chat.record.model = undefined;
-  else if (typeof patch.model === "string" && patch.model.trim()) chat.record.model = patch.model.trim();
+  else if (typeof patch.model === "string") {
+    // Held to the provider the thread now runs on, so a model picked for the
+    // other one leaves the thread on this one's default.
+    const model = providerModel(chat.record.provider, patch.model.trim());
+    chat.record.model = model || undefined;
+  }
   if (patch.permissionMode !== undefined) {
     chat.record.permissionMode = permissionMode(patch.permissionMode, chat.record.permissionMode);
   }
-  // Model and permission mode are start-up options for the Claude process, so
-  // a running one is retired; the next message resumes with the new settings.
-  if ((patch.model !== undefined || patch.permissionMode !== undefined) && chat.isLive) chat.stop();
+  // Provider, model and permission mode are start-up options for the agent's
+  // process, so a running one is retired; the next message resumes with the new
+  // settings.
+  if (
+    (patch.provider !== undefined || patch.model !== undefined || patch.permissionMode !== undefined)
+    && chat.isLive
+  ) {
+    chat.stop();
+  }
   chat.record.updatedAt = nowMs();
   chat.persist();
   chat.push();

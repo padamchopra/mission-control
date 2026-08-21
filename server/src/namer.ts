@@ -1,6 +1,8 @@
 import { homedir } from "node:os";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { agentCommand } from "./agent.js";
+import { codexAnswer } from "./codex.js";
+import { providerId, type ProviderId } from "./providers.js";
 
 /// Names a thread, and the branch its work belongs on, from the message that
 /// started it.
@@ -92,10 +94,37 @@ function parse(answer: string): ThreadName | undefined {
   return { title, branch: cleanBranch(branchLine ?? title) };
 }
 
-export async function suggestName(request: string, model: string): Promise<ThreadName | undefined> {
+export async function suggestName(
+  request: string,
+  provider: ProviderId,
+  model: string,
+): Promise<ThreadName | undefined> {
   // `off` is how someone declines this entirely.
   if (model === "off") return undefined;
+  const answer = providerId(provider) === "codex"
+    ? await nameWithCodex(request, model)
+    : await nameWithClaude(request, model);
+  return answer ? parse(answer) : undefined;
+}
 
+/// Codex has no system prompt to hand instructions to, so they go in front of
+/// the request. Read-only in the home directory, like the Claude side: this is
+/// a naming call and it has no business reading the repository.
+async function nameWithCodex(request: string, model: string): Promise<string | undefined> {
+  try {
+    return await codexAnswer({
+      command: agentCommand("codex")!,
+      prompt: `${SYSTEM}\n\nName the session that starts with this request:\n\n${request}`,
+      cwd: homedir(),
+      ...(model ? { model } : {}),
+      timeoutMs: TIMEOUT_MS,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+async function nameWithClaude(request: string, model: string): Promise<string | undefined> {
   const options: Options = {
     // Home, not the project: this is a one-shot naming call, and it has no
     // business reading the repository or its CLAUDE.md.
@@ -118,7 +147,7 @@ export async function suggestName(request: string, model: string): Promise<Threa
         if (block.type === "text") answer += block.text;
       }
     }
-    return parse(answer);
+    return answer;
   } catch {
     return undefined;
   } finally {

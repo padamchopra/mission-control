@@ -54,6 +54,8 @@ export interface Chat {
   title: string;
   cwd: string;
   state: ChatState;
+  /// Which agent this thread thinks with: `claude` or `codex`.
+  provider?: string;
   model?: string;
   preview?: string;
   updatedAt: number;
@@ -180,6 +182,9 @@ export interface ChatDetail {
   serverId: string;
   title: string;
   cwd: string;
+  /// Which agent this thread thinks with. Changeable, like the model: the feed
+  /// stays, and the new one arrives knowing only what it is told next.
+  provider?: string;
   model?: string;
   /// How much this thread may do unasked. Changeable, unlike where it runs.
   permissionMode?: string;
@@ -206,7 +211,8 @@ export interface ServerSettings {
   worktreeRoot: string;
   defaultModel: string;
   /// What Remy runs its own small jobs on, as opposed to what your chats think
-  /// with. Kept cheap on purpose.
+  /// with. Kept cheap on purpose, and `off` declines them altogether.
+  remyProvider: string;
   remyModel: string;
   repoUpdate: "off" | "hourly" | "sixHourly" | "daily";
   worktreeBranchPrefix: string;
@@ -214,7 +220,9 @@ export interface ServerSettings {
   avatar: string;
   /// What a new agent's commits are signed with unless you say otherwise.
   defaultGitIdentity: "off" | "author" | "full";
-  /// What a new agent thinks with unless you say otherwise.
+  /// What a new thread — and a new agent — thinks with unless you say
+  /// otherwise. It pairs with `defaultModel`: a provider only ever holds one of
+  /// its own models.
   defaultProvider: string;
 }
 
@@ -244,6 +252,7 @@ export interface Tooling {
   git: ToolStatus;
   gh: ToolStatus;
   claude: ToolStatus;
+  codex: ToolStatus;
 }
 
 /// A named persona a thread can run as. Mirrors `Agent` in `server/src/agents.ts`.

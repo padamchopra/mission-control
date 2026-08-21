@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { codeFor, type DeviceIconId } from "~/lib/devices";
 import type { TintId } from "~/lib/tints";
+import type { Provider } from "~/lib/providers";
 import { transport } from "~/lib/transport";
 import { fixtureChats, fixtureServers, fixtureWorkspaces } from "./fixture";
 import type {
@@ -46,6 +47,7 @@ interface RawChat {
   title: string;
   cwd: string;
   state?: ChatState;
+  provider?: string;
   model?: string;
   preview?: string;
   updatedAt?: number;
@@ -75,6 +77,9 @@ interface State {
   /// the panes that show them, not on every poll.
   settings?: ServerSettings;
   tooling?: Tooling;
+  /// What this machine can run a thread on, as it reports it. Absent until a
+  /// picker asks, and the built-in catalogue stands in until it answers.
+  providers?: Provider[];
   repoRun?: UpdateRun;
   agents: Agent[];
   projects: Project[];
@@ -111,12 +116,14 @@ interface State {
     cwd: string;
     text: string;
     serverId?: string;
+    provider?: string;
     model?: string;
     permissionMode?: string;
   }): Promise<{ id: string; serverId: string }>;
   loadSettings(): Promise<void>;
   saveSettings(patch: Partial<ServerSettings>): Promise<void>;
   loadTooling(): Promise<void>;
+  loadProviders(): Promise<void>;
   useGithubAvatar(): Promise<void>;
   loadRepoRun(): Promise<void>;
   updateRepos(): Promise<void>;
@@ -126,7 +133,7 @@ interface State {
   answerApproval(requestId: string, decision: "allow" | "allowAlways" | "deny"): Promise<void>;
   answerQuestion(requestId: string, answers: Record<string, unknown>): Promise<void>;
   interrupt(): Promise<void>;
-  setChatOptions(patch: { model?: string | null; permissionMode?: string }): Promise<void>;
+  setChatOptions(patch: { provider?: string; model?: string | null; permissionMode?: string }): Promise<void>;
   archiveThread(id: string): Promise<void>;
   deleteThread(id: string): Promise<void>;
 
@@ -504,6 +511,7 @@ export const useStore = create<State>((set, get) => ({
       body: {
         cwd,
         title,
+        ...(input.provider ? { provider: input.provider } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       },
@@ -541,6 +549,13 @@ export const useStore = create<State>((set, get) => ({
     const server = localServer(get().servers);
     if (!server) return;
     set({ tooling: await transport.request<Tooling>(server.id, "/server/tooling") });
+  },
+
+  async loadProviders() {
+    const server = localServer(get().servers);
+    if (!server) return;
+    const body = await transport.request<{ providers?: Provider[] }>(server.id, "/server/providers");
+    if (body.providers?.length) set({ providers: body.providers });
   },
 
   async useGithubAvatar() {
@@ -870,10 +885,15 @@ export const useStore = create<State>((set, get) => ({
     set((current) => ({
       detail:
         current.detail?.id === detail.id
-          ? { ...current.detail, model: chat.model, permissionMode: chat.permissionMode }
+          ? {
+              ...current.detail,
+              provider: chat.provider,
+              model: chat.model,
+              permissionMode: chat.permissionMode,
+            }
           : current.detail,
       chats: current.chats.map((entry) =>
-        entry.id === detail.id ? { ...entry, model: chat.model } : entry,
+        entry.id === detail.id ? { ...entry, provider: chat.provider, model: chat.model } : entry,
       ),
     }));
   },
@@ -926,6 +946,7 @@ function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
     serverId,
     title: raw.title,
     cwd: raw.cwd,
+    provider: raw.provider,
     model: raw.model,
     permissionMode: raw.permissionMode,
     state: raw.state ?? "idle",
@@ -1000,6 +1021,7 @@ function toChat(raw: RawChat, serverId: string): Chat {
     title: raw.title,
     cwd: raw.cwd,
     state: raw.state ?? "idle",
+    provider: raw.provider,
     model: raw.model,
     preview: raw.preview,
     updatedAt: raw.updatedAt ?? 0,

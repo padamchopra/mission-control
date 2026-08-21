@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Box, Check, ChevronDown, Folder, FolderGit2, GitBranch } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Folder, FolderGit2, GitBranch } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,11 +29,13 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ComposerMenu } from "@/components/ComposerMenu";
+import { ModelPickerButton, useProvider } from "@/components/ModelPicker";
 import { PaneHeader } from "@/components/PaneHeader";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
-import { MODELS, PERMISSIONS, modelLabel, permissionOf, type PermissionValue } from "@/lib/chat-options";
+import { PERMISSIONS, permissionOf, type PermissionValue } from "@/lib/chat-options";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
+import type { ModelChoice } from "@/lib/providers";
 import { useStore } from "@/state/store";
 import type { GitBranch as Branch, Server, Workspace } from "@/state/types";
 
@@ -78,7 +80,7 @@ export function ChatComposer({
   const settings = useStore((s) => s.settings);
   const [target, setTarget] = useState(workspaces[0]?.id ?? HOME);
   const [serverId, setServerId] = useState(() => preferredServer(servers)?.id ?? "");
-  const [model, setModel] = useState("");
+  const [choice, setChoice] = useState<ModelChoice>({ provider: "claude", model: "" });
   const [modelPicked, setModelPicked] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionValue>("default");
   const [checkout, setCheckout] = useState<(typeof CHECKOUTS)[number]["value"]>("main");
@@ -104,6 +106,12 @@ export function ChatComposer({
   const place = home ? (server?.name ?? "~") : workspace.name;
   const DeviceIcon = deviceIcon(server?.icon);
   const canSend = Boolean(text.trim() && server && !busy);
+  const provider = useProvider(choice.provider);
+  // A provider that answers and exits has nowhere to stop and ask, so Ask means
+  // something narrower there than it does on Claude. Said once, where the mode
+  // is chosen, rather than left to be discovered.
+  const asks = provider?.approvals !== false;
+  const providerName = provider?.label ?? "This provider";
   const permission = permissionOf(permissionMode);
   const PermissionIcon = permission.icon;
   const permissionLabel = permission.label;
@@ -111,10 +119,12 @@ export function ChatComposer({
   const CheckoutIcon = checkout === "worktree" ? FolderGit2 : Folder;
   const branchName = branch ?? mainBranch;
 
+  // This machine's default until you pick something, and then yours for as long
+  // as the composer is open.
   useEffect(() => {
     if (modelPicked) return;
-    setModel(settings?.defaultModel ?? "");
-  }, [settings?.defaultModel, modelPicked]);
+    setChoice({ provider: settings?.defaultProvider ?? "claude", model: settings?.defaultModel ?? "" });
+  }, [settings?.defaultProvider, settings?.defaultModel, modelPicked]);
 
   // Switching workspace re-applies this machine's defaults rather than keeping
   // the last workspace's branch.
@@ -170,7 +180,8 @@ export function ChatComposer({
         cwd,
         text,
         serverId: server.id,
-        model: model || undefined,
+        provider: choice.provider,
+        model: choice.model || undefined,
         permissionMode,
       });
       onCreated(created.id);
@@ -254,15 +265,13 @@ export function ChatComposer({
                 }}
               />
               <InputGroupAddon align="block-end">
-                <ComposerMenu
-                  icon={Box}
-                  label={modelLabel(model)}
-                  value={model}
-                  onChange={(value) => {
+                <ModelPickerButton
+                  variant="composer"
+                  value={choice}
+                  onPick={(next) => {
                     setModelPicked(true);
-                    setModel(value);
+                    setChoice(next);
                   }}
-                  options={MODELS}
                 />
                 <ComposerMenu
                   icon={PermissionIcon}
@@ -270,6 +279,7 @@ export function ChatComposer({
                   value={permissionMode}
                   onChange={(value) => setPermissionMode(value as PermissionValue)}
                   options={PERMISSIONS}
+                  title={asks ? undefined : `${providerName} answers and exits, so it never stops to ask.`}
                 />
                 <InputGroupButton
                   type="submit"
@@ -320,6 +330,11 @@ export function ChatComposer({
                 ) : null}
               </InputGroupAddon>
             </InputGroup>
+            {!asks && permissionMode === "default" && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {providerName} can't stop to ask, so Ask keeps it read-only.
+              </p>
+            )}
           </form>
         </div>
       </div>

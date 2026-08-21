@@ -37,9 +37,10 @@ import {
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SETTINGS_SECTIONS, type SettingsTab } from "@/components/Settings";
-import { ClaudeMark } from "@/components/ClaudeMark";
+import { ProviderMark } from "@/components/ProviderMark";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { deviceIcon } from "@/lib/devices";
+import { modelLabel, providerLabel, PROVIDERS } from "@/lib/providers";
 import { displayPath, plainText } from "@/lib/path";
 import { apiError } from "@/lib/api-error";
 import { workspaceForPath } from "@/lib/projects";
@@ -362,7 +363,7 @@ function ThreadRow({
           thread thinks with opens the line and where it runs closes it, so
           neither edge is left standing empty. */}
       <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
-        <ProviderMark model={chat.model} />
+        <ThreadModel provider={chat.provider} model={chat.model} />
         <span className="flex-1" />
         {elapsed && (
           <span className="flex shrink-0 items-center gap-1 tabular-nums">
@@ -466,19 +467,23 @@ function ThreadContext({
   );
 }
 
-/// Which model the thread runs on. Claude is the only provider today, so the
-/// glyph stands for it and the label names the model when one was picked.
-function ProviderMark({ model }: { model?: string }) {
-  const label = model ? model[0].toUpperCase() + model.slice(1) : "Default";
+/// What the thread thinks with: its provider's glyph, and the model beside it
+/// where one was picked rather than left to that provider's own default.
+function ThreadModel({ provider, model }: { provider?: string; model?: string }) {
+  const providers = useStore((s) => s.providers) ?? PROVIDERS;
+  const name = providerLabel(providers, provider);
+  const label = modelLabel(providers, { provider: provider ?? "claude", model: model ?? "" });
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="flex shrink-0 items-center gap-0.5 text-claude">
-          <ClaudeMark className="size-3" />
+        <span className="flex shrink-0 items-center gap-0.5">
+          <ProviderMark provider={provider} className="size-3" />
           {model && <span className="text-muted-foreground">{label}</span>}
         </span>
       </TooltipTrigger>
-      <TooltipContent>Claude · {label}</TooltipContent>
+      <TooltipContent>
+        {name} · {label}
+      </TooltipContent>
     </Tooltip>
   );
 }

@@ -53,7 +53,8 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
-import { ClaudeMark } from "@/components/ClaudeMark";
+import { ModelPickerButton } from "@/components/ModelPicker";
+import { ProviderMark } from "@/components/ProviderMark";
 import { AvatarFrom, PresetAvatar } from "@/components/UserAvatar";
 import { Markdown } from "@/components/Markdown";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -604,23 +605,14 @@ function RemyModelField() {
           Names a thread from your first message. Your threads think with their own model.
         </FieldDescription>
       </FieldContent>
-      <Select
-        value={settings.remyModel || "default"}
-        onValueChange={(value) => void save({ remyModel: value === "default" ? "" : value }, "Remy's own model")}
-      >
-        <SelectTrigger id="remy-model" size="sm" className="w-44 shrink-0">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="end">
-          <SelectGroup>
-            {REMY_MODELS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <ModelPickerButton
+        id="remy-model"
+        allowOff
+        value={{ provider: settings.remyProvider ?? "claude", model: settings.remyModel ?? "" }}
+        onPick={(choice) =>
+          void save({ remyProvider: choice.provider, remyModel: choice.model }, "Remy's own model")
+        }
+      />
     </Field>
   );
 }
@@ -640,21 +632,6 @@ const REPO_UPDATES = [
   { value: "hourly", label: "Every hour" },
   { value: "sixHourly", label: "Every 6 hours" },
   { value: "daily", label: "Once a day" },
-] as const;
-
-const REMY_MODELS = [
-  { value: "haiku", label: "Haiku" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "opus", label: "Opus" },
-  { value: "default", label: "Claude Code's default" },
-  { value: "off", label: "Off" },
-] as const;
-
-const MODELS = [
-  { value: "default", label: "Claude Code's default" },
-  { value: "opus", label: "Opus" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "haiku", label: "Haiku" },
 ] as const;
 
 /// Settings live on the machine, not on this window, so both panes read them
@@ -974,7 +951,13 @@ function AgentsSettings({ item, onSelectItem }: { item?: string; onSelectItem: (
       onSelect={onSelectItem}
       defaultGitIdentity={settings.defaultGitIdentity ?? "author"}
       defaultProvider={settings.defaultProvider ?? "claude"}
-      onSaveDefaultProvider={(value) => void save({ defaultProvider: value }, "what agents think with")}
+      defaultModel={settings.defaultModel ?? ""}
+      onSaveDefault={(choice) =>
+        void save(
+          { defaultProvider: choice.provider, defaultModel: choice.model },
+          "what new threads think with",
+        )
+      }
       onSaveDefaultIdentity={(value) =>
         void save({ defaultGitIdentity: value as "off" | "author" | "full" }, "what agents sign with")
       }
@@ -1000,41 +983,42 @@ function ProvidersPane() {
         <ToolRow
           name="claude"
           label="Claude Code"
-          mark={<ClaudeMark className="size-4 text-claude" />}
+          mark={<ProviderMark provider="claude" />}
           status={tooling?.claude}
           detail={
             tooling?.claude.available
               ? "Threads run through the copy of Claude Code on this machine."
-              : "Install Claude Code on this machine to start threads."
+              : "Install Claude Code on this machine to run threads on Claude."
           }
         />
-        <p className="text-xs text-muted-foreground">
-          Claude is the only provider Remy runs threads through today.
-        </p>
+        <ToolRow
+          name="codex"
+          label="Codex"
+          mark={<ProviderMark provider="codex" />}
+          status={tooling?.codex}
+          detail={
+            tooling?.codex?.available
+              ? "Codex answers a turn and exits, so it works inside a sandbox instead of asking."
+              : "Install Codex on this machine to run threads on it."
+          }
+        />
       </div>
 
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
-          <FieldLabel htmlFor="default-model">Default model</FieldLabel>
+          <FieldLabel htmlFor="thread-default-model">What a new thread thinks with</FieldLabel>
           <FieldDescription className="text-xs">You can still change this per thread.</FieldDescription>
         </FieldContent>
-        <Select
-          value={settings.defaultModel || "default"}
-          onValueChange={(value) => void save({ defaultModel: value === "default" ? "" : value }, "the default model")}
-        >
-          <SelectTrigger id="default-model" size="sm" className="w-44 shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectGroup>
-              {MODELS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        <ModelPickerButton
+          id="thread-default-model"
+          value={{ provider: settings.defaultProvider ?? "claude", model: settings.defaultModel ?? "" }}
+          onPick={(choice) =>
+            void save(
+              { defaultProvider: choice.provider, defaultModel: choice.model },
+              "what a new thread thinks with",
+            )
+          }
+        />
       </Field>
     </div>
   );
