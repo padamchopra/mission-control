@@ -36,12 +36,11 @@ test("a model reads as its own name, and an empty one as the default", () => {
   assert.equal(modelLabel("codex", ""), "Default");
 });
 
-test("Codex cannot stop to ask, so asking stays read-only", () => {
+test("Codex keeps a conservative sandbox fallback for each permission mode", () => {
   assert.equal(codexSandbox("default").sandbox, "read-only");
   assert.equal(codexSandbox("plan").sandbox, "read-only");
   assert.equal(codexSandbox("acceptEdits").sandbox, "workspace-write");
   assert.equal(codexSandbox("auto").sandbox, "workspace-write");
   assert.equal(codexSandbox("bypassPermissions").sandbox, "danger-full-access");
-  // There is no channel to ask on, so nothing ever waits for an answer.
   assert.equal(codexSandbox("default").approval, "never");
 });

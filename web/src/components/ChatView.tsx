@@ -158,7 +158,6 @@ export function ChatView({
 
   const permission = permissionOf(open?.permissionMode);
   const provider = useProvider(open?.provider ?? chat.provider ?? "claude");
-  // Codex answers and exits, so Ask cannot mean "stop and ask me" there.
   const asks = provider?.approvals !== false;
 
   const setOption = async (
