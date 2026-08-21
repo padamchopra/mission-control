@@ -8,11 +8,13 @@ Remy is a remote for [Claude Code](https://claude.com/claude-code) on your own m
 
 ## Running it locally
 
-Once: `npm run install:all` — server, web, desktop.
+Once: `npm run install:all` — server, web, desktop, mobile.
 
 Then `npm run dev:web`, and open `http://127.0.0.1:5173`.
 
 That is the way to run Remy. Offer it, and nothing else, unless someone asks for the desktop app by name; then leave the dev server running and start `npm run dev` in a second terminal.
+
+The iPhone app is `cd mobile && npx expo run:ios`. It talks to the same daemon over Tailscale after you pair it from Settings → Devices.
 
 Vite talks to the same daemon as the DMG (`127.0.0.1:8420`) and the same database (`~/.remy/remy.db`), so threads, workspaces, settings and the token are the real ones. If Remy.app is already running, Vite attaches to that daemon rather than starting a second one.
 
@@ -31,7 +33,7 @@ Skip `VITE_MC_FIXTURE=1`; that is fake data, not your real state.
 | `web/` | The UI. React 19, Tailwind v4, [shadcn/ui](https://ui.shadcn.com) New York (Radix) in `web/src/components/ui`, Zustand store in `web/src/state`. |
 | `server/` | The daemon. Node and TypeScript, binds `127.0.0.1` only, SQLite at `~/.remy/remy.db` through `node:sqlite`. Threads run on the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) or on Codex — see **Providers**. |
 | `desktop/` | The Electron shell (`me.padamchopra.Remy`). Owns the window and the tokens, and ships the `web/` build plus the daemon in the DMG. |
-| `ios/` | SwiftUI companion (XcodeGen), still speaking the older session/tmux remote. |
+| `mobile/` | The iPhone app (Expo / React Native). A remote for a Mac daemon — it cannot run standalone. |
 | `deploy/` | Optional launchd login item, Claude and Codex hooks, `tailscale serve`, pairing QR. |
 | `.agents/skills/` | House rules. Read the one that covers what you are about to change. |
 
@@ -72,7 +74,7 @@ anyone using worktrees already has.
 ## Checks
 
 ```sh
-npm run typecheck    # web + desktop
+npm run typecheck    # web + desktop + mobile
 npm test             # server: tsc, then node --test on dist/*.test.js
 npm run shots        # Playwright PNGs of the window
 npm run live-check   # assert the window is showing threads
@@ -93,14 +95,15 @@ A server module opens its database at import time, so a test that touches state 
 - **A provider and a model are one choice.** `server/src/providers.ts` is the only list of what a thread may run on; `config.ts`, `agents.ts` and `chat.ts` validate against it, `GET /server/providers` serves it with what the machine actually has installed, and every picker in the window is `web/src/components/ModelPicker.tsx`. Moving to another provider takes the model to that provider's default rather than keeping one it would refuse.
 - **Claude is a session, Codex is a turn.** A Claude thread holds one process across many turns and can stop mid-turn to ask. `codex exec --experimental-json` takes a prompt on stdin, writes JSONL events, and exits — so a Codex thread is a process per turn, resumed by the thread id Codex hands back, and it holds nothing in between. There is nowhere for it to come back and ask, so Remy holds it to a sandbox instead: Ask stays read-only, Accept edits is `workspace-write`, Bypass is `danger-full-access`. Never quietly grant what a person would have been asked about.
 - **Pairing lives in the daemon**, in the `peers` table — not in any client, so one pairing serves the desktop app, the browser and the phone. A client reaches a paired machine through `/peers/:id/api/...` on its own daemon, which is the only side holding that machine's token. `GET /server/identity` is how a machine introduces itself; `tailscale serve` is the only way in, so the daemon's bind stays on `127.0.0.1`, and `PATCH /server/identity {exposed}` is the switch for it.
+- **The iPhone app is a client of a Mac**, never a daemon of its own. It pairs with `remy://configure?url=&token=` from Settings → Devices and reaches every other machine through that Mac.
 - **Two machines pair by asking, not by carrying a token.** `tailnet.ts` lists your devices from `tailscale status --json` and probes each for Remy — an un-tokened `/health` answers **401**, which is the positive signal. `pairing.ts` then runs the ask: one side shows a six-digit code, a person on the other compares it and allows. `/pair/request` and `/pair/status` are **the only unauthenticated routes** in the daemon, because a machine that has never paired holds no token; they disclose nothing but an opaque request id, change nothing without human approval, are capped and single-use, and are reachable only over your own tailnet. Do not add a third.
 - **The board converges, it is not copied.** Peers exchange `board_log` events against a version vector (`versionVector`, `eventsSince`, `mergeRemote` in `board-log.ts`), then replay every `reprojectAll`. A merged event keeps the device and lamport it was written with — those two are its place in the order. One high-water mark per device, never a single cursor: a peer can merge a third machine's older event after you last pulled.
 - **A recurring ticket is a ticket**, not a scheduled prompt. `recurring.ts` folds the same log the board does and writes a real ticket into Todo on its cadence, assigned to whoever holds it. It is the second tab of Tasks rather than a section of its own, and both tabs carry the same project filter in the URL. The machine on the create event is the only one that mints them, and each run is a `ran` event — so two paired machines never write the same day twice, and a laptop that was shut writes one ticket rather than a week of them.
 - **The workspace agent is not a row.** `workspace` is an assignee like `you` is: it means the workspace's own default model with no persona in front of it, so work can be handed off before anybody has written an agent. `assignedAgent` in `agents.ts` is what turns either into something that can run a turn; no agent may take the handle.
-- **Notifications are addressed, not broadcast.** The machine that raises one decides where it goes: `notifySelf` for itself, a `notify` flag per peer. A forwarded notification is always shown by whoever receives it.
+- **Notifications are addressed, not broadcast.** The machine that raises one decides where it goes: `notifySelf` for itself, a `notify` flag per peer. A forwarded notification is always shown by whoever receives it. When no window is open, `notifySelf` falls through to Apple Push for iPhones registered on that daemon (`~/.remy/apns.json`).
 - **Commit subjects** are a sentence in the imperative with no prefix or scope tag: "Store chats in SQLite instead of a file each". PRs land squashed with the `(#n)` suffix.
 - **Version** is `{major}.{minor}.{run}`, where the run number comes from CI. Do not bump `version` in `package.json` by hand.
 
 ## Prerequisites
 
-Node 22.5+ for `node:sqlite`, `git`, `gh` authenticated for pull requests, Claude Code on the machine, and `tmux` for the older session remote. Codex too, if you want threads on it. Tailscale only if another device needs to reach the daemon.
+Node 22.5+ for `node:sqlite`, `git`, `gh` authenticated for pull requests, Claude Code on the machine, and `tmux` for the older session remote. Codex too, if you want threads on it. Tailscale only if another device needs to reach the daemon. Xcode and an Apple Push key in `~/.remy/apns.json` for the iPhone app.

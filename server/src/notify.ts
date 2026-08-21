@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import { config } from "./config.js";
 import { forwardNotification } from "./peers.js";
+import { sendPush } from "./push.js";
 import type { RegistryEntry } from "./registry.js";
 
 export interface NotifyEvent {
@@ -26,11 +27,11 @@ const lastSent = new Map<string, number>();
 //   subscribers   — everyone, receives state pushes and settings sync.
 //   notifyTargets — clients that render notifications themselves (the desktop
 //                   app). If any is connected, notifications go there as
-//                   native banners instead of ntfy, so the phone only buzzes
-//                   when no desktop client is around.
+//                   native banners instead of Apple Push, so the phone only
+//                   buzzes when no desktop client is around.
 //
 // The phone connects with `?notify=0`: it wants the live data but its
-// notifications arrive via ntfy, so it must not count as a delivery target.
+// banners arrive via APNs, so it must not count as a delivery target.
 const subscribers = new Set<WebSocket>();
 const notifyTargets = new Set<WebSocket>();
 const alive = new WeakSet<WebSocket>();
@@ -54,7 +55,7 @@ export function attachNotifyStream(ws: WebSocket, notifies: boolean): void {
 
 // Push an arbitrary message to every connected client. Used for live state and
 // settings sync (e.g. quick replies) so a change shows up on every open device
-// without a poll. Unlike notifications this never falls back to ntfy — a client
+// without a poll. Unlike notifications this never falls back to APNs — a client
 // that isn't connected just picks it up on its next refresh.
 export function broadcast(payload: unknown): void {
   if (subscribers.size === 0) return;
@@ -88,7 +89,7 @@ export function pushSessionList(): void {
 }
 
 // A half-dead socket (slept laptop, dropped VPN) would swallow notifications:
-// still "connected" so ntfy is skipped, but nothing arrives. Ping regularly
+// still "connected" so APNs is skipped, but nothing arrives. Ping regularly
 // and drop clients that stop ponging, so delivery falls back to the phone.
 setInterval(() => {
   for (const ws of subscribers) {
@@ -137,33 +138,5 @@ async function deliverHere(evt: NotifyEvent): Promise<void> {
     }
     return;
   }
-  await sendNtfy(evt);
-}
-
-// Notifications fall back to ntfy. The server just POSTs; the ntfy app on the
-// phone shows the push. Tapping it deep-links into the session via Click.
-async function sendNtfy(evt: NotifyEvent): Promise<void> {
-  if (!config.ntfyTopic) return;
-  try {
-    const res = await fetch(`${config.ntfyServer.replace(/\/$/, "")}/${config.ntfyTopic}`, {
-      method: "POST",
-      headers: {
-        // A push about another machine's thread names it, or the same title
-        // arrives twice with no way to tell the two threads apart.
-        Title: sanitizeHeader(evt.device ? `${evt.title} · ${evt.device}` : evt.title),
-        Click: evt.click ?? `remy://session/${encodeURIComponent(evt.session)}`,
-        Priority: evt.highPriority ? "high" : "default",
-        Tags: evt.highPriority ? "bell" : "white_check_mark",
-      },
-      body: evt.message || evt.title,
-    });
-    if (!res.ok) console.error(`ntfy send failed: ${res.status} ${await res.text()}`);
-  } catch (err) {
-    console.error("ntfy send failed:", err);
-  }
-}
-
-// ntfy header values must be single-line ASCII.
-function sanitizeHeader(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").slice(0, 200);
+  await sendPush(evt);
 }

@@ -9,10 +9,6 @@ export { configDir } from "./paths.js";
 export interface Config {
   port: number;
   token: string;
-  // Notifications go through ntfy (https://ntfy.sh or a self-hosted server).
-  // The topic is a random, unguessable string — subscribe the ntfy app to it.
-  ntfyServer: string;
-  ntfyTopic: string;
   // The context window the sessions on this host run with, for the context
   // meter. Transcripts record the model but not its window size, and the 1M
   // variants share a model id with the 200k ones — so a session running with a
@@ -176,8 +172,6 @@ function load(): Config {
   const config: Config = {
     port: Number(parsed.port) || 8420,
     token: typeof parsed.token === "string" && parsed.token.length >= 32 ? parsed.token : randomBytes(32).toString("hex"),
-    ntfyServer: typeof parsed.ntfyServer === "string" && parsed.ntfyServer ? parsed.ntfyServer : "https://ntfy.sh",
-    ntfyTopic: typeof parsed.ntfyTopic === "string" && parsed.ntfyTopic ? parsed.ntfyTopic : `mc-${randomBytes(9).toString("hex")}`,
     contextLimit: Number(parsed.contextLimit) > 0 ? Number(parsed.contextLimit) : 200_000,
     preventSleep: preventSleepMode(parsed.preventSleep, parsed.preventSleepWhileBusy),
     defaultCheckout: oneOf(CHECKOUT_MODES, parsed.defaultCheckout, "main"),
