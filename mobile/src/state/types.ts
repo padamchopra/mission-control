@@ -169,9 +169,13 @@ export interface ServerSettings {
   worktreeRoot: string;
   defaultModel: string;
   remyModel: string;
+  favoriteModels: string[];
   repoUpdate: "off" | "hourly" | "sixHourly" | "daily";
   worktreeBranchPrefix: string;
   avatar: string;
+  deviceName: string;
+  deviceIcon: string;
+  deviceTint: string;
   defaultGitIdentity: "off" | "author";
   defaultProvider: string;
   /// Absent from a Mac on an older build, which started every thread on Ask.

@@ -1,5 +1,5 @@
 import { codeFor, isDeviceIcon, loadAppearance, saveAppearance, type DeviceIconId } from "~/lib/devices";
-import type { TintId } from "~/lib/tints";
+import { isTint, type TintId } from "~/lib/tints";
 import type { Server } from "~/state/types";
 
 /// How the UI reaches a Remy server.
@@ -39,6 +39,7 @@ interface WirePeer {
   name: string;
   url: string;
   icon?: string;
+  tint?: string;
   notify?: boolean;
   online?: boolean;
   lastSeen?: number;
@@ -54,7 +55,11 @@ function toPeerServer(peer: WirePeer): Server {
     code: codeFor(name),
     online: peer.online === true,
     icon: appearance?.icon ?? (isDeviceIcon(peer.icon) ? peer.icon : "laptop"),
-    ...(appearance?.tint ? { tint: appearance.tint } : {}),
+    ...(appearance?.tint
+      ? { tint: appearance.tint }
+      : isTint(peer.tint)
+        ? { tint: peer.tint }
+        : {}),
     peer: true,
     notify: peer.notify === true,
     ...(peer.lastSeen ? { lastSeen: peer.lastSeen } : {}),
@@ -91,20 +96,39 @@ function withPeers(base: LocalTransport): Transport {
         peerIds = new Set();
         return own;
       }
-      let listed: WirePeer[] = [];
+      let answer: {
+        name?: string;
+        icon?: string;
+        tint?: string;
+        configured?: { name?: boolean; icon?: boolean; tint?: boolean };
+        peers?: WirePeer[];
+      } = {};
       try {
-        const answer = await base.request<{ peers?: WirePeer[] }>(localId, "/peers");
-        listed = answer.peers ?? [];
+        answer = await base.request(localId, "/peers");
       } catch {
         // A daemon from before pairing landed has no /peers, which simply means
         // this machine is the only one.
       }
+      const listed = answer.peers ?? [];
       peerIds = new Set(listed.map((peer) => peer.id));
+      const ownIdentity = own.map((server) => {
+        if (server.id !== localId) return server;
+        const name = answer.configured?.name && answer.name ? answer.name : server.name;
+        const icon = answer.configured?.icon && isDeviceIcon(answer.icon) ? answer.icon : server.icon;
+        const tint = answer.configured?.tint && isTint(answer.tint) ? answer.tint : server.tint;
+        return {
+          ...server,
+          name,
+          code: codeFor(name),
+          icon,
+          ...(tint ? { tint } : {}),
+        };
+      });
       // A machine the desktop app paired the old way is already in `own`; it
       // must not appear a second time under its daemon-side id.
       const already = new Set(own.map((server) => server.url));
       const peers = listed.filter((peer) => !already.has(peer.url)).map(toPeerServer);
-      return [...own, ...peers];
+      return [...ownIdentity, ...peers];
     },
 
     request<T>(serverId: string, path: string, init?: { method?: string; body?: unknown }) {
@@ -129,6 +153,7 @@ function withPeers(base: LocalTransport): Transport {
       const body: Record<string, unknown> = {};
       if (patch.name !== undefined) body.name = patch.name;
       if (patch.icon !== undefined) body.icon = patch.icon;
+      if (patch.tint !== undefined) body.tint = patch.tint;
       if (Object.keys(body).length === 0) return;
       await base.request(await home(), `/peers/${encodeURIComponent(id)}`, { method: "PATCH", body });
     },

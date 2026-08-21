@@ -44,13 +44,15 @@ test("asking to pair discloses nothing but an id", () => {
 
 test("a request waits on a person, and carries the code they compare", () => {
   reset();
-  const { requestId } = ask();
+  const { requestId } = ask({ icon: "monitor", tint: "violet" });
 
   const [waiting] = pairing.pendingPairRequests();
   assert.equal(waiting.id, requestId);
   assert.equal(waiting.code, "418902");
   assert.equal(waiting.fromName, "Studio Mac");
   assert.equal(waiting.fromUrl, "https://studio.example.ts.net");
+  assert.equal(waiting.fromIcon, "monitor");
+  assert.equal(waiting.fromTint, "violet");
   assert.equal(pairing.pairStatus(requestId).state, "pending");
 });
 
@@ -138,6 +140,7 @@ test("the per-minute cap holds even when nothing is left waiting", () => {
 
 test("approving hands over the token exactly once", () => {
   reset();
+  config.patchSettings({ deviceName: "The Studio", deviceIcon: "monitor", deviceTint: "violet" });
   const { requestId } = ask();
   pairing.approvePair(requestId, "https://me.example.ts.net");
 
@@ -146,10 +149,14 @@ test("approving hands over the token exactly once", () => {
   assert.equal(first.token, config.config.token, "their way in, now that you said yes");
   assert.equal(first.deviceId, log.deviceId);
   assert.equal(first.url, "https://me.example.ts.net");
+  assert.equal(first.name, "The Studio");
+  assert.equal(first.icon, "monitor");
+  assert.equal(first.tint, "violet");
 
   const second = pairing.pairStatus(requestId);
   assert.equal(second.state, "expired", "single use");
   assert.equal(second.token, undefined);
+  config.patchSettings({ deviceName: "", deviceIcon: "", deviceTint: "" });
 });
 
 test("denying closes the request without a token", () => {

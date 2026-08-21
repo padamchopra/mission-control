@@ -97,6 +97,19 @@ test("the same event merged twice lands once", () => {
   assert.equal(log.eventsFor("project", "p-remote").length, 1);
 });
 
+test("a merged event notifies subscribers with the exact changed entity", async () => {
+  db.exec("delete from board_log");
+  const seen: string[] = [];
+  const stop = log.onRemoteMerge((event) => seen.push(`${event.entity}:${event.entityId}`));
+  log.mergeRemote([
+    remoteEvent("alpha", 1, { entity: "ticket", entityId: "ticket-one" }),
+    remoteEvent("alpha", 2, { entity: "agent", entityId: "agent-one" }),
+  ]);
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+  stop();
+  assert.deepEqual(seen, ["ticket:ticket-one", "agent:agent-one"]);
+});
+
 test("a merged lamport carries this machine's clock forward", () => {
   db.exec("delete from board_log");
   log.mergeRemote([remoteEvent("alpha", 40)]);
@@ -245,25 +258,46 @@ test("an announcement pairs the far side and normalises its address", () => {
   const view = peers.acceptAnnouncement({
     deviceId: "alpha",
     name: "Studio",
+    icon: "monitor",
+    tint: "violet",
     url: "https://studio.example.ts.net/",
     token: "secret",
   });
 
   assert.equal(view.id, "alpha");
   assert.equal(view.url, "https://studio.example.ts.net", "no trailing slash to double up on");
+  assert.equal(view.icon, "monitor");
+  assert.equal(view.tint, "violet");
   assert.equal(view.notify, false, "a new device is not buzzed until you say so");
   assert.equal(peers.getPeer("alpha")?.token, "secret");
 });
 
 test("pairing again with the same machine updates it rather than doubling it", () => {
   db.exec("delete from peers");
-  peers.acceptAnnouncement({ deviceId: "alpha", name: "Studio", url: "https://old.example.ts.net", token: "old" });
-  peers.updatePeer("alpha", { notify: true });
-  peers.acceptAnnouncement({ deviceId: "alpha", name: "Studio", url: "https://new.example.ts.net", token: "new" });
+  peers.acceptAnnouncement({
+    deviceId: "alpha",
+    name: "Studio",
+    icon: "monitor",
+    tint: "violet",
+    url: "https://old.example.ts.net",
+    token: "old",
+  });
+  peers.updatePeer("alpha", { name: "Desk", icon: "house", tint: "amber", notify: true });
+  peers.acceptAnnouncement({
+    deviceId: "alpha",
+    name: "Studio renamed itself",
+    icon: "server",
+    tint: "blue",
+    url: "https://new.example.ts.net",
+    token: "new",
+  });
 
   assert.equal(peers.listPeers().length, 1);
   const peer = peers.getPeer("alpha");
   assert.equal(peer?.url, "https://new.example.ts.net");
   assert.equal(peer?.token, "new");
+  assert.equal(peer?.name, "Desk", "the name chosen here stays local");
+  assert.equal(peer?.icon, "house", "the mark chosen here stays local");
+  assert.equal(peer?.tint, "amber", "the tint chosen here stays local");
   assert.equal(peer?.notify, true, "where its notifications go is yours, not the handshake's");
 });

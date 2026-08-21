@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditableName } from "@/components/EditableName";
 import { IconPicker } from "@/components/IconPicker";
 import { ModelPickerButton, REMY_DEFAULT } from "@/components/ModelPicker";
@@ -22,13 +24,13 @@ import { WorkspaceFileIcon } from "@/components/WorkspaceIcon";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
-import { PROJECT_ICON_IDS, isProjectIcon, isProjectIconFile, projectIcon } from "@/lib/projects";
+import { devicesForWorkspace, PROJECT_ICON_IDS, isProjectIcon, isProjectIconFile, projectIcon } from "@/lib/projects";
 import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { PaneHeader } from "@/components/PaneHeader";
 import { useStore } from "@/state/store";
-import type { Server, Workspace } from "@/state/types";
+import type { Workspace } from "@/state/types";
 
 /// The letters in front of this workspace's ticket keys.
 ///
@@ -39,7 +41,6 @@ function TicketSlugField({ workspace }: { workspace: Workspace }) {
   const projects = useStore((s) => s.projects);
   const loadBoard = useStore((s) => s.loadBoard);
   const saveProject = useStore((s) => s.saveProject);
-  const tickets = useStore((s) => s.tickets);
 
   useEffect(() => {
     void loadBoard().catch(() => {
@@ -52,8 +53,6 @@ function TicketSlugField({ workspace }: { workspace: Workspace }) {
   useEffect(() => setDraft(project?.keyPrefix ?? ""), [project?.keyPrefix]);
 
   if (!project) return null;
-  const count = tickets.filter((ticket) => ticket.projectId === project.id).length;
-
   const commit = () => {
     const next = draft.trim().toUpperCase();
     if (!next || next === project.keyPrefix) {
@@ -68,20 +67,13 @@ function TicketSlugField({ workspace }: { workspace: Workspace }) {
 
   return (
     <Field orientation="horizontal" className="items-center">
-      <FieldContent>
-        <FieldLabel htmlFor="ticket-slug">Ticket slug</FieldLabel>
-        <FieldDescription className="text-xs">
-          {count > 0
-            ? `In front of every ticket here. Changing it re-keys all ${count}.`
-            : "In front of every ticket here."}
-        </FieldDescription>
-      </FieldContent>
+      <FieldLabel htmlFor="ticket-slug">Ticket slug</FieldLabel>
       <Input
         id="ticket-slug"
         value={draft}
         maxLength={6}
         aria-label="Ticket slug"
-        className="w-28 shrink-0 text-center font-mono uppercase"
+        className="w-72 shrink-0 font-mono uppercase"
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
@@ -96,7 +88,7 @@ function TicketSlugField({ workspace }: { workspace: Workspace }) {
   );
 }
 
-/// What a thread started in this workspace thinks with.
+/// The provider and model a thread started in this workspace uses.
 ///
 /// The machine has a default and most workspaces want it, so the choice here is
 /// really "follow Remy, or not" — a repository that reads better on one provider
@@ -120,7 +112,7 @@ function ModelField({ workspace }: { workspace: Workspace }) {
   return (
     <Field orientation="horizontal" className="items-center">
       <FieldContent>
-        <FieldLabel htmlFor="workspace-model">What a thread here thinks with</FieldLabel>
+        <FieldLabel htmlFor="workspace-model">Default provider</FieldLabel>
         <FieldDescription className="text-xs">You can still change this per thread.</FieldDescription>
       </FieldContent>
       <ModelPickerButton
@@ -136,18 +128,6 @@ function ModelField({ workspace }: { workspace: Workspace }) {
       />
     </Field>
   );
-}
-
-export function devicesForWorkspace(workspace: Workspace, all: Workspace[], servers: Server[]): Server[] {
-  const related = all.filter((entry) =>
-    entry.id === workspace.id
-    || (workspace.origin ? entry.origin === workspace.origin : false),
-  );
-  const ids = [...new Set(related.map((entry) => entry.serverId))];
-  return ids.flatMap((id) => {
-    const server = servers.find((entry) => entry.id === id);
-    return server ? [server] : [];
-  });
 }
 
 export function WorkspaceSettings({
@@ -203,7 +183,6 @@ export function WorkspaceSettings({
                 label="workspace name"
                 onCommit={(name) => void updateWorkspace(workspace.id, { name })}
               />
-              <p className="truncate font-mono text-xs text-muted-foreground">{displayPath(workspace.path)}</p>
             </div>
           </div>
 
@@ -257,13 +236,58 @@ export function WorkspaceSettings({
                         {copy ? displayPath(copy.path) : "Not on this machine"}
                       </span>
                     </span>
+                    {devices.length > 1 && copy ? (
+                      <AlertDialog>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`Remove from ${server.name}`}
+                                disabled={!server.online}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 />
+                              </Button>
+                            </AlertDialogTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent>{server.online ? `Remove from ${server.name}` : `${server.name} is offline`}</TooltipContent>
+                        </Tooltip>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove {workspace.name} from {server.name}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Remy stops listing this folder on {server.name}. Files and threads stay on disk.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              variant="destructive"
+                              onClick={() => {
+                                void removeWorkspace(copy.id)
+                                  .then(() => {
+                                    toast.success(`Removed from ${server.name}.`);
+                                    if (copy.id === workspace.id) onBack();
+                                  })
+                                  .catch((error) => toast.error("Couldn't remove the workspace", { description: apiError(error) }));
+                              }}
+                            >
+                              Remove
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    ) : null}
                   </div>
                 );
               })
             )}
           </div>
 
-          <div>
+          {devices.length <= 1 && <div>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive">Remove workspace</Button>
@@ -283,7 +307,7 @@ export function WorkspaceSettings({
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </div>
+          </div>}
         </div>
       </ScrollArea>
     </main>

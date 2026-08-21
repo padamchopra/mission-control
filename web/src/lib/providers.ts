@@ -9,6 +9,8 @@
 export interface ProviderModel {
   value: string;
   label: string;
+  context?: string;
+  resolvedLabel?: string;
   detail?: string;
 }
 
@@ -31,10 +33,12 @@ export const PROVIDERS: Provider[] = [
     command: "claude",
     approvals: true,
     models: [
-      { value: "", label: "Default", detail: "Whatever Claude Code is set to." },
-      { value: "opus", label: "Opus", detail: "The deepest of the three." },
-      { value: "sonnet", label: "Sonnet", detail: "The everyday one." },
-      { value: "haiku", label: "Haiku", detail: "Fast and cheap." },
+      { value: "", label: "Default", resolvedLabel: "Opus 5 (1M)" },
+      { value: "opus", label: "Opus 5", context: "1M" },
+      { value: "claude-fable-5[1m]", label: "Fable 5", context: "1M" },
+      { value: "sonnet", label: "Sonnet 5", context: "200K" },
+      { value: "haiku", label: "Haiku 4.5", context: "200K" },
+      { value: "claude-opus-4-8", label: "Opus 4.8", context: "1M" },
     ],
   },
   {
@@ -44,9 +48,9 @@ export const PROVIDERS: Provider[] = [
     approvals: false,
     models: [
       { value: "", label: "Default", detail: "Whatever Codex is set to." },
-      { value: "gpt-5.6-sol", label: "Sol", detail: "The deepest of the three." },
-      { value: "gpt-5.6-terra", label: "Terra", detail: "The everyday one." },
-      { value: "gpt-5.6-luna", label: "Luna", detail: "Fast and cheap." },
+      { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+      { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+      { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
     ],
   },
 ];
@@ -72,5 +76,13 @@ export function modelLabel(providers: Provider[], choice: ModelChoice): string {
   const provider = providerOf(providers, choice.provider);
   const model = provider?.models.find((entry) => entry.value === (choice.model ?? ""));
   if (!model) return choice.model || (provider?.label ?? "Default");
-  return model.value ? model.label : `${provider?.label ?? "Default"} default`;
+  if (!model.value) return `${provider?.label ?? "Default"} default`;
+  return model.context ? `${model.label} (${model.context})` : model.label;
+}
+
+export function resolvedModelLabel(providers: Provider[], choice: ModelChoice): string {
+  const provider = providerOf(providers, choice.provider);
+  const model = provider?.models.find((entry) => entry.value === (choice.model ?? ""));
+  if (model?.value) return model.context ? `${model.label} (${model.context})` : model.label;
+  return model?.resolvedLabel ?? modelLabel(providers, choice);
 }

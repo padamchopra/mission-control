@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 import { deviceId, eventsSince, mergeRemote, onLocalAppend, versionVector } from "./board-log.js";
-import { config } from "./config.js";
+import { config, patchSettings } from "./config.js";
 import { db } from "./db.js";
 import { reprojectAll as reprojectAgents } from "./agents.js";
 import { reprojectAll as reprojectProjects } from "./projects.js";
@@ -27,6 +27,7 @@ export interface Peer {
   url: string;
   token: string;
   icon?: string;
+  tint?: string;
   /// Whether notifications raised on this machine are routed to that one.
   notify: boolean;
   pairedAt: number;
@@ -40,6 +41,8 @@ export type PeerView = Omit<Peer, "token"> & { online: boolean };
 export interface Identity {
   deviceId: string;
   name: string;
+  icon: string;
+  tint?: string;
   url: string;
   token: string;
 }
@@ -57,7 +60,23 @@ const REQUEST_TIMEOUT_MS = 8_000;
 /// What this machine calls itself. The hostname, without the `.local` a Mac
 /// appends, because that is the name a person recognises.
 export function thisMachineName(): string {
-  return hostname().replace(/\.local$/, "");
+  return config.deviceName || hostname().replace(/\.local$/, "");
+}
+
+const DEVICE_ICONS = new Set(["laptop", "monitor", "smartphone", "tablet", "server", "house"]);
+const DEVICE_TINTS = new Set(["zinc", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"]);
+
+function peerAppearance(value: unknown, allowed: Set<string>): string | undefined {
+  const picked = typeof value === "string" ? value.trim() : "";
+  return allowed.has(picked) ? picked : undefined;
+}
+
+export function thisMachineIcon(): string {
+  return peerAppearance(config.deviceIcon, DEVICE_ICONS) ?? "laptop";
+}
+
+export function thisMachineTint(): string | undefined {
+  return peerAppearance(config.deviceTint, DEVICE_TINTS);
 }
 
 function toPeer(row: Record<string, unknown>): Peer {
@@ -67,6 +86,7 @@ function toPeer(row: Record<string, unknown>): Peer {
     url: String(row.url),
     token: String(row.token),
     ...(row.icon ? { icon: String(row.icon) } : {}),
+    ...(row.tint ? { tint: String(row.tint) } : {}),
     notify: Number(row.notify) === 1,
     pairedAt: Number(row.paired_at),
     ...(row.last_seen ? { lastSeen: Number(row.last_seen) } : {}),
@@ -161,10 +181,9 @@ export async function callPeer<T>(
 
 function upsert(peer: Peer): Peer {
   db.prepare(
-    `insert into peers (id, name, url, token, icon, notify, paired_at, last_seen)
-     values (?, ?, ?, ?, ?, ?, ?, ?)
+    `insert into peers (id, name, url, token, icon, tint, notify, paired_at, last_seen)
+     values (?, ?, ?, ?, ?, ?, ?, ?, ?)
      on conflict(id) do update set
-       name = excluded.name,
        url = excluded.url,
        token = excluded.token`,
   ).run(
@@ -173,6 +192,7 @@ function upsert(peer: Peer): Peer {
     peer.url,
     peer.token,
     peer.icon ?? null,
+    peer.tint ?? null,
     peer.notify ? 1 : 0,
     peer.pairedAt,
     peer.lastSeen ?? null,
@@ -186,7 +206,7 @@ function seen(id: string): void {
 
 export function updatePeer(
   id: string,
-  patch: { name?: unknown; icon?: unknown; notify?: unknown },
+  patch: { name?: unknown; icon?: unknown; tint?: unknown; notify?: unknown },
 ): PeerView {
   const peer = getPeer(id);
   if (!peer) throw new Error("that device is not paired");
@@ -195,8 +215,12 @@ export function updatePeer(
     db.prepare("update peers set name = ? where id = ?").run(name, id);
   }
   if (patch.icon !== undefined) {
-    const icon = typeof patch.icon === "string" && patch.icon.trim() ? patch.icon.trim().slice(0, 32) : null;
+    const icon = peerAppearance(patch.icon, DEVICE_ICONS) ?? null;
     db.prepare("update peers set icon = ? where id = ?").run(icon, id);
+  }
+  if (patch.tint !== undefined) {
+    const tint = peerAppearance(patch.tint, DEVICE_TINTS) ?? null;
+    db.prepare("update peers set tint = ? where id = ?").run(tint, id);
   }
   if (patch.notify !== undefined) {
     db.prepare("update peers set notify = ? where id = ?").run(patch.notify ? 1 : 0, id);
@@ -218,6 +242,9 @@ export interface IdentityView {
   /// Empty until something fronts the daemon — until then no peer can reach it.
   url: string;
   token: string;
+  icon: string;
+  tint?: string;
+  configured: { name: boolean; icon: boolean; tint: boolean };
   /// Whether `tailscale serve` is carrying this daemon right now.
   exposed: boolean;
   /// This machine's tailnet name, whether or not it is being served.
@@ -238,12 +265,29 @@ export async function identity(): Promise<IdentityView> {
   return {
     deviceId,
     name: thisMachineName(),
+    icon: thisMachineIcon(),
+    ...(thisMachineTint() ? { tint: thisMachineTint() } : {}),
     url,
     token: config.token,
+    configured: {
+      name: Boolean(config.deviceName),
+      icon: Boolean(config.deviceIcon),
+      tint: Boolean(config.deviceTint),
+    },
     exposed: Boolean(url),
     tailnet: state,
     ...(host ? { tailnetHost: host } : {}),
   };
+}
+
+export async function updateIdentity(patch: Record<string, unknown>): Promise<IdentityView> {
+  patchSettings({
+    ...(patch.name !== undefined ? { deviceName: patch.name } : {}),
+    ...(patch.icon !== undefined ? { deviceIcon: patch.icon } : {}),
+    ...(patch.tint !== undefined ? { deviceTint: patch.tint } : {}),
+  });
+  if (typeof patch.exposed === "boolean") return setExposed(patch.exposed);
+  return identity();
 }
 
 /// Puts this daemon on the tailnet, the same way `deploy/setup.sh` does. Serve,
@@ -302,6 +346,8 @@ export async function pairWith(input: Record<string, unknown>): Promise<PeerView
   return completePair({
     deviceId: id,
     name: peerName(input.name ?? them.name, new URL(url).hostname),
+    icon: them.icon,
+    tint: them.tint,
     url,
     token,
   });
@@ -317,6 +363,8 @@ export async function pairWith(input: Record<string, unknown>): Promise<PeerView
 export async function completePair(claim: {
   deviceId: string;
   name?: string;
+  icon?: string;
+  tint?: string;
   url: string;
   token: string;
 }): Promise<PeerView> {
@@ -327,6 +375,8 @@ export async function completePair(claim: {
   const peer = upsert({
     id: claim.deviceId,
     name: peerName(claim.name, new URL(url).hostname),
+    ...(peerAppearance(claim.icon, DEVICE_ICONS) ? { icon: peerAppearance(claim.icon, DEVICE_ICONS) } : {}),
+    ...(peerAppearance(claim.tint, DEVICE_TINTS) ? { tint: peerAppearance(claim.tint, DEVICE_TINTS) } : {}),
     url,
     token: peerToken(claim.token),
     notify: false,
@@ -339,7 +389,14 @@ export async function completePair(claim: {
     try {
       await callPeer(peer, "/peers/announce", {
         method: "POST",
-        body: { deviceId: mine.deviceId, name: mine.name, url: mine.url, token: mine.token },
+        body: {
+          deviceId: mine.deviceId,
+          name: mine.name,
+          icon: mine.icon,
+          tint: mine.tint,
+          url: mine.url,
+          token: mine.token,
+        },
       });
     } catch {
       // Their half can also be completed from over there.
@@ -362,6 +419,8 @@ export function acceptAnnouncement(body: Record<string, unknown>): PeerView {
   const peer = upsert({
     id,
     name: peerName(body.name, new URL(url).hostname),
+    ...(peerAppearance(body.icon, DEVICE_ICONS) ? { icon: peerAppearance(body.icon, DEVICE_ICONS) } : {}),
+    ...(peerAppearance(body.tint, DEVICE_TINTS) ? { tint: peerAppearance(body.tint, DEVICE_TINTS) } : {}),
     url,
     token: peerToken(body.token),
     notify: false,

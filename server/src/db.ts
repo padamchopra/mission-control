@@ -191,6 +191,7 @@ function migrate(database: DatabaseSync): void {
       url text not null,
       token text not null,
       icon text,
+      tint text,
       -- Whether notifications raised here are routed to that machine.
       notify integer not null default 0,
       paired_at integer not null,
@@ -212,6 +213,11 @@ function migrate(database: DatabaseSync): void {
   }
   try {
     database.exec("alter table workspaces add column tint text");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
+  try {
+    database.exec("alter table peers add column tint text");
   } catch {
     // Column already exists on databases created after this migration.
   }

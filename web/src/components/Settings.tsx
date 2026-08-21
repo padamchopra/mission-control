@@ -230,8 +230,7 @@ function GeneralPane({
       </div>
       <AvatarField />
       <NotificationsField />
-      <ThreadDefaultsFields />
-      <RemyModelField />
+      <ThreadDefaultsField />
       <div className="flex items-start gap-3 rounded-lg border border-border px-3 py-2.5">
         <Monitor className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
@@ -601,22 +600,22 @@ function NotificationsField() {
 /// what this machine has installed, and that is a different question from what
 /// to reach for. A workspace that wants something else says so in its own
 /// settings, and a thread can still be moved after it starts.
-function ThreadDefaultsFields() {
+function ThreadDefaultsField() {
   const { settings, online, save } = useServerSettings();
   if (!online || !settings) return null;
 
   const permission = permissionOf(settings.defaultPermissionMode);
-  const PermissionIcon = permission.icon;
 
   return (
-    <div className="flex flex-col gap-5">
-      <Field orientation="horizontal" className="items-center">
-        <FieldContent>
-          <FieldLabel htmlFor="thread-default-model">What a new thread thinks with</FieldLabel>
-          <FieldDescription className="text-xs">A workspace can run on something else.</FieldDescription>
-        </FieldContent>
+    <Field orientation="horizontal" className="items-center">
+      <FieldContent>
+        <FieldLabel htmlFor="thread-default-model">Default model</FieldLabel>
+        <FieldDescription className="text-xs">A workspace or agent can differ.</FieldDescription>
+      </FieldContent>
+      <div className="flex shrink-0 gap-2">
         <ModelPickerButton
           id="thread-default-model"
+          className="w-48"
           value={{ provider: settings.defaultProvider ?? "claude", model: settings.defaultModel ?? "" }}
           onPick={(choice) =>
             void save(
@@ -625,19 +624,16 @@ function ThreadDefaultsFields() {
             )
           }
         />
-      </Field>
-
-      <Field orientation="horizontal" className="items-center">
-        <FieldContent>
-          <FieldLabel htmlFor="thread-default-permission">What a new thread may do</FieldLabel>
-          <FieldDescription className="text-xs">You can still change this per thread.</FieldDescription>
-        </FieldContent>
         <Select
           value={permission.value}
           onValueChange={(value) => void save({ defaultPermissionMode: value }, "what a new thread may do")}
         >
-          <SelectTrigger id="thread-default-permission" size="sm" className="w-56 shrink-0">
-            <PermissionIcon className="size-4 opacity-70" />
+          <SelectTrigger
+            id="thread-default-permission"
+            aria-label="Default permission level"
+            size="sm"
+            className="w-48 shrink-0"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent align="end">
@@ -654,34 +650,7 @@ function ThreadDefaultsFields() {
             </SelectGroup>
           </SelectContent>
         </Select>
-      </Field>
-    </div>
-  );
-}
-
-/// The model Remy thinks with, as opposed to the one your chats think with.
-/// It runs the small jobs Remy does around a chat rather than inside one, so a
-/// fast, cheap model is the right default.
-function RemyModelField() {
-  const { settings, online, save } = useServerSettings();
-  if (!online || !settings) return null;
-
-  return (
-    <Field orientation="horizontal" className="items-center">
-      <FieldContent>
-        <FieldLabel htmlFor="remy-model">Remy's own model</FieldLabel>
-        <FieldDescription className="text-xs">
-          Names a thread from your first message. Your threads think with their own model.
-        </FieldDescription>
-      </FieldContent>
-      <ModelPickerButton
-        id="remy-model"
-        allowOff
-        value={{ provider: settings.remyProvider ?? "claude", model: settings.remyModel ?? "" }}
-        onPick={(choice) =>
-          void save({ remyProvider: choice.provider, remyModel: choice.model }, "Remy's own model")
-        }
-      />
+      </div>
     </Field>
   );
 }
@@ -797,6 +766,11 @@ function VersionControlPane() {
         </Select>
       </Field>
 
+      <BranchPrefixField
+        value={settings.worktreeBranchPrefix || "remy"}
+        onSave={(value) => save({ worktreeBranchPrefix: value }, "the branch prefix")}
+      />
+
       <Field>
         <FieldContent>
           <FieldLabel>Worktree location</FieldLabel>
@@ -864,6 +838,41 @@ function VersionControlPane() {
         />
       </div>
     </div>
+  );
+}
+
+function BranchPrefixField({ value, onSave }: { value: string; onSave: (value: string) => Promise<void> }) {
+  const displayed = `${value.replace(/\/+$/, "")}/`;
+  const [draft, setDraft] = useState(displayed);
+
+  useEffect(() => setDraft(displayed), [displayed]);
+
+  const commit = async () => {
+    await onSave(draft.trim() || "remy/");
+  };
+
+  return (
+    <Field orientation="horizontal" className="items-center">
+      <FieldContent>
+        <FieldLabel htmlFor="branch-prefix">Branch prefix</FieldLabel>
+        <FieldDescription className="text-xs">Added before branches Remy creates.</FieldDescription>
+      </FieldContent>
+      <Input
+        id="branch-prefix"
+        value={draft}
+        className="w-44 shrink-0 font-mono text-xs"
+        spellCheck={false}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setDraft(displayed);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </Field>
   );
 }
 
@@ -1321,7 +1330,12 @@ function DevicesPane() {
           homeId={home?.id}
           busy={busy}
           onUnpair={() => void unpair(server)}
-          onUpdate={(patch) => updateServer(server.id, patch)}
+          onUpdate={async (patch) => {
+            if (server.local) {
+              await transport.request(server.id, "/server/identity", { method: "PATCH", body: patch });
+            }
+            await updateServer(server.id, patch);
+          }}
         />
       ))}
       {home ? <PhonesField serverId={home.id} /> : null}
@@ -1345,6 +1359,17 @@ function DeviceCard({
   onUpdate: (patch: { name?: string; icon?: DeviceIconId; tint?: TintId }) => Promise<void>;
 }) {
   const identity = useIdentity(server.local ? server.id : undefined);
+  const migratedIdentity = useRef(false);
+
+  useEffect(() => {
+    if (!server.local || !identity || migratedIdentity.current) return;
+    migratedIdentity.current = true;
+    const patch: { name?: string; icon?: DeviceIconId; tint?: TintId } = {};
+    if (!identity.configured?.name && server.name !== identity.name) patch.name = server.name;
+    if (!identity.configured?.icon && server.icon !== identity.icon) patch.icon = server.icon;
+    if (!identity.configured?.tint && server.tint && server.tint !== identity.tint) patch.tint = server.tint;
+    if (Object.keys(patch).length > 0) void onUpdate(patch);
+  }, [identity, onUpdate, server.icon, server.local, server.name, server.tint]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -1731,8 +1756,9 @@ function DiscoveredDevices({ homeId, reachable }: { homeId?: string; reachable: 
     }
   };
 
-  const candidates = (devices ?? []).filter((device) => device.remy && !device.paired);
-  const others = (devices ?? []).filter((device) => !device.remy || device.paired);
+  const unpaired = (devices ?? []).filter((device) => !device.paired);
+  const candidates = unpaired.filter((device) => device.remy);
+  const others = unpaired.filter((device) => !device.remy);
 
   if (devices === undefined) return null;
 
@@ -1758,10 +1784,12 @@ function DiscoveredDevices({ homeId, reachable }: { homeId?: string; reachable: 
         </div>
       ) : null}
 
-      {devices.length === 0 ? (
+      {unpaired.length === 0 ? (
         <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
           {reachable
-            ? "No other machines of yours are on the tailnet."
+            ? devices.length > 0
+              ? "Every available machine is already paired."
+              : "No other machines of yours are on the tailnet."
             : "Turn on Reachable from your other machines to pair anything."}
         </p>
       ) : (
@@ -1774,19 +1802,15 @@ function DiscoveredDevices({ homeId, reachable }: { homeId?: string; reachable: 
               <ItemContent>
                 <ItemTitle>{device.name}</ItemTitle>
                 <ItemDescription>
-                  {device.paired
-                    ? "Already paired."
-                    : device.remy
-                      ? "Remy is running here."
-                      : device.online
-                        ? "Remy isn't answering here."
-                        : "Asleep or offline."}
+                  {device.remy
+                    ? "Remy is running here."
+                    : device.online
+                      ? "Remy isn't answering here."
+                      : "Asleep or offline."}
                 </ItemDescription>
               </ItemContent>
               <ItemActions>
-                {device.paired ? (
-                  <Badge variant="secondary">Paired</Badge>
-                ) : device.remy ? (
+                {device.remy ? (
                   <Button
                     size="sm"
                     disabled={busy || attempt?.state === "waiting" || !reachable}
@@ -1874,6 +1898,9 @@ function AddDevice({ onAdd }: { onAdd: (input: { url: string; token: string }) =
 interface Identity {
   deviceId: string;
   name: string;
+  icon: DeviceIconId;
+  tint?: TintId;
+  configured?: { name?: boolean; icon?: boolean; tint?: boolean };
   url: string;
   token: string;
   exposed: boolean;

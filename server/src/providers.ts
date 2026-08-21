@@ -16,6 +16,10 @@ export interface ProviderModel {
   /// to whatever that tool is already configured with.
   value: string;
   label: string;
+  /// Short context-window label shown beside the model name.
+  context?: string;
+  /// What a provider's empty/default choice currently resolves to.
+  resolvedLabel?: string;
   /// One short line about when to reach for it, where that is not obvious.
   detail?: string;
 }
@@ -42,10 +46,12 @@ export const PROVIDERS: Provider[] = [
     // Only the aliases Claude Code accepts on the command line. A free-string
     // model would fail at spawn time, long after the picker said it was fine.
     models: [
-      { value: "", label: "Default", detail: "Whatever Claude Code is set to." },
-      { value: "opus", label: "Opus", detail: "The deepest of the three." },
-      { value: "sonnet", label: "Sonnet", detail: "The everyday one." },
-      { value: "haiku", label: "Haiku", detail: "Fast and cheap." },
+      { value: "", label: "Default", resolvedLabel: "Opus 5 (1M)" },
+      { value: "opus", label: "Opus 5", context: "1M" },
+      { value: "claude-fable-5[1m]", label: "Fable 5", context: "1M" },
+      { value: "sonnet", label: "Sonnet 5", context: "200K" },
+      { value: "haiku", label: "Haiku 4.5", context: "200K" },
+      { value: "claude-opus-4-8", label: "Opus 4.8", context: "1M" },
     ],
   },
   {
@@ -55,12 +61,24 @@ export const PROVIDERS: Provider[] = [
     approvals: false,
     models: [
       { value: "", label: "Default", detail: "Whatever Codex is set to." },
-      { value: "gpt-5.6-sol", label: "Sol", detail: "The deepest of the three." },
-      { value: "gpt-5.6-terra", label: "Terra", detail: "The everyday one." },
-      { value: "gpt-5.6-luna", label: "Luna", detail: "Fast and cheap." },
+      { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+      { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+      { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+      { value: "gpt-5.5", label: "GPT-5.5" },
+      { value: "gpt-5.4", label: "GPT-5.4" },
+      { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+      { value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
     ],
   },
 ];
+
+const discoveredModels = new Map<ProviderId, Set<string>>();
+
+/// Remembers models reported by an installed runtime so a picker choice from a
+/// newer CLI remains valid even before Remy's fallback catalogue catches up.
+export function rememberProviderModels(id: ProviderId, models: ProviderModel[]): void {
+  discoveredModels.set(id, new Set(models.map((model) => model.value)));
+}
 
 export const DEFAULT_PROVIDER: ProviderId = "claude";
 
@@ -84,7 +102,9 @@ export function providerModel(id: unknown, value: unknown): string {
 /// True when this provider knows the model, which is how a caller tells "the
 /// pair was already consistent" from "the model was replaced".
 export function knowsModel(id: unknown, value: unknown): boolean {
-  return (provider(providerId(id))?.models ?? []).some((model) => model.value === value);
+  const resolved = providerId(id);
+  return (provider(resolved)?.models ?? []).some((model) => model.value === value)
+    || discoveredModels.get(resolved)?.has(String(value ?? "")) === true;
 }
 
 export function modelLabel(id: unknown, value: unknown): string {

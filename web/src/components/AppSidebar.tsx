@@ -34,6 +34,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SETTINGS_SECTIONS, type SettingsTab } from "@/components/Settings";
@@ -44,7 +45,6 @@ import { modelLabel, providerLabel, PROVIDERS } from "@/lib/providers";
 import { displayPath, plainText } from "@/lib/path";
 import { apiError } from "@/lib/api-error";
 import { workspaceForPath } from "@/lib/projects";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
 import type { Chat, ChatState, Server, Ticket, Workspace } from "@/state/types";
 
@@ -199,18 +199,26 @@ export function AppSidebar({
   );
 }
 
-function StateDot({ state, className }: { state: ChatState; className?: string }) {
+function ThreadState({ state }: { state: ChatState }) {
+  const label = state === "idle"
+    ? "Done"
+    : state === "needs_input"
+      ? "Needs you"
+      : state === "working"
+        ? "Working"
+        : "Error";
+  const variant = state === "idle"
+    ? "secondary"
+    : state === "needs_input"
+      ? "warning"
+      : state === "working"
+        ? "info"
+        : "destructive";
+
   return (
-    <span
-      className={cn(
-        "mt-1.5 size-1.5 shrink-0 rounded-full",
-        className,
-        state === "needs_input" && "bg-warning",
-        state === "working" && "bg-info",
-        state === "error" && "bg-destructive",
-        state === "idle" && "bg-muted-foreground/60",
-      )}
-    />
+    <Badge variant={variant} className="h-4 px-1.5 text-[10px] leading-none">
+      {state === "working" ? <span className="shimmer">{label}</span> : label}
+    </Badge>
   );
 }
 
@@ -351,8 +359,8 @@ function ThreadRow({
       </span>
 
       <span className="flex min-w-0 items-center gap-1.5">
-        <StateDot state={chat.state} className="mt-0" />
         <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+        <ThreadState state={chat.state} />
       </span>
 
       {chat.preview && (

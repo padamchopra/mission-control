@@ -9,6 +9,7 @@ import {
   Terminal,
   type LucideIcon,
 } from "lucide-react";
+import type { Server, Workspace } from "@/state/types";
 
 /// Icons a workspace can wear in the list and in project settings.
 export const PROJECT_ICONS = {
@@ -38,6 +39,20 @@ export function isProjectIconFile(value: unknown): value is string {
 
 export function projectIcon(id: ProjectIconId | string | null | undefined): LucideIcon {
   return PROJECT_ICONS[id && isProjectIcon(id) ? id : "folder"];
+}
+
+/// The machines that hold the same repository as this workspace. A folder
+/// without a git origin has no cross-device identity, so it stays on the one
+/// machine where it was added rather than matching another folder by name.
+export function devicesForWorkspace(workspace: Workspace, all: Workspace[], servers: Server[]): Server[] {
+  const related = all.filter((entry) =>
+    entry.id === workspace.id || (workspace.origin ? entry.origin === workspace.origin : false),
+  );
+  const ids = [...new Set(related.map((entry) => entry.serverId))];
+  return ids.flatMap((id) => {
+    const server = servers.find((entry) => entry.id === id);
+    return server ? [server] : [];
+  });
 }
 
 /// Where a project is checked out on this machine, if it is at all. A project

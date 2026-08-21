@@ -61,7 +61,7 @@ import { NewTicketDialog } from "@/components/Board";
 import { AssigneeAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
-import { localWorkspace } from "@/lib/projects";
+import { devicesForWorkspace, localWorkspace } from "@/lib/projects";
 import {
   DERIVED_STATUSES,
   STATUS_LABEL,
@@ -124,6 +124,9 @@ export function TicketView({
   const project = projects.find((entry) => entry.id === ticket.projectId);
   const workspace = project ? localWorkspace(project, workspaces) : undefined;
   const device = deviceForTicket(ticket, boardDevices, servers);
+  const eligibleDevices = workspace
+    ? devicesForWorkspace(workspace, workspaces, servers)
+    : device ? [device] : [];
   const parent = ticket.parentId ? tickets.find((entry) => entry.id === ticket.parentId) : undefined;
   const children = useMemo(
     () => tickets.filter((entry) => entry.parentId === ticket.id).sort(byRank),
@@ -500,39 +503,46 @@ export function TicketView({
           )}
 
           <Property label="Device" htmlFor="ticket-device">
-            <Select
-              value={device?.id ?? ""}
-              onValueChange={(value) => {
-                const next = boardDevices.find((entry) => entry.serverId === value);
-                if (next) void save({ deviceId: next.deviceId }, "the device");
-              }}
-            >
-              <SelectTrigger id="ticket-device" size="sm" className="w-full">
-                <SelectValue placeholder="Unknown" />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectGroup>
-                  {servers.map((server) => {
-                    const Icon = deviceIcon(server.icon);
-                    return (
-                      <SelectItem
-                        key={server.id}
-                        value={server.id}
-                        // A machine whose daemon never said which device it is
-                        // cannot be named in the log, so it cannot be chosen.
-                        disabled={!boardDevices.some((entry) => entry.serverId === server.id)}
-                      >
-                        <Icon className="size-3.5" />
-                        {server.name}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground">
-              Where a thread for this ticket runs. Only machines with the repo can take it.
-            </p>
+            {eligibleDevices.length > 1 ? (
+              <Select
+                value={device?.id ?? ""}
+                onValueChange={(value) => {
+                  const next = boardDevices.find((entry) => entry.serverId === value);
+                  if (next) void save({ deviceId: next.deviceId }, "the device");
+                }}
+              >
+                <SelectTrigger id="ticket-device" size="sm" className="w-full">
+                  <SelectValue placeholder="Unknown" />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectGroup>
+                    {eligibleDevices.map((server) => {
+                      const Icon = deviceIcon(server.icon);
+                      return (
+                        <SelectItem
+                          key={server.id}
+                          value={server.id}
+                          disabled={!boardDevices.some((entry) => entry.serverId === server.id)}
+                        >
+                          <Icon className="size-3.5" />
+                          {server.name}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            ) : device ? (
+              <span id="ticket-device" className="flex items-center gap-2 text-sm">
+                {(() => {
+                  const Icon = deviceIcon(device.icon);
+                  return <Icon className="size-4 text-muted-foreground" />;
+                })()}
+                <span className="truncate">{device.name}</span>
+              </span>
+            ) : (
+              <span id="ticket-device" className="text-sm text-muted-foreground">Unknown</span>
+            )}
           </Property>
 
           <Property label="Workspace">

@@ -35,6 +35,7 @@ import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { PERMISSIONS, permissionOf, type PermissionValue } from "@/lib/chat-options";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
+import { devicesForWorkspace } from "@/lib/projects";
 import type { ModelChoice } from "@/lib/providers";
 import { useStore } from "@/state/store";
 import type { GitBranch as Branch, Server, Workspace } from "@/state/types";
@@ -96,6 +97,7 @@ export function ChatComposer({
 
   const workspace = workspaces.find((entry) => entry.id === target);
   const home = target === HOME || !workspace;
+  const workspaceServers = workspace ? devicesForWorkspace(workspace, workspaces, servers) : [];
   const server = home
     ? servers.find((entry) => entry.id === serverId) ?? preferredServer(servers)
     : servers.find((entry) => entry.id === workspace.serverId) ?? preferredServer(servers);
@@ -176,9 +178,10 @@ export function ChatComposer({
     const sibling = workspaces.find(
       (entry) =>
         entry.serverId === id
-        && (workspace.origin ? entry.origin === workspace.origin : entry.name === workspace.name),
+        && Boolean(workspace.origin)
+        && entry.origin === workspace.origin,
     );
-    setTarget(sibling?.id ?? HOME);
+    if (sibling) setTarget(sibling.id);
   };
 
   const submit = async () => {
@@ -314,13 +317,13 @@ export function ChatComposer({
                 </InputGroupButton>
               </InputGroupAddon>
               <InputGroupAddon align="block-end" className="border-t">
-                {servers.length > 1 ? (
+                {(home ? servers : workspaceServers).length > 1 ? (
                   <ComposerMenu
                     icon={DeviceIcon}
                     label={server?.name ?? "This machine"}
                     value={server?.id ?? ""}
                     onChange={pickDevice}
-                    options={servers.map((entry) => ({
+                    options={(home ? servers : workspaceServers).map((entry) => ({
                       value: entry.id,
                       label: entry.name,
                       icon: deviceIcon(entry.icon),

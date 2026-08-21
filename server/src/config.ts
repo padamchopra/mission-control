@@ -42,6 +42,11 @@ export interface Config {
   /// The face on your messages: empty for the default, `preset:<id>` for one
   /// of the built-in ones, or a `data:` URL for a picture you chose.
   avatar: string;
+  /// How this machine introduces itself to a newly paired device. Empty values
+  /// fall back to the hostname and the ordinary laptop mark.
+  deviceName: string;
+  deviceIcon: string;
+  deviceTint: string;
   /// What Remy puts in front of a branch it creates for a worktree. Seeded
   /// from the GitHub login at boot, so a branch someone else sees says who
   /// made it.
@@ -67,6 +72,8 @@ export interface Config {
   /// altogether.
   remyProvider: ProviderId;
   remyModel: string;
+  /// Models starred in the shared picker, stored as `provider:model` keys.
+  favoriteModels: string[];
 }
 
 export type PreventSleepMode = "off" | "whileBusy" | "always";
@@ -84,6 +91,8 @@ const CHECKOUT_MODES: CheckoutMode[] = ["main", "worktree"];
 const WORKTREE_BASES: WorktreeBase[] = ["remote", "local"];
 const REPO_UPDATES: RepoUpdateEvery[] = ["off", "hourly", "sixHourly", "daily"];
 const GIT_IDENTITIES: GitIdentity[] = ["off", "author"];
+const DEVICE_ICONS = ["laptop", "monitor", "smartphone", "tablet", "server", "house"];
+const DEVICE_TINTS = ["zinc", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"];
 
 function gitIdentity(value: unknown, fallback: GitIdentity): GitIdentity {
   // Older builds offered agent-as-committer. Keep those settings as agent
@@ -130,6 +139,18 @@ function modelFor(provider: ProviderId, asked: unknown, current: string): string
   return knowsModel(provider, asked) ? String(asked) : providerModel(provider, current);
 }
 
+function favoriteModels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.flatMap((entry) => {
+    if (typeof entry !== "string") return [];
+    const split = entry.indexOf(":");
+    if (split <= 0) return [];
+    const provider = providerId(entry.slice(0, split));
+    const model = entry.slice(split + 1);
+    return model && knowsModel(provider, model) ? [`${provider}:${model}`] : [];
+  }))].slice(0, 24);
+}
+
 /// A worktree root has to be somewhere `git worktree add` can actually write,
 /// so it is an absolute path or nothing. `~` is expanded here because the
 /// clients that set it are showing people a home-relative path.
@@ -157,6 +178,14 @@ export function avatarValue(value: unknown): string {
   if (/^preset:[a-z0-9-]{1,32}$/.test(trimmed)) return trimmed;
   if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(trimmed)) return "";
   return trimmed.length > MAX_AVATAR_BYTES ? "" : trimmed;
+}
+
+function deviceAppearanceValue(value: unknown, allowed: string[]): string {
+  return typeof value === "string" && allowed.includes(value.trim()) ? value.trim() : "";
+}
+
+function deviceNameValue(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 80) : "";
 }
 
 /// A GitHub login, held to what GitHub itself allows. It ends up on the right
@@ -197,11 +226,15 @@ function load(): Config {
     defaultPermissionMode: oneOf(PERMISSION_MODES, parsed.defaultPermissionMode, "default"),
     remyProvider: providerId(parsed.remyProvider),
     remyModel: remyModelValue(parsed.remyProvider, parsed.remyModel ?? "haiku"),
+    favoriteModels: favoriteModels(parsed.favoriteModels),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
     defaultGitIdentity: gitIdentity(parsed.defaultGitIdentity, "author"),
     worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
     githubLogin: githubAccount(parsed.githubLogin),
     avatar: avatarValue(parsed.avatar),
+    deviceName: deviceNameValue(parsed.deviceName),
+    deviceIcon: deviceAppearanceValue(parsed.deviceIcon, DEVICE_ICONS),
+    deviceTint: deviceAppearanceValue(parsed.deviceTint, DEVICE_TINTS),
     // Absent means this is the only device, so it is the one to buzz.
     notifySelf: parsed.notifySelf !== false,
   };
@@ -221,9 +254,13 @@ export interface PublicSettings {
   defaultPermissionMode: ChatPermissionMode;
   remyProvider: ProviderId;
   remyModel: string;
+  favoriteModels: string[];
   repoUpdate: RepoUpdateEvery;
   worktreeBranchPrefix: string;
   avatar: string;
+  deviceName: string;
+  deviceIcon: string;
+  deviceTint: string;
   defaultGitIdentity: GitIdentity;
   notifySelf: boolean;
 }
@@ -239,9 +276,13 @@ export function publicSettings(): PublicSettings {
     defaultPermissionMode: config.defaultPermissionMode,
     remyProvider: config.remyProvider,
     remyModel: config.remyModel,
+    favoriteModels: config.favoriteModels,
     repoUpdate: config.repoUpdate,
     worktreeBranchPrefix: config.worktreeBranchPrefix,
     avatar: config.avatar,
+    deviceName: config.deviceName,
+    deviceIcon: config.deviceIcon,
+    deviceTint: config.deviceTint,
     defaultGitIdentity: config.defaultGitIdentity,
     notifySelf: config.notifySelf,
   };
@@ -288,6 +329,9 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
       patch.remyModel === OFF ? OFF : modelFor(provider, patch.remyModel, remyModelValue(provider, config.remyModel)),
     );
   }
+  if (patch.favoriteModels !== undefined) {
+    set("favoriteModels", favoriteModels(patch.favoriteModels));
+  }
   if (patch.defaultPermissionMode !== undefined) {
     set("defaultPermissionMode", oneOf(PERMISSION_MODES, patch.defaultPermissionMode, config.defaultPermissionMode));
   }
@@ -299,6 +343,15 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
   if (patch.avatar !== undefined) {
     set("avatar", avatarValue(patch.avatar));
+  }
+  if (patch.deviceName !== undefined) {
+    set("deviceName", deviceNameValue(patch.deviceName));
+  }
+  if (patch.deviceIcon !== undefined) {
+    set("deviceIcon", deviceAppearanceValue(patch.deviceIcon, DEVICE_ICONS));
+  }
+  if (patch.deviceTint !== undefined) {
+    set("deviceTint", deviceAppearanceValue(patch.deviceTint, DEVICE_TINTS));
   }
   if (patch.notifySelf !== undefined) {
     set("notifySelf", patch.notifySelf === true);
