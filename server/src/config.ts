@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { getKv, setKv } from "./db.js";
+import { knowsModel, providerId, providerModel, type ProviderId } from "./providers.js";
 
 export { configDir } from "./paths.js";
 
@@ -30,12 +31,13 @@ export interface Config {
   /// Directory that holds Remy's `.remy` worktree folder. Empty means each
   /// workspace holds its own, at `<workspace>/.remy`.
   worktreeRoot: string;
-  /// The model a new chat starts with. Empty is Claude Code's own default.
+  /// The model a new thread starts with, in `defaultProvider`'s own naming.
+  /// Empty leaves the choice to whatever that tool is configured with.
   defaultModel: string;
-  /// What a new agent thinks with unless it says otherwise. Threads run on the
-  /// Claude Agent SDK today, so `codex` is a value the board can hold rather
-  /// than one a thread can run on yet.
-  defaultProvider: string;
+  /// What a new thread — and a new agent — thinks with unless it says
+  /// otherwise. The pair is validated together: a provider only ever holds one
+  /// of its own models.
+  defaultProvider: ProviderId;
   /// The face on your messages: empty for the default, `preset:<id>` for one
   /// of the built-in ones, or a `data:` URL for a picture you chose.
   avatar: string;
@@ -59,10 +61,11 @@ export interface Config {
   /// Off routes them only to the paired devices that asked for them, which is
   /// the setting for a machine that runs the work while you watch from another.
   notifySelf: boolean;
-  /// The model Remy runs its own small jobs on — naming a thread, and whatever
-  /// else comes to need a model later. Separate from `defaultModel`, which is
-  /// what your threads think with: this one should stay cheap. `off` declines
-  /// them altogether.
+  /// What Remy runs its own small jobs on — naming a thread, and whatever else
+  /// comes to need a model later. Separate from `defaultModel`, which is what
+  /// your threads think with: this one should stay cheap. `off` declines them
+  /// altogether.
+  remyProvider: ProviderId;
   remyModel: string;
 }
 
@@ -85,12 +88,11 @@ export function repoUpdateInterval(every: RepoUpdateEvery): number | undefined {
   if (every === "daily") return 24 * 60 * 60_000;
   return undefined;
 }
-/// Only the aliases Claude Code accepts on the command line. A free-string
-/// model would fail at spawn time, long after the picker said it was fine.
-const MODELS = ["", "opus", "sonnet", "haiku"];
-export const PROVIDERS = ["claude", "codex"];
+/// Which models each provider will answer to lives in `providers.ts`, so a
+/// picker and this file cannot disagree about what is storable.
+///
 /// Remy's own jobs can also be declined outright, which a thread's model cannot.
-const REMY_MODELS = ["off", ...MODELS];
+const OFF = "off";
 
 function preventSleepMode(value: unknown, legacyBusy?: unknown): PreventSleepMode {
   if (SLEEP_MODES.includes(value as PreventSleepMode)) return value as PreventSleepMode;
@@ -99,6 +101,22 @@ function preventSleepMode(value: unknown, legacyBusy?: unknown): PreventSleepMod
 
 function oneOf<T extends string>(allowed: T[], value: unknown, fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+/// A model for Remy's own jobs, or `off`. Anything else falls back to that
+/// provider's default rather than to a model it has never heard of.
+function remyModelValue(provider: unknown, value: unknown): string {
+  return value === OFF ? OFF : providerModel(provider, value);
+}
+
+/// The model a patch settles on.
+///
+/// A model this provider does not know keeps the one it had, like every other
+/// setting here — except that "the one it had" may itself have belonged to the
+/// other provider, and then it is that provider's default.
+function modelFor(provider: ProviderId, asked: unknown, current: string): string {
+  if (asked === undefined) return providerModel(provider, current);
+  return knowsModel(provider, asked) ? String(asked) : providerModel(provider, current);
 }
 
 /// A worktree root has to be somewhere `git worktree add` can actually write,
@@ -165,9 +183,10 @@ function load(): Config {
     defaultCheckout: oneOf(CHECKOUT_MODES, parsed.defaultCheckout, "main"),
     worktreeBase: oneOf(WORKTREE_BASES, parsed.worktreeBase, "remote"),
     worktreeRoot: worktreeRootPath(parsed.worktreeRoot),
-    defaultModel: oneOf(MODELS, parsed.defaultModel, ""),
-    defaultProvider: oneOf(PROVIDERS, parsed.defaultProvider, "claude"),
-    remyModel: oneOf(REMY_MODELS, parsed.remyModel, "haiku"),
+    defaultProvider: providerId(parsed.defaultProvider),
+    defaultModel: providerModel(parsed.defaultProvider, parsed.defaultModel),
+    remyProvider: providerId(parsed.remyProvider),
+    remyModel: remyModelValue(parsed.remyProvider, parsed.remyModel ?? "haiku"),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
     defaultGitIdentity: oneOf(GIT_IDENTITIES, parsed.defaultGitIdentity, "author"),
     worktreeBranchPrefix: branchPrefix(parsed.worktreeBranchPrefix) ?? "",
@@ -188,7 +207,8 @@ export interface PublicSettings {
   worktreeBase: WorktreeBase;
   worktreeRoot: string;
   defaultModel: string;
-  defaultProvider: string;
+  defaultProvider: ProviderId;
+  remyProvider: ProviderId;
   remyModel: string;
   repoUpdate: RepoUpdateEvery;
   worktreeBranchPrefix: string;
@@ -205,6 +225,7 @@ export function publicSettings(): PublicSettings {
     worktreeRoot: config.worktreeRoot,
     defaultModel: config.defaultModel,
     defaultProvider: config.defaultProvider,
+    remyProvider: config.remyProvider,
     remyModel: config.remyModel,
     repoUpdate: config.repoUpdate,
     worktreeBranchPrefix: config.worktreeBranchPrefix,
@@ -235,14 +256,25 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   if (patch.worktreeRoot !== undefined) {
     set("worktreeRoot", worktreeRootPath(patch.worktreeRoot));
   }
-  if (patch.defaultModel !== undefined) {
-    set("defaultModel", oneOf(MODELS, patch.defaultModel, config.defaultModel));
+  // A provider and a model are one choice, so they are validated as one: a
+  // patch that moves to Codex and keeps `sonnet` lands on Codex's default
+  // rather than on a model Codex has never heard of.
+  if (patch.defaultProvider !== undefined || patch.defaultModel !== undefined) {
+    const provider = patch.defaultProvider === undefined
+      ? config.defaultProvider
+      : providerId(patch.defaultProvider, config.defaultProvider);
+    set("defaultProvider", provider);
+    set("defaultModel", modelFor(provider, patch.defaultModel, config.defaultModel));
   }
-  if (patch.defaultProvider !== undefined) {
-    set("defaultProvider", oneOf(PROVIDERS, patch.defaultProvider, config.defaultProvider));
-  }
-  if (patch.remyModel !== undefined) {
-    set("remyModel", oneOf(REMY_MODELS, patch.remyModel, config.remyModel));
+  if (patch.remyProvider !== undefined || patch.remyModel !== undefined) {
+    const provider = patch.remyProvider === undefined
+      ? config.remyProvider
+      : providerId(patch.remyProvider, config.remyProvider);
+    set("remyProvider", provider);
+    set(
+      "remyModel",
+      patch.remyModel === OFF ? OFF : modelFor(provider, patch.remyModel, remyModelValue(provider, config.remyModel)),
+    );
   }
   if (patch.repoUpdate !== undefined) {
     set("repoUpdate", oneOf(REPO_UPDATES, patch.repoUpdate, config.repoUpdate));

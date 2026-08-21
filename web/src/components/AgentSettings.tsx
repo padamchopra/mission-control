@@ -37,7 +37,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditableName } from "@/components/EditableName";
+import { ModelPickerButton } from "@/components/ModelPicker";
 import { apiError } from "@/lib/api-error";
+import type { ModelChoice } from "@/lib/providers";
 import { TINT_IDS, tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
@@ -52,21 +54,6 @@ import type { Agent } from "@/state/types";
 /// Everything saves as you go, the way the rest of Settings does. Menus and
 /// switches save on change; text saves when you leave the field, because saving
 /// a paragraph on every keystroke is a write per character.
-
-/// Threads run on the Claude Agent SDK, so Codex is a value the board can hold
-/// and not yet one an agent can think with. Listed and disabled rather than
-/// hidden: the field is where you would look for it, and it says why.
-const PROVIDERS = [
-  { value: "claude", label: "Claude", ready: true },
-  { value: "codex", label: "Codex", ready: false },
-];
-
-const MODELS = [
-  { value: "default", label: "Remy's default" },
-  { value: "opus", label: "Opus" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "haiku", label: "Haiku" },
-];
 
 const PERMISSIONS = [
   { value: "plan", label: "Plan only", detail: "Reads and proposes. Changes nothing." },
@@ -86,16 +73,18 @@ export function AgentsPane({
   onSelect,
   defaultGitIdentity,
   defaultProvider,
+  defaultModel,
   onSaveDefaultIdentity,
-  onSaveDefaultProvider,
+  onSaveDefault,
 }: {
   /// The handle in the URL, if one is there.
   selected?: string;
   onSelect: (handle?: string) => void;
   defaultGitIdentity: string;
   defaultProvider: string;
+  defaultModel: string;
   onSaveDefaultIdentity: (value: string) => void;
-  onSaveDefaultProvider: (value: string) => void;
+  onSaveDefault: (choice: ModelChoice) => void;
 }) {
   const agents = useStore((s) => s.agents);
   const loadBoard = useStore((s) => s.loadBoard);
@@ -132,6 +121,7 @@ export function AgentsPane({
         name: "New agent",
         gitIdentity: defaultGitIdentity,
         provider: defaultProvider,
+        model: defaultModel,
       });
       onSelect(made.handle);
     } catch (error) {
@@ -222,28 +212,16 @@ export function AgentsPane({
         <div className="flex w-full max-w-2xl flex-col gap-6 px-6 py-6">
           <Field orientation="horizontal" className="items-center">
             <FieldContent>
-              <FieldLabel htmlFor="default-provider">Provider for new agents</FieldLabel>
+              <FieldLabel htmlFor="default-model">What new agents think with</FieldLabel>
               <FieldDescription className="text-xs">
-                What an agent thinks with unless it says otherwise.
+                Also what a new thread starts on. Each agent can say otherwise.
               </FieldDescription>
             </FieldContent>
-            <Select value={defaultProvider} onValueChange={onSaveDefaultProvider}>
-              <SelectTrigger id="default-provider" size="sm" className="w-56 shrink-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectGroup>
-                  {PROVIDERS.map((option) => (
-                    <SelectItem key={option.value} value={option.value} disabled={!option.ready}>
-                      {option.label}
-                      {!option.ready && (
-                        <span className="ml-auto text-[11px] text-muted-foreground">Not yet</span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <ModelPickerButton
+              id="default-model"
+              value={{ provider: defaultProvider, model: defaultModel }}
+              onPick={onSaveDefault}
+            />
           </Field>
 
           <Field orientation="horizontal" className="items-center">
@@ -433,47 +411,13 @@ function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field>
-          <FieldLabel htmlFor="agent-provider">Provider</FieldLabel>
-          <Select
-            value={agent.provider || "claude"}
-            onValueChange={(next) => void save({ provider: next }, "the provider")}
-          >
-            <SelectTrigger id="agent-provider" size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {PROVIDERS.map((option) => (
-                  <SelectItem key={option.value} value={option.value} disabled={!option.ready}>
-                    {option.label}
-                    {!option.ready && (
-                      <span className="ml-auto text-[11px] text-muted-foreground">Not yet</span>
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="agent-model">Model</FieldLabel>
-          <Select
-            value={agent.model || "default"}
-            onValueChange={(next) => void save({ model: next === "default" ? "" : next }, "the model")}
-          >
-            <SelectTrigger id="agent-model" size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {MODELS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <FieldLabel htmlFor="agent-model">Thinks with</FieldLabel>
+          <ModelPickerButton
+            id="agent-model"
+            className="w-full"
+            value={{ provider: agent.provider || "claude", model: agent.model ?? "" }}
+            onPick={(next) => void save({ provider: next.provider, model: next.model }, "what it thinks with")}
+          />
         </Field>
         <Field>
           <FieldLabel htmlFor="agent-permission">May do unasked</FieldLabel>

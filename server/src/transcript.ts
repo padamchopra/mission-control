@@ -129,7 +129,7 @@ const MAX_TAIL = 1_500_000;
 const USAGE_TAIL = 400_000;
 export const MAX_TEXT = 4000;
 export const MAX_THINK = 1200;
-const MAX_ARG = 200;
+export const MAX_ARG = 200;
 export const MAX_OUTPUT = 400;
 // Option previews are code or prose drafts, so they need real room — but they're
 // rendered collapsed, so this is a ceiling rather than a target.

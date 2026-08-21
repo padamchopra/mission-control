@@ -28,8 +28,10 @@ export function agentCommand(agent: AgentKind): string | undefined {
       // Keep looking: launchd commonly has a smaller PATH than an interactive shell.
     }
   }
-  const displayName = agent === "claude" ? "Claude" : "Codex";
-  throw new AgentUnavailableError(`${displayName} is not installed on the Remy server.`);
+  const displayName = agent === "claude" ? "Claude Code" : "Codex";
+  // What a person reads when they pick a provider this machine does not have,
+  // so it names the thing to install rather than the daemon that looked for it.
+  throw new AgentUnavailableError(`${displayName} is not installed on this machine.`);
 }
 
 export function inferAgent(paneCommand: string, recorded?: AgentKind): AgentKind {

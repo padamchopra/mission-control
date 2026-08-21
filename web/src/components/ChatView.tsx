@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
-  Box,
   Check,
   CircleAlert,
   Copy,
@@ -49,7 +48,8 @@ import {
 import { ComposerMenu } from "@/components/ComposerMenu";
 import { ContextMeter } from "@/components/ContextMeter";
 import { PaneHeader } from "@/components/PaneHeader";
-import { ClaudeMark } from "@/components/ClaudeMark";
+import { ModelPickerButton, useProvider } from "@/components/ModelPicker";
+import { ProviderMark } from "@/components/ProviderMark";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Markdown } from "@/components/Markdown";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
@@ -57,7 +57,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiError } from "@/lib/api-error";
-import { MODELS, PERMISSIONS, modelLabel, permissionOf } from "@/lib/chat-options";
+import { PERMISSIONS, permissionOf } from "@/lib/chat-options";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { workspaceForPath } from "@/lib/projects";
@@ -155,8 +155,14 @@ export function ChatView({
   };
 
   const permission = permissionOf(open?.permissionMode);
+  const provider = useProvider(open?.provider ?? chat.provider ?? "claude");
+  // Codex answers and exits, so Ask cannot mean "stop and ask me" there.
+  const asks = provider?.approvals !== false;
 
-  const setOption = async (patch: { model?: string | null; permissionMode?: string }, what: string) => {
+  const setOption = async (
+    patch: { provider?: string; model?: string | null; permissionMode?: string },
+    what: string,
+  ) => {
     try {
       await setChatOptions(patch);
     } catch (caught) {
@@ -217,6 +223,8 @@ export function ChatView({
               <Entry
                 key={entry.id}
                 entry={entry}
+                provider={provider?.id ?? "claude"}
+                name={provider?.label ?? "Claude"}
                 lead={index === 0 || speaker(entries[index - 1]) !== speaker(entry)}
               />
             ))
@@ -290,21 +298,30 @@ export function ChatView({
             {/* One row, not two: the settings and the send button are the same
                 strip of chrome. */}
             <InputGroupAddon align="block-end" className="gap-1">
-              <ComposerMenu
-                icon={Box}
-                label={modelLabel(open?.model)}
-                value={open?.model ?? ""}
+              <ModelPickerButton
+                variant="composer"
+                value={{ provider: provider?.id ?? "claude", model: open?.model ?? "" }}
                 disabled={!open || working}
                 title={working ? "The model changes once this turn is done." : undefined}
-                onChange={(value) => void setOption({ model: value || null }, "model")}
-                options={MODELS}
+                onPick={(next) =>
+                  void setOption(
+                    { provider: next.provider, model: next.model || null },
+                    next.provider === open?.provider ? "model" : "provider",
+                  )
+                }
               />
               <ComposerMenu
                 icon={permission.icon}
                 label={permission.label}
                 value={permission.value}
                 disabled={!open || working}
-                title={working ? "Permissions change once this turn is done." : undefined}
+                title={
+                  working
+                    ? "Permissions change once this turn is done."
+                    : asks
+                      ? undefined
+                      : `${provider?.label ?? "This provider"} can't stop to ask, so Ask keeps it read-only.`
+                }
                 onChange={(value) => void setOption({ permissionMode: value }, "permission mode")}
                 options={PERMISSIONS}
               />
@@ -342,6 +359,11 @@ export function ChatView({
               </div>
             </InputGroupAddon>
           </InputGroup>
+          {!asks && open?.permissionMode === "default" && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {provider?.label ?? "This provider"} can't stop to ask, so Ask keeps it read-only.
+            </p>
+          )}
         </form>
       </div>
     </div>
@@ -392,16 +414,26 @@ function ScrollFeed({
   );
 }
 
-/// Who an entry belongs to. Everything Claude does — its prose, its thinking,
-/// its tool calls — is one side of the conversation.
-function speaker(entry: ConvEntry): "you" | "claude" {
-  return entry.kind === "user" ? "you" : "claude";
+/// Who an entry belongs to. Everything the agent does — its prose, its
+/// thinking, its tool calls — is one side of the conversation.
+function speaker(entry: ConvEntry): "you" | "agent" {
+  return entry.kind === "user" ? "you" : "agent";
 }
 
 /// `lead` marks the first entry of a run. Only that one wears the avatar and
 /// the name; the rest keep the column so the run stays aligned, and say nothing
 /// a reader already knows.
-function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
+function Entry({
+  entry,
+  lead,
+  provider,
+  name,
+}: {
+  entry: ConvEntry;
+  lead: boolean;
+  provider: string;
+  name: string;
+}) {
   if (entry.kind === "user") {
     return (
       <Message align="end">
@@ -429,11 +461,11 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
   if (entry.kind === "assistant") {
     return (
       <Message>
-        <ClaudeAvatar lead={lead} />
+        <AgentAvatar provider={provider} lead={lead} />
         <MessageContent>
-          {/* The provider, not the model: which Claude answered is a setting of
-              the thread, and it is on the toolbar. */}
-          {lead && <MessageHeader>Claude</MessageHeader>}
+          {/* The provider, not the model: which Claude or which Codex answered
+              is a setting of the thread, and it is on the toolbar. */}
+          {lead && <MessageHeader>{name}</MessageHeader>}
           <Bubble variant="ghost">
             <BubbleContent>
               <Markdown text={entry.text ?? ""} />
@@ -447,9 +479,9 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
   if (entry.kind === "thinking") {
     return (
       <Message>
-        <ClaudeAvatar lead={lead} />
+        <AgentAvatar provider={provider} lead={lead} />
         <MessageContent>
-          {lead && <MessageHeader>Claude</MessageHeader>}
+          {lead && <MessageHeader>{name}</MessageHeader>}
           <Bubble variant="ghost">
             <BubbleContent className="text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground italic">
               {entry.text}
@@ -460,7 +492,7 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
     );
   }
 
-  // Tool work is Claude's too, so it lines up under the same avatar column
+  // Tool work is the agent's too, so it lines up under the same avatar column
   // rather than starting at the edge of the feed.
   return (
     <div className="pl-10">
@@ -471,12 +503,15 @@ function Entry({ entry, lead }: { entry: ConvEntry; lead: boolean }) {
 
 /// `MessageAvatar` is the slot; `Avatar` is what goes in it, which is what
 /// gives the mark its circle and keeps it from stretching.
-function ClaudeAvatar({ lead }: { lead: boolean }) {
+function AgentAvatar({ provider, lead }: { provider: string; lead: boolean }) {
+  const claude = provider !== "codex";
   return (
     <MessageAvatar className={cn("bg-transparent", !lead && "invisible")}>
       <Avatar>
-        <AvatarFallback className="bg-claude/15 text-claude">
-          <ClaudeMark className="size-4" />
+        {/* Each provider's own disc: the mark sits on a wash of its own colour,
+            the way the workspace marks do. */}
+        <AvatarFallback className={claude ? "bg-claude/15" : "bg-foreground/10"}>
+          <ProviderMark provider={provider} className="size-4" />
         </AvatarFallback>
       </Avatar>
     </MessageAvatar>

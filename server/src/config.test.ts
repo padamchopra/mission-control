@@ -65,6 +65,34 @@ test("keeps the current value when a patch is not a value it knows", () => {
   assert.equal(publicSettings().defaultModel, "opus");
 });
 
+test("a provider and a model change together", () => {
+  patchSettings({ defaultProvider: "claude", defaultModel: "sonnet" });
+  assert.equal(publicSettings().defaultModel, "sonnet");
+
+  // Moving to Codex cannot keep a Claude alias Codex would refuse.
+  patchSettings({ defaultProvider: "codex" });
+  assert.equal(publicSettings().defaultProvider, "codex");
+  assert.equal(publicSettings().defaultModel, "");
+
+  patchSettings({ defaultModel: "gpt-5.6-terra" });
+  assert.equal(publicSettings().defaultModel, "gpt-5.6-terra");
+
+  patchSettings({ defaultProvider: "claude", defaultModel: "opus" });
+  assert.equal(publicSettings().defaultModel, "opus");
+});
+
+test("Remy's own jobs can be declined, and follow their own provider", () => {
+  patchSettings({ remyProvider: "claude", remyModel: "haiku" });
+  patchSettings({ remyModel: "off" });
+  assert.equal(publicSettings().remyModel, "off");
+
+  patchSettings({ remyProvider: "codex", remyModel: "gpt-5.6-luna" });
+  assert.equal(publicSettings().remyProvider, "codex");
+  assert.equal(publicSettings().remyModel, "gpt-5.6-luna");
+  // And the chats' own default is untouched by any of it.
+  assert.equal(publicSettings().defaultModel, "opus");
+});
+
 test("survives a round trip through the database", async () => {
   patchSettings({ worktreeRoot: "/vol/trees", defaultModel: "haiku" });
   // A second module instance reads the same row a restart would.
