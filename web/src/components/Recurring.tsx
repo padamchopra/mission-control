@@ -63,7 +63,6 @@ import {
   WEEKDAYS,
   WORKSPACE_AGENT,
   cadenceSummary,
-  clockTime,
   people,
   whenNext,
 } from "@/lib/tickets";
@@ -283,7 +282,7 @@ function RecurrenceRow({
         <ItemTitle>{recurrence.title}</ItemTitle>
         <ItemDescription>
           {cadenceSummary(recurrence)}
-          {recurrence.enabled ? ` · next ${whenNext(recurrence.nextRunAt)}` : " · paused"}
+          {recurrence.enabled ? ` · due ${whenNext(recurrence.nextRunAt)}` : " · paused"}
           {recurrence.runs > 0 && ` · ${recurrence.runs} written`}
         </ItemDescription>
         <ItemDescription className="flex items-center gap-1.5">
@@ -506,7 +505,7 @@ function RecurrenceDialog({
             <FieldContent>
               <FieldLabel htmlFor="recurring-cadence">How often</FieldLabel>
               <FieldDescription className="text-xs">
-                {cadenceSummary({ cadence, hour, minute, weekday, day })}, on the machine that holds it.
+                {cadenceSummary({ cadence, hour, minute, weekday, day })}.
               </FieldDescription>
             </FieldContent>
             <Select value={cadence} onValueChange={(next) => setCadence(next as Cadence)}>
@@ -577,7 +576,7 @@ function RecurrenceDialog({
             <FieldContent>
               <FieldLabel htmlFor="recurring-time">Time</FieldLabel>
               <FieldDescription className="text-xs">
-                {clockTime(hour, minute)} where the work runs.
+                The clock on the machine that writes it.
               </FieldDescription>
             </FieldContent>
             <Input

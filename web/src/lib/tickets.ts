@@ -76,16 +76,15 @@ export function clockTime(hour: number, minute: number): string {
   return at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-/// When the next ticket lands. The time only for today and tomorrow, where it
-/// is the thing you want to know — further out the cadence beside it has
-/// already said the hour, and repeating it reads as two different facts.
+/// The day the next ticket lands on. Only the day: the cadence beside it has
+/// already said the hour, and saying it twice reads as two different facts.
 export function whenNext(at: number): string {
   const due = new Date(at);
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
   const days = Math.floor((due.getTime() - midnight.getTime()) / 86_400_000);
-  if (days <= 0) return `today at ${clockTime(due.getHours(), due.getMinutes())}`;
-  if (days === 1) return `tomorrow at ${clockTime(due.getHours(), due.getMinutes())}`;
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
   if (days < 7) return WEEKDAYS[due.getDay()];
   return shortDate(at);
 }
