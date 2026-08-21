@@ -40,6 +40,16 @@ export interface LogEvent {
   payload: Record<string, unknown>;
 }
 
+const localAppendListeners = new Set<(event: LogEvent) => void>();
+
+/// Runs after this machine writes a board event. Callbacks are deferred until
+/// the writer has rebuilt its projection, so a window reacting to the signal
+/// cannot read the old row between the append and the fold.
+export function onLocalAppend(listener: (event: LogEvent) => void): () => void {
+  localAppendListeners.add(listener);
+  return () => localAppendListeners.delete(listener);
+}
+
 /// This machine's name in the log. Minted once and kept, because every event
 /// ever written carries it — regenerating one would fork the history.
 export const deviceId: string = (() => {
@@ -105,6 +115,9 @@ export function append(
     event.kind,
     JSON.stringify(event.payload),
   );
+  queueMicrotask(() => {
+    for (const listener of localAppendListeners) listener(event);
+  });
   return event;
 }
 

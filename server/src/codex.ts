@@ -80,6 +80,11 @@ export interface CodexTurnOptions {
   threadId?: string;
   /// Directories outside the workspace the turn may read, for uploads.
   additionalDirectories?: string[];
+  mcpServer?: {
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+  };
   env?: NodeJS.ProcessEnv;
 }
 
@@ -103,6 +108,12 @@ export function codexArgs(options: CodexTurnOptions): string[] {
   // runs with no sandbox at all.
   if (sandbox === "workspace-write") args.push("--config", "sandbox_workspace_write.network_access=true");
   args.push("--config", `approval_policy="${approval}"`);
+  if (options.mcpServer) {
+    args.push("--config", `mcp_servers.remy.command=${JSON.stringify(options.mcpServer.command)}`);
+    args.push("--config", `mcp_servers.remy.args=${JSON.stringify(options.mcpServer.args)}`);
+    args.push("--config", 'mcp_servers.remy.default_tools_approval_mode="approve"');
+    args.push("--config", `mcp_servers.remy.env_vars=${JSON.stringify(Object.keys(options.mcpServer.env))}`);
+  }
   if (options.threadId) args.push("resume", options.threadId);
   return args;
 }
@@ -240,7 +251,7 @@ export function runCodexTurn(
 ): CodexRun {
   const child = spawn(options.command, codexArgs(options), {
     cwd: options.cwd,
-    env: options.env ?? process.env,
+    env: { ...process.env, ...options.env, ...options.mcpServer?.env },
     stdio: ["pipe", "pipe", "pipe"],
   });
 

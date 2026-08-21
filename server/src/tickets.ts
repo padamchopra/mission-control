@@ -335,7 +335,7 @@ export function getTicket(id: string): TicketView | undefined {
 }
 
 export function ticketByKey(key: string): TicketView | undefined {
-  const row = db.prepare("select id from tickets where key = ? and deleted = 0").get(key) as
+  const row = db.prepare("select id from tickets where key = ? and deleted = 0").get(key.trim().toUpperCase()) as
     | { id?: string }
     | undefined;
   return row?.id ? getTicket(row.id) : undefined;
@@ -343,10 +343,10 @@ export function ticketByKey(key: string): TicketView | undefined {
 
 /// The ticket a thread belongs to, if any. A thread belongs to at most one, so
 /// derived status has exactly one source.
-export function ticketForChat(chatId: string): TicketView | undefined {
+export function ticketForChat(chatId: string, onDevice = deviceId): TicketView | undefined {
   const row = db
     .prepare("select ticket_id from ticket_threads where chat_id = ? and device_id = ?")
-    .get(chatId, deviceId) as { ticket_id?: string } | undefined;
+    .get(chatId, onDevice) as { ticket_id?: string } | undefined;
   return row?.ticket_id ? getTicket(row.ticket_id) : undefined;
 }
 
@@ -524,6 +524,14 @@ export function commentOnTicket(id: string, body: string, actor = "you"): Ticket
   return getTicketOrThrow(id);
 }
 
+export function handoffTicket(id: string, toAgentId: string, actor = "you"): TicketView {
+  const ticket = getTicket(id);
+  if (!ticket) throw new Error("no such ticket");
+  if (!getAgent(toAgentId)) throw new Error("no such agent");
+  append("ticket", id, "handoff", { toAgentId, actor });
+  return getTicketOrThrow(id);
+}
+
 export function deleteTicket(id: string): void {
   if (!getTicket(id)) throw new Error("no such ticket");
   append("ticket", id, "tombstone", { actor: "you" });
@@ -534,19 +542,26 @@ export function deleteTicket(id: string): void {
 
 export function linkThread(
   ticketId: string,
-  input: { chatId: string; agentId?: string; stage?: string; linkedBy?: "runner" | "you" },
+  input: {
+    chatId: string;
+    deviceId?: string;
+    agentId?: string;
+    stage?: string;
+    linkedBy?: "runner" | "you";
+  },
 ): TicketView {
   if (!getTicket(ticketId)) throw new Error("no such ticket");
   const chatId = input.chatId.trim();
   if (!chatId) throw new Error("pick a thread to attach");
-  const existing = ticketForChat(chatId);
+  const threadDeviceId = input.deviceId?.trim() || deviceId;
+  const existing = ticketForChat(chatId, threadDeviceId);
   if (existing && existing.id !== ticketId) {
     throw new Error(`that thread is already on ${existing.key}`);
   }
   if (existing?.id === ticketId) return existing;
   append("ticket", ticketId, "link", {
     chatId,
-    deviceId,
+    deviceId: threadDeviceId,
     actor: "you",
     linkedBy: input.linkedBy ?? "you",
     ...(input.agentId ? { agentId: input.agentId } : {}),
@@ -555,9 +570,9 @@ export function linkThread(
   return getTicketOrThrow(ticketId);
 }
 
-export function unlinkThread(ticketId: string, chatId: string): TicketView {
+export function unlinkThread(ticketId: string, chatId: string, onDevice = deviceId): TicketView {
   if (!getTicket(ticketId)) throw new Error("no such ticket");
-  append("ticket", ticketId, "unlink", { chatId, deviceId, actor: "you" });
+  append("ticket", ticketId, "unlink", { chatId, deviceId: onDevice, actor: "you" });
   return getTicketOrThrow(ticketId);
 }
 
@@ -575,12 +590,13 @@ export function forgetChat(chatId: string): void {
 
 /// The derived half of the status rule.
 ///
-/// Only ever moves a ticket between In progress and Needs input, and only when
-/// it is already in one of them. A ticket you dragged to Done, or one still in
-/// Backlog, is left exactly where you put it.
-export function syncTicketFromThread(chatId: string, state: string): void {
-  const ticket = ticketForChat(chatId);
-  if (!ticket || !DERIVED.includes(ticket.status)) return;
+/// A working thread picks up a ticket from Todo, then moves it between In
+/// progress and Needs input. Backlog and terminal states stay deliberate.
+export function syncTicketFromThread(chatId: string, state: string, onDevice = deviceId): void {
+  const ticket = ticketForChat(chatId, onDevice);
+  if (!ticket) return;
+  const active = state === "working" || state === "needs_input" || state === "error";
+  if (!DERIVED.includes(ticket.status) && !(ticket.status === "todo" && active)) return;
   const next: TicketStatus = state === "needs_input" || state === "error" ? "needs_input" : "in_progress";
   if (next === ticket.status) return;
   try {
@@ -588,6 +604,24 @@ export function syncTicketFromThread(chatId: string, state: string): void {
   } catch {
     // The ticket was deleted mid-turn; the thread carries on regardless.
   }
+}
+
+const WORK_TICKET = /\b(?:work on|start|implement|build|fix|pick up|take)\s+(?:ticket\s+)?([a-z][a-z0-9]{0,15}-[1-9]\d*)\b/i;
+
+/// Connects an explicit "work on REMY-1" request to its ticket before the
+/// agent sees the prompt. A question that merely mentions a key stays a normal
+/// thread; ticket tools can still read it without claiming the work.
+export function linkTicketFromWorkPrompt(chatId: string, prompt: string, agentId?: string): TicketView | undefined {
+  const existing = ticketForChat(chatId);
+  if (existing) return existing;
+  const key = WORK_TICKET.exec(prompt)?.[1]?.toUpperCase();
+  if (!key) return undefined;
+  const ticket = ticketByKey(key);
+  if (!ticket) return undefined;
+  const linked = linkThread(ticket.id, { chatId, agentId, linkedBy: "runner" });
+  return linked.status === "backlog" || linked.status === "todo"
+    ? setTicketStatus(linked.id, "in_progress", { actor: "remy" })
+    : linked;
 }
 
 // Renaming a project's slug re-keys its tickets. Registered here rather than

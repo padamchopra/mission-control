@@ -49,6 +49,7 @@ interface RawChat {
   cwd: string;
   state?: ChatState;
   provider?: string;
+  agentId?: string;
   model?: string;
   preview?: string;
   updatedAt?: number;
@@ -158,7 +159,7 @@ interface State {
   deleteTicket(id: string): Promise<void>;
   ticketActivity(id: string): Promise<TicketActivity[]>;
   attachThread(ticketId: string, chatId: string): Promise<void>;
-  detachThread(ticketId: string, chatId: string): Promise<void>;
+  detachThread(ticketId: string, chatId: string, deviceId: string): Promise<void>;
   /// Turns a thread you are already in into a ticket, adopting its worktree and
   /// branch rather than opening new ones.
   ticketFromThread(chatId: string): Promise<Ticket>;
@@ -823,20 +824,29 @@ export const useStore = create<State>((set, get) => ({
 
   async attachThread(ticketId, chatId) {
     const ticket = get().tickets.find((entry) => entry.id === ticketId);
+    const chat = get().chats.find((entry) => entry.id === chatId);
     if (!ticket) return;
+    if (!chat) throw new Error("That thread is gone.");
+    const threadDevice = get().boardDevices.find((entry) => entry.serverId === chat.serverId)?.deviceId;
+    if (!threadDevice) throw new Error("That thread's device is not connected.");
     await transport.request(ticket.serverId, `/tickets/${encodeURIComponent(ticketId)}/threads`, {
       method: "POST",
-      body: { chatId },
+      body: {
+        chatId,
+        deviceId: threadDevice,
+        state: chat.state,
+        ...(chat.agentId ? { agentId: chat.agentId } : {}),
+      },
     });
     await get().loadBoard();
   },
 
-  async detachThread(ticketId, chatId) {
+  async detachThread(ticketId, chatId, deviceId) {
     const ticket = get().tickets.find((entry) => entry.id === ticketId);
     if (!ticket) return;
     await transport.request(
       ticket.serverId,
-      `/tickets/${encodeURIComponent(ticketId)}/threads/${encodeURIComponent(chatId)}`,
+      `/tickets/${encodeURIComponent(ticketId)}/threads/${encodeURIComponent(chatId)}?device=${encodeURIComponent(deviceId)}`,
       { method: "DELETE" },
     );
     await get().loadBoard();
@@ -994,6 +1004,7 @@ function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
     title: raw.title,
     cwd: raw.cwd,
     provider: raw.provider,
+    agentId: raw.agentId,
     model: raw.model,
     permissionMode: raw.permissionMode,
     state: raw.state ?? "idle",
@@ -1069,6 +1080,7 @@ function toChat(raw: RawChat, serverId: string): Chat {
     cwd: raw.cwd,
     state: raw.state ?? "idle",
     provider: raw.provider,
+    agentId: raw.agentId,
     model: raw.model,
     preview: raw.preview,
     updatedAt: raw.updatedAt ?? 0,

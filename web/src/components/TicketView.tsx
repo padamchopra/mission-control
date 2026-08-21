@@ -358,7 +358,7 @@ export function TicketView({
                               variant="ghost"
                               size="icon-sm"
                               aria-label="Detach thread"
-                              onClick={() => void detachThread(ticket.id, link.chatId)}
+                              onClick={() => void detachThread(ticket.id, link.chatId, link.deviceId)}
                             >
                               <Link2Off />
                             </Button>

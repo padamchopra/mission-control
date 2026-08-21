@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+process.env.MC_CONFIG_DIR = mkdtempSync(join(tmpdir(), "remy-ticket-auth-"));
+const { isRemyToolRoute, remyToolChatId, remyToolToken } = await import("./ticket-tool-auth.js");
+
+test("a Remy capability names only the thread it was minted for", () => {
+  const token = remyToolToken("chat-1");
+  assert.equal(remyToolChatId(`Bearer ${token}`), "chat-1");
+  assert.equal(remyToolChatId(`Bearer ${token}changed`), undefined);
+  assert.equal(remyToolChatId("Bearer not-a-remy-token"), undefined);
+});
+
+test("a Remy capability reaches orchestration without reaching administration", () => {
+  assert.equal(isRemyToolRoute("GET", "/board"), true);
+  assert.equal(isRemyToolRoute("POST", "/tickets/one/comment"), true);
+  assert.equal(isRemyToolRoute("PATCH", "/tickets/one"), true);
+  assert.equal(isRemyToolRoute("GET", "/workspaces"), true);
+  assert.equal(isRemyToolRoute("POST", "/workspaces"), true);
+  assert.equal(isRemyToolRoute("POST", "/chats"), true);
+  assert.equal(isRemyToolRoute("POST", "/chats/chat-2/message"), true);
+  assert.equal(isRemyToolRoute("DELETE", "/tickets/one"), false);
+  assert.equal(isRemyToolRoute("DELETE", "/chats/chat-1"), false);
+  assert.equal(isRemyToolRoute("PATCH", "/workspaces/one"), false);
+  assert.equal(isRemyToolRoute("PATCH", "/server/settings"), false);
+});
