@@ -508,7 +508,9 @@ function AgentAvatar({ provider, lead }: { provider: string; lead: boolean }) {
   return (
     <MessageAvatar className={cn("bg-transparent", !lead && "invisible")}>
       <Avatar>
-        <AvatarFallback className={claude ? "bg-claude/15 text-claude" : "bg-muted text-muted-foreground"}>
+        {/* Each provider's own disc: the mark sits on a wash of its own colour,
+            the way the workspace marks do. */}
+        <AvatarFallback className={claude ? "bg-claude/15" : "bg-foreground/10"}>
           <ProviderMark provider={provider} className="size-4" />
         </AvatarFallback>
       </Avatar>
