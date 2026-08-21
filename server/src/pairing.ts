@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { deviceId } from "./board-log.js";
-import { peerAddress, thisMachineName } from "./peers.js";
+import { peerAddress, thisMachineIcon, thisMachineName, thisMachineTint } from "./peers.js";
 
 /// Pairing two machines without carrying a token between them.
 ///
@@ -30,6 +30,8 @@ export interface PairRequest {
   code: string;
   fromDeviceId: string;
   fromName: string;
+  fromIcon?: string;
+  fromTint?: string;
   fromUrl: string;
   at: number;
   state: PairState;
@@ -89,6 +91,8 @@ export function askToPair(body: Record<string, unknown>): { requestId: string } 
 
   const fromDeviceId = text(body.deviceId, 64);
   const fromName = text(body.name, 80);
+  const fromIcon = text(body.icon, 32);
+  const fromTint = text(body.tint, 32);
   const code = text(body.code, 6);
   if (!fromDeviceId) throw new Error("that request does not say which machine it is from");
   if (fromDeviceId === deviceId) throw new Error("that request is from this machine");
@@ -107,6 +111,8 @@ export function askToPair(body: Record<string, unknown>): { requestId: string } 
     code,
     fromDeviceId,
     fromName: fromName || new URL(fromUrl).hostname,
+    ...(fromIcon ? { fromIcon } : {}),
+    ...(fromTint ? { fromTint } : {}),
     fromUrl,
     at: Date.now(),
     state: "pending",
@@ -123,6 +129,8 @@ export function pairStatus(id: string): {
   token?: string;
   deviceId?: string;
   name?: string;
+  icon?: string;
+  tint?: string;
   url?: string;
 } {
   sweep();
@@ -137,6 +145,8 @@ export function pairStatus(id: string): {
     token: config.token,
     deviceId,
     name: thisMachineName(),
+    icon: thisMachineIcon(),
+    ...(thisMachineTint() ? { tint: thisMachineTint() } : {}),
     url: request.approvedUrl ?? "",
   };
 }
@@ -240,7 +250,7 @@ async function callUnauthenticated<T>(
 export async function startPairing(input: {
   url: unknown;
   name?: unknown;
-  self: { url: string; name: string };
+  self: { url: string; name: string; icon?: string; tint?: string };
 }): Promise<AttemptView> {
   const url = peerAddress(input.url);
   const code = mintCode();
@@ -250,7 +260,14 @@ export async function startPairing(input: {
 
   const asked = await callUnauthenticated<{ requestId?: string }>(`${url}/pair/request`, {
     method: "POST",
-    body: { deviceId, name: input.self.name, url: input.self.url, code },
+    body: {
+      deviceId,
+      name: input.self.name,
+      icon: input.self.icon,
+      tint: input.self.tint,
+      url: input.self.url,
+      code,
+    },
   });
   if (!asked.requestId) throw new Error("that machine did not take the request");
 
@@ -272,7 +289,14 @@ export async function startPairing(input: {
 /// machine announces itself back, leaving a pair rather than a one-way link.
 export async function checkPairing(
   id: string,
-  complete: (claim: { deviceId: string; name: string; url: string; token: string }) => Promise<{ id: string }>,
+  complete: (claim: {
+    deviceId: string;
+    name: string;
+    icon?: string;
+    tint?: string;
+    url: string;
+    token: string;
+  }) => Promise<{ id: string }>,
 ): Promise<AttemptView> {
   const attempt = attempts.get(id);
   if (!attempt) throw new Error("that pairing is no longer waiting");
@@ -284,7 +308,14 @@ export async function checkPairing(
     return view(timedOut);
   }
 
-  let answer: { state?: string; token?: string; deviceId?: string; name?: string };
+  let answer: {
+    state?: string;
+    token?: string;
+    deviceId?: string;
+    name?: string;
+    icon?: string;
+    tint?: string;
+  };
   try {
     answer = await callUnauthenticated(
       `${attempt.url}/pair/status?id=${encodeURIComponent(attempt.remoteRequestId)}`,
@@ -308,6 +339,8 @@ export async function checkPairing(
     const peer = await complete({
       deviceId: answer.deviceId,
       name: answer.name || attempt.name,
+      icon: answer.icon,
+      tint: answer.tint,
       url: attempt.url,
       token: answer.token,
     });

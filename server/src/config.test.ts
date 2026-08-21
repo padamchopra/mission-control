@@ -34,6 +34,34 @@ test("starts on the defaults a fresh install should have", () => {
   // Remy's own jobs are small and frequent, so they start on the cheap model
   // rather than on whatever the chats are using.
   assert.equal(settings.remyModel, "haiku");
+  assert.equal(settings.deviceName, "");
+  assert.equal(settings.deviceIcon, "");
+  assert.equal(settings.deviceTint, "");
+  assert.deepEqual(settings.favoriteModels, []);
+});
+
+test("keeps valid model favorites and drops values no provider accepts", () => {
+  const settings = patchSettings({
+    favoriteModels: ["claude:opus", "codex:gpt-5.6-terra", "claude:not-real", "claude:opus"],
+  });
+  assert.deepEqual(settings.favoriteModels, ["claude:opus", "codex:gpt-5.6-terra"]);
+});
+
+test("keeps a git-safe branch prefix and falls back to Remy", () => {
+  assert.equal(patchSettings({ worktreeBranchPrefix: " padamchopra/ " }).worktreeBranchPrefix, "padamchopra");
+  assert.equal(patchSettings({ worktreeBranchPrefix: "feature team" }).worktreeBranchPrefix, "feature-team");
+  assert.equal(patchSettings({ worktreeBranchPrefix: "///" }).worktreeBranchPrefix, "remy");
+});
+
+test("stores only a usable device identity", () => {
+  let settings = patchSettings({ deviceName: "  The Studio  ", deviceIcon: "monitor", deviceTint: "violet" });
+  assert.equal(settings.deviceName, "The Studio");
+  assert.equal(settings.deviceIcon, "monitor");
+  assert.equal(settings.deviceTint, "violet");
+
+  settings = patchSettings({ deviceIcon: "spaceship", deviceTint: "ultraviolet" });
+  assert.equal(settings.deviceIcon, "");
+  assert.equal(settings.deviceTint, "");
 });
 
 test("starts a thread on Ask until the machine is told otherwise", () => {

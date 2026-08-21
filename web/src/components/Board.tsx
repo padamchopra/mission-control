@@ -44,6 +44,15 @@ import {
 } from "@/components/ui/empty";
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -77,6 +86,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
 import type { Agent, Chat, Project, Server, Ticket, TicketStatus, Workspace } from "@/state/types";
+
+const DONE_PREVIEW_COUNT = 5;
 
 /// The board: one column per status, cards in rank order.
 ///
@@ -114,6 +125,7 @@ export function Board({
   const loadBoard = useStore((s) => s.loadBoard);
   const moveTicket = useStore((s) => s.moveTicket);
   const [composing, setComposing] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(false);
   const [dragging, setDragging] = useState<Ticket | undefined>();
 
   useEffect(() => {
@@ -240,6 +252,7 @@ export function Board({
                   projects={projects}
                   workspaces={workspaces}
                   onOpenTicket={onOpenTicket}
+                  onViewAllDone={() => setDoneOpen(true)}
                 />
               ))}
             </div>
@@ -267,6 +280,17 @@ export function Board({
         projectId={shown[0]?.id}
         onCreated={onOpenTicket}
       />
+      <DoneTicketsDialog
+        open={doneOpen}
+        onOpenChange={setDoneOpen}
+        tickets={ticketsInColumn(scoped, "done")}
+        agents={agents}
+        projects={projects}
+        workspaces={workspaces}
+        servers={servers}
+        boardDevices={boardDevices}
+        onOpenTicket={onOpenTicket}
+      />
     </main>
   );
 }
@@ -280,6 +304,7 @@ function Column({
   projects,
   workspaces,
   onOpenTicket,
+  onViewAllDone,
 }: {
   status: TicketStatus;
   tickets: Ticket[];
@@ -289,10 +314,12 @@ function Column({
   projects: Project[];
   workspaces: Workspace[];
   onOpenTicket: (key: string) => void;
+  onViewAllDone: () => void;
 }) {
   const servers = useStore((s) => s.servers);
   const boardDevices = useStore((s) => s.boardDevices);
   const { setNodeRef, isOver } = useDroppable({ id: status });
+  const shown = status === "done" ? tickets.slice(0, DONE_PREVIEW_COUNT) : tickets;
 
   return (
     <section className="flex w-[19rem] shrink-0 flex-col gap-2" aria-label={STATUS_LABEL[status]} data-status={status}>
@@ -308,7 +335,7 @@ function Column({
           isOver && "bg-accent/60 ring-1 ring-primary/40",
         )}
       >
-        {tickets.map((ticket) => (
+        {shown.map((ticket) => (
           <TicketCard
             key={ticket.id}
             ticket={ticket}
@@ -320,8 +347,82 @@ function Column({
             onOpen={() => onOpenTicket(ticket.key)}
           />
         ))}
+        {status === "done" && tickets.length > shown.length ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onViewAllDone}>
+            View all {tickets.length}
+          </Button>
+        ) : null}
       </div>
     </section>
+  );
+}
+
+function DoneTicketsDialog({
+  open,
+  onOpenChange,
+  tickets,
+  agents,
+  projects,
+  workspaces,
+  servers,
+  boardDevices,
+  onOpenTicket,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tickets: Ticket[];
+  agents: Agent[];
+  projects: Project[];
+  workspaces: Workspace[];
+  servers: Server[];
+  boardDevices: { deviceId: string; serverId: string }[];
+  onOpenTicket: (key: string) => void;
+}) {
+  const openTicket = (key: string) => {
+    onOpenChange(false);
+    onOpenTicket(key);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Done tickets</DialogTitle>
+          <DialogDescription>All finished tickets in the workspaces you picked.</DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[60vh]">
+          <ItemGroup className="gap-1 pr-3">
+            {tickets.map((ticket) => {
+              const workspace = workspaceForTicket(ticket, projects, workspaces);
+              const device = deviceForTicket(ticket, boardDevices, servers);
+              const DeviceIcon = deviceIcon(device?.icon);
+              return (
+                <Item key={ticket.id} asChild variant="outline" size="sm">
+                  <button type="button" className="w-full text-left" onClick={() => openTicket(ticket.key)}>
+                    <ItemMedia>
+                      <StatusIcon status="done" decorative />
+                    </ItemMedia>
+                    <ItemContent className="min-w-0 gap-0.5">
+                      <ItemTitle className="w-full min-w-0">
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{ticket.key}</span>
+                        <span className="truncate">{ticket.title}</span>
+                      </ItemTitle>
+                      <ItemDescription className="text-xs">
+                        Finished {shortDate(ticket.closedAt ?? ticket.updatedAt)}
+                      </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                      <AssigneeAvatar assignee={ticket.assigneeAgentId} agents={agents} workspace={workspace} />
+                      {device ? <DeviceIcon aria-label={device.name} /> : null}
+                    </ItemActions>
+                  </button>
+                </Item>
+              );
+            })}
+          </ItemGroup>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
   );
 }
 

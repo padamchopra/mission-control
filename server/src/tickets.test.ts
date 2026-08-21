@@ -16,6 +16,7 @@ const log = await import("./board-log.js");
 const projects = await import("./projects.js");
 const tickets = await import("./tickets.js");
 const agents = await import("./agents.js");
+const runner = await import("./ticket-runner.js");
 
 function project(name: string) {
   return projects.createProject({ name });
@@ -106,6 +107,23 @@ test("a sub-ticket hangs off its parent and cannot nest further", () => {
 });
 
 // ── status rules ────────────────────────────────────────────────────────────
+
+test("auto-start becomes ready regardless of whether Todo or assignee changes first", () => {
+  const board = project("Order independent start");
+  const agent = agents.createAgent({ name: "Autostarter" });
+
+  const statusFirst = tickets.createTicket({ projectId: board.id, title: "Status first" });
+  tickets.setTicketStatus(statusFirst.id, "todo");
+  assert.equal(runner.shouldAutoStart(tickets.getTicket(statusFirst.id)!), false);
+  tickets.updateTicket(statusFirst.id, { assigneeAgentId: agent.id });
+  assert.equal(runner.shouldAutoStart(tickets.getTicket(statusFirst.id)!), true);
+
+  const assigneeFirst = tickets.createTicket({ projectId: board.id, title: "Assignee first" });
+  tickets.updateTicket(assigneeFirst.id, { assigneeAgentId: agent.id });
+  assert.equal(runner.shouldAutoStart(tickets.getTicket(assigneeFirst.id)!), false);
+  tickets.setTicketStatus(assigneeFirst.id, "todo");
+  assert.equal(runner.shouldAutoStart(tickets.getTicket(assigneeFirst.id)!), true);
+});
 
 test("a thread only moves a ticket between In progress and Needs input", () => {
   const board = project("Statuses");

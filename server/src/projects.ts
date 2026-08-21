@@ -292,10 +292,15 @@ export async function syncProjectBindings(): Promise<void> {
 
 /// A folder on this machine to run a project's work in, if it is cloned here.
 export async function workspacePathForProject(projectId: string): Promise<string | undefined> {
+  return (await workspaceForProject(projectId))?.path;
+}
+
+/// The local folder for a project, including the model choice attached to it.
+export async function workspaceForProject(projectId: string): Promise<Workspace | undefined> {
   const ids = new Set(bindingsFor(projectId));
   if (ids.size === 0) return undefined;
   const workspaces = await listWorkspaces();
-  return workspaces.find((workspace) => ids.has(workspace.id))?.path;
+  return workspaces.find((workspace) => ids.has(workspace.id));
 }
 
 /// The next ticket number for a project.

@@ -6,13 +6,12 @@ import { config, patchSettings, publicSettings } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { createAgent, deleteAgent, getAgent, listAgents, seedPresetAgents, updateAgent } from "./agents.js";
 import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
-import { deviceId, onLocalAppend } from "./board-log.js";
+import { deviceId, onLocalAppend, onRemoteMerge, type LogEvent } from "./board-log.js";
 import {
   adoptWorkspace,
   listProjects,
   syncProjectBindings,
   updateProject,
-  workspacePathForProject,
 } from "./projects.js";
 import {
   commentOnTicket,
@@ -23,7 +22,6 @@ import {
   linkThread,
   listTickets,
   moveTicket,
-  prepareTicketStart,
   setTicketStatus,
   syncTicketFromThread,
   ticketActivity,
@@ -31,6 +29,7 @@ import {
   unlinkThread,
   updateTicket,
 } from "./tickets.js";
+import { reconcileAgentTickets, reconcileTicket, startTicketThread } from "./ticket-runner.js";
 import {
   chatsUnavailable,
   createChat,
@@ -46,6 +45,7 @@ import {
   updateChat,
 } from "./chat.js";
 import { findProjectFiles, findSkills } from "./discovery.js";
+import { discoveredProviders } from "./provider-discovery.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, deliverFromPeer, pushSession, pushSessionList } from "./notify.js";
 import { forgetPushDevice, pushStatus, registerPushDevice } from "./push.js";
@@ -70,11 +70,13 @@ import {
   peerViews,
   proxyToPeer,
   removePeer,
-  setExposed,
   startPeerSync,
   syncAnswer,
   syncNow,
+  thisMachineIcon,
   thisMachineName,
+  thisMachineTint,
+  updateIdentity,
   updatePeer,
 } from "./peers.js";
 import {
@@ -104,7 +106,6 @@ import { MAX_UPLOAD_BYTES, saveUpload } from "./uploads.js";
 import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { githubAvatar, githubLogin, tooling } from "./tooling.js";
-import { PROVIDERS } from "./providers.js";
 import { isRemyToolRoute, remyToolChatId } from "./ticket-tool-auth.js";
 import { lastUpdateRun, syncRepoUpdateSchedule, updateRepositories } from "./repo-update.js";
 import { attachStream } from "./stream.js";
@@ -346,8 +347,9 @@ const server = createServer(async (req, res) => {
     // rather than offering something that fails at spawn time.
     if (url.pathname === "/server/providers" && req.method === "GET") {
       const status = await tooling();
+      const providers = await discoveredProviders();
       return json(res, 200, {
-        providers: PROVIDERS.map((entry) => ({
+        providers: providers.map((entry) => ({
           ...entry,
           available: status[entry.command as "claude" | "codex"]?.available === true,
         })),
@@ -376,11 +378,16 @@ const server = createServer(async (req, res) => {
     // never funnel: the tailnet reaches it, the public internet cannot.
     if (url.pathname === "/server/identity" && req.method === "PATCH") {
       const body = await readJson(req);
-      if (typeof body.exposed !== "boolean") {
-        return json(res, 400, { error: "say whether this machine should be reachable" });
+      if (
+        body.exposed === undefined &&
+        body.name === undefined &&
+        body.icon === undefined &&
+        body.tint === undefined
+      ) {
+        return json(res, 400, { error: "say what should change about this machine" });
       }
       try {
-        return json(res, 200, await setExposed(body.exposed));
+        return json(res, 200, await updateIdentity(body));
       } catch (error) {
         return json(res, 409, { error: (error as Error).message });
       }
@@ -434,7 +441,7 @@ const server = createServer(async (req, res) => {
         return json(res, 201, await startPairing({
           url: body.url,
           name: body.name,
-          self: { url: self.url, name: self.name },
+          self: { url: self.url, name: self.name, icon: self.icon, tint: self.tint },
         }));
       } catch (error) {
         return json(res, 400, { error: (error as Error).message });
@@ -486,7 +493,18 @@ const server = createServer(async (req, res) => {
 
     // The machines this one is paired with.
     if (url.pathname === "/peers" && req.method === "GET") {
-      return json(res, 200, { deviceId, name: thisMachineName(), peers: peerViews() });
+      return json(res, 200, {
+        deviceId,
+        name: thisMachineName(),
+        icon: thisMachineIcon(),
+        tint: thisMachineTint(),
+        configured: {
+          name: Boolean(config.deviceName),
+          icon: Boolean(config.deviceIcon),
+          tint: Boolean(config.deviceTint),
+        },
+        peers: peerViews(),
+      });
     }
     if (url.pathname === "/peers" && req.method === "POST") {
       const body = await readJson(req);
@@ -767,28 +785,10 @@ const server = createServer(async (req, res) => {
       }
       if (req.method === "POST" && parts[2] === "start") {
         try {
-          const current = getTicket(id);
-          if (!current) return json(res, 404, { error: "no such ticket" });
-          if (current.deviceId && current.deviceId !== deviceId) {
-            return json(res, 409, { error: "This ticket runs on another device." });
-          }
-          const cwd = await workspacePathForProject(current.projectId);
-          if (!cwd) return json(res, 409, { error: "This workspace is not on this device." });
-
-          const { ticket, agentId } = prepareTicketStart(id);
-          const chat = createChat({
-            cwd,
-            title: ticket.title,
-            ...(agentId ? { agentId } : {}),
-          });
-          try {
-            await sendChatMessage(chat.id, `Work on ${ticket.key}`);
-          } catch (error) {
-            deleteChat(chat.id);
-            throw error;
-          }
+          const chat = await startTicketThread(id);
+          if (!chat) return json(res, 409, { error: "Couldn't start that thread." });
           broadcast({ type: "board" });
-          return json(res, 200, { chat: getChat(chat.id) ?? chat });
+          return json(res, 200, { chat });
         } catch (error) {
           const message = (error as Error).message || "Couldn't start that thread.";
           return json(res, /no such/.test(message) ? 404 : 409, { error: message });
@@ -1673,7 +1673,16 @@ seedPresetAgents();
 // Board changes can originate outside an HTTP handler: a thread changes its
 // ticket status, a recurrence runs, or an agent uses a ticket tool. Keep every
 // open window live without making each writer remember to send its own frame.
-onLocalAppend(() => broadcast({ type: "board" }));
+function reconcileBoardEvent(event: LogEvent): void {
+  if (event.entity === "ticket") void reconcileTicket(event.entityId);
+  if (event.entity === "agent") void reconcileAgentTickets(event.entityId);
+}
+
+onLocalAppend((event) => {
+  broadcast({ type: "board" });
+  reconcileBoardEvent(event);
+});
+onRemoteMerge(reconcileBoardEvent);
 
 // Who this machine is signed in as, asked once. It names the branches Remy
 // creates and the address on an agent's commits; Remy names itself when `gh`

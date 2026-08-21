@@ -221,10 +221,14 @@ export interface ServerSettings {
   /// with. Kept cheap on purpose, and `off` declines them altogether.
   remyProvider: string;
   remyModel: string;
+  favoriteModels: string[];
   repoUpdate: "off" | "hourly" | "sixHourly" | "daily";
   worktreeBranchPrefix: string;
   /// Your face: empty for the default, `preset:<id>`, or a `data:` URL.
   avatar: string;
+  deviceName: string;
+  deviceIcon: string;
+  deviceTint: string;
   /// What every agent set to Remy default signs with.
   defaultGitIdentity: "off" | "author";
   /// What a new thread and every inherited agent thinks with. It pairs with

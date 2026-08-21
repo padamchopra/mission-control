@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   Check,
+  ChevronDown,
   CircleAlert,
   Copy,
   GitBranch,
@@ -136,6 +137,7 @@ export function ChatView({
   const state = open?.state ?? chat.state;
   const working = state === "working";
   const entries = open?.entries ?? [];
+  const latestRequest = [...entries].reverse().find((entry) => entry.kind === "user" && entry.text)?.text;
   const approval = open?.approval;
   const question = open?.question;
 
@@ -203,6 +205,8 @@ export function ChatView({
         {onOpenTicket && <ThreadTicket chatId={chat.id} onOpenTicket={onOpenTicket} />}
         {headerEnd}
       </PaneHeader>
+
+      {latestRequest && <LatestRequest text={latestRequest} />}
 
       <ScrollFeed chatId={chat.id} count={entries.length} working={working} className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-5 py-6">
@@ -560,20 +564,32 @@ function CopyPrompt({ text }: { text: string }) {
 
 function ToolEntry({ entry }: { entry: ConvEntry }) {
   const failed = entry.status === "error";
+  const [expanded, setExpanded] = useState(false);
+  const expandable = Boolean(entry.output || entry.diff?.length);
+
   return (
     <div
       className={cn(
         // `min-w-0` so this can shrink inside the feed's column: without it a
         // long command sets the width and the whole thread scrolls sideways.
-        "flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-lg border px-3 py-2 text-xs",
+        "flex min-w-0 flex-col overflow-hidden rounded-lg border text-xs",
         failed ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/40",
       )}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 w-full min-w-0 justify-start rounded-lg px-2 font-normal hover:bg-transparent"
+        aria-expanded={expandable ? expanded : undefined}
+        onClick={() => expandable && setExpanded((value) => !value)}
+      >
+        <Wrench data-icon="inline-start" className="shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">{entry.verb ?? entry.tool ?? "Tool"}</span>
         {entry.arg && (
-          <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{entry.arg}</span>
+          <span className="min-w-0 flex-1 truncate text-left font-mono text-muted-foreground" title={entry.arg}>
+            {entry.arg}
+          </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {typeof entry.adds === "number" && entry.adds > 0 && (
@@ -583,16 +599,42 @@ function ToolEntry({ entry }: { entry: ConvEntry }) {
             <span className="font-mono text-destructive">−{entry.dels}</span>
           )}
           {failed && <Badge variant="destructive">Failed</Badge>}
+          {expandable && (
+            <ChevronDown
+              data-icon="inline-end"
+              className={cn("transition-transform", expanded && "rotate-180")}
+            />
+          )}
+        </span>
+      </Button>
+      {expanded && (
+        <div className="flex flex-col gap-1.5 px-3 pb-2">
+          {entry.diff && entry.diff.length > 0 && <Diff lines={entry.diff} />}
+          {entry.output && (
+            // Tool output is paths and ref names — long runs with nothing to break
+            // on — so it breaks anywhere rather than pushing the card wider.
+            <pre className="max-h-56 overflow-auto break-all whitespace-pre-wrap text-muted-foreground">
+              {entry.output}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LatestRequest({ text }: { text: string }) {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+
+  return (
+    <div className="shrink-0 border-b border-border bg-background/95 px-5 py-2" aria-label="Latest request">
+      <div className="mx-auto flex w-full max-w-3xl min-w-0 items-center gap-2">
+        <UserAvatar className="size-6 shrink-0" />
+        <span className="shrink-0 text-xs font-medium text-muted-foreground">You asked</span>
+        <span className="min-w-0 flex-1 truncate text-sm" title={oneLine}>
+          {oneLine}
         </span>
       </div>
-      {entry.diff && entry.diff.length > 0 && <Diff lines={entry.diff} />}
-      {entry.output && (
-        // Tool output is paths and ref names — long runs with nothing to break
-        // on — so it breaks anywhere rather than pushing the card wider.
-        <pre className="max-h-56 overflow-auto break-all whitespace-pre-wrap text-muted-foreground">
-          {entry.output}
-        </pre>
-      )}
     </div>
   );
 }

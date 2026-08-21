@@ -33,6 +33,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppActionsProvider, useAppActions } from "@/actions/context";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ChatComposer } from "@/components/ChatComposer";
 import { ChatView } from "@/components/ChatView";
@@ -40,18 +41,18 @@ import { PaneHeader } from "@/components/PaneHeader";
 import { Palette } from "@/components/Palette";
 import { AddWorkspaceDialog } from "@/components/AddWorkspace";
 import { PairRequestDialog } from "@/components/PairRequest";
-import { Board } from "@/components/Board";
+import { Board, NewTicketDialog } from "@/components/Board";
 import { Recurring } from "@/components/Recurring";
 import { MissingTicket, TicketView } from "@/components/TicketView";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
-import { devicesForWorkspace, WorkspaceSettings } from "@/components/WorkspaceSettings";
+import { WorkspaceSettings } from "@/components/WorkspaceSettings";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useAppLocation } from "@/hooks/use-location";
 import { useRelease } from "@/hooks/use-release";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { notificationsEnabled } from "@/lib/notify";
-import { isProjectIconFile } from "@/lib/projects";
+import { devicesForWorkspace, isProjectIconFile } from "@/lib/projects";
 import { sectionOf, type Route } from "@/lib/route";
 import { WorkspaceIcon } from "@/components/WorkspaceIcon";
 import { tintOf } from "@/lib/tints";
@@ -145,6 +146,7 @@ export function App() {
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
+  const [addTicketOpen, setAddTicketOpen] = useState(false);
 
   const go = (next: Route, replace = false) => navigate({ route: next }, replace);
 
@@ -162,6 +164,7 @@ export function App() {
   const start = useStore((s) => s.start);
   const loadSettings = useStore((s) => s.loadSettings);
   const tickets = useStore((s) => s.tickets);
+  const projects = useStore((s) => s.projects);
   const loadBoard = useStore((s) => s.loadBoard);
   const release = useRelease();
 
@@ -273,6 +276,14 @@ export function App() {
   );
 
   return (
+    <AppActionsProvider
+      context={{
+        hasProjects: projects.length > 0,
+        addTicket: () => setAddTicketOpen(true),
+        startThread: draftChat,
+        registerWorkspace: () => setAddWorkspaceOpen(true),
+      }}
+    >
     <div className="flex h-full flex-col bg-background text-foreground">
       {/* Titlebar. Draggable, with the leading inset clearing the traffic lights. */}
       <header
@@ -367,7 +378,7 @@ export function App() {
                 key={active.id}
                 chat={active}
                 onOpenTicket={(key) => go({ name: "ticket", key })}
-                headerEnd={<NewChatButton onClick={draftChat} />}
+                headerEnd={<NewChatButton />}
               />
             ) : section === "chats" && canCompose ? (
               <ChatComposer
@@ -548,6 +559,12 @@ export function App() {
       </SidebarProvider>
 
       <AddWorkspaceDialog open={addWorkspaceOpen} onOpenChange={setAddWorkspaceOpen} />
+      <NewTicketDialog
+        open={addTicketOpen}
+        onOpenChange={setAddTicketOpen}
+        projects={projects}
+        onCreated={(key) => go({ name: "ticket", key })}
+      />
       {/* Wherever you are: another machine is waiting on your answer. */}
       <PairRequestDialog />
       <Palette
@@ -559,14 +576,22 @@ export function App() {
         sections={SECTIONS}
       />
     </div>
+    </AppActionsProvider>
   );
 }
 
-function NewChatButton({ onClick }: { onClick: () => void }) {
+function NewChatButton() {
+  const { run } = useAppActions();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label="New thread" onClick={onClick}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New thread"
+          onClick={() => void run("thread.start")}
+        >
           <SquarePen />
         </Button>
       </TooltipTrigger>

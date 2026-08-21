@@ -2,7 +2,7 @@ import { httpError } from "./api-error";
 import { appearanceOf, codeFor, isDeviceIcon, saveAppearance, type DeviceIconId } from "./devices";
 import { hostLabel } from "./pairing";
 import { directId, originOf, type Pairing } from "./session";
-import type { TintId } from "./tints";
+import { isTint, type TintId } from "./tints";
 import type { Server } from "../state/types";
 
 export interface Transport {
@@ -21,6 +21,7 @@ interface WirePeer {
   name: string;
   url: string;
   icon?: string;
+  tint?: string;
   notify?: boolean;
   online?: boolean;
   lastSeen?: number;
@@ -54,14 +55,15 @@ function notifyUrl(base: string): string {
   return url.toString();
 }
 
-function toDirect(name: string, url: string, online: boolean, id: string): Server {
+function toDirect(name: string, url: string, online: boolean, id: string, icon?: string, tint?: string): Server {
   return {
     id,
     name,
     url,
     code: codeFor(name),
     online,
-    icon: "laptop",
+    icon: isDeviceIcon(icon) ? icon : "laptop",
+    ...(isTint(tint) ? { tint } : {}),
     home: true,
   };
 }
@@ -86,6 +88,7 @@ function toPeer(peer: WirePeer): Server {
     code: codeFor(peer.name),
     online: peer.online === true,
     icon: isDeviceIcon(peer.icon) ? peer.icon : "laptop",
+    ...(isTint(peer.tint) ? { tint: peer.tint } : {}),
     peer: true,
     notify: peer.notify === true,
     ...(peer.lastSeen ? { lastSeen: peer.lastSeen } : {}),
@@ -199,7 +202,7 @@ export const transport: Transport = {
       const name = pairing.name || hostLabel(origin);
       try {
         const health = await fetchPath<{ ok?: boolean }>(pairing, "/health");
-        let listed: { deviceId?: string; name?: string; peers?: WirePeer[] } = {};
+        let listed: { deviceId?: string; name?: string; icon?: string; tint?: string; peers?: WirePeer[] } = {};
         try {
           listed = await fetchPath(pairing, "/peers");
         } catch {
@@ -209,7 +212,7 @@ export const transport: Transport = {
           routes.set(id, { pairing });
           seenIds.add(id);
           seenUrls.add(origin);
-          out.push(withAppearance(toDirect(listed.name || name, origin, health.ok === true, id)));
+          out.push(withAppearance(toDirect(listed.name || name, origin, health.ok === true, id, listed.icon, listed.tint)));
         }
         for (const peer of listed.peers ?? []) {
           const peerOrigin = originOf(peer.url);
@@ -246,6 +249,7 @@ export const transport: Transport = {
     const body: Record<string, unknown> = {};
     if (patch.name !== undefined) body.name = patch.name;
     if (patch.icon !== undefined) body.icon = patch.icon;
+    if (patch.tint !== undefined) body.tint = patch.tint;
     if (Object.keys(body).length === 0) return;
     await fetchPath(route.pairing, `/peers/${encodeURIComponent(route.peerId)}`, { method: "PATCH", body });
   },

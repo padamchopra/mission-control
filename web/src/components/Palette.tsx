@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
-import { Camera, MessagesSquare } from "lucide-react";
+import { MessagesSquare } from "lucide-react";
+import { useAppActions } from "@/actions/context";
 import { Badge } from "@/components/ui/badge";
 import {
   CommandDialog,
@@ -12,8 +13,6 @@ import {
 } from "@/components/ui/command";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
-import { toast } from "sonner";
-import { takeSnapshot } from "@/lib/snapshot";
 import { displayPath } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import type { Chat } from "@/state/types";
@@ -38,28 +37,20 @@ export function Palette({
   onOpenChat: (id: string) => void;
   onOpenSection: (id: string) => void;
 }) {
+  const { actions, run: runAction } = useAppActions();
   const run = (fn: () => void) => () => {
     onOpenChange(false);
     fn();
   };
 
-  // The palette closes first: it is on screen, and a picture of it is not the
-  // picture anyone wanted.
-  const snapshot = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    try {
-      const where = await takeSnapshot();
-      toast.success("Took a snapshot.", { description: where });
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Try again.";
-      // Dismissing the platform's own picker is a decision, not a failure.
-      if (/denied|dismissed|aborted|NotAllowed/i.test(message)) return;
-      toast.error("Couldn't take a snapshot", { description: message });
-    }
-  };
-
   const attention = chats.filter((chat) => chat.state === "needs_input");
   const rest = chats.filter((chat) => chat.state !== "needs_input");
+  const actionGroups = actions.reduce((groups, action) => {
+    const entries = groups.get(action.group);
+    if (entries) entries.push(action);
+    else groups.set(action.group, [action]);
+    return groups;
+  }, new Map<string, typeof actions>());
 
   return (
     <CommandDialog
@@ -71,8 +62,8 @@ export function Palette({
       className="top-[12%] translate-y-0 sm:max-w-[620px]"
     >
       <CommandInput placeholder="Search threads and commands" />
-      <CommandList className="max-h-[380px]">
-        <CommandEmpty>No matches. Try a thread title or a folder.</CommandEmpty>
+      <CommandList className="max-h-[min(520px,65vh)]">
+        <CommandEmpty>No matches. Try a thread title or an action.</CommandEmpty>
 
         {attention.length > 0 && (
           <CommandGroup heading="Needs you">
@@ -105,12 +96,26 @@ export function Palette({
 
         <CommandSeparator />
 
-        <CommandGroup heading="Do">
-          <CommandItem value="Take a snapshot" onSelect={run(() => void snapshot())}>
-            <Camera className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate">Take a snapshot</span>
-          </CommandItem>
-        </CommandGroup>
+        {Array.from(actionGroups, ([group, entries], index) => (
+          <div key={group}>
+            {index > 0 && <CommandSeparator />}
+            <CommandGroup heading={group}>
+              {entries.map((action) => {
+                const Icon = action.icon;
+                return (
+                  <CommandItem
+                    key={action.id}
+                    value={`${action.label} ${action.keywords?.join(" ") ?? ""}`}
+                    onSelect={run(() => void runAction(action.id))}
+                  >
+                    <Icon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">{action.label}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </div>
+        ))}
       </CommandList>
 
       <Separator />

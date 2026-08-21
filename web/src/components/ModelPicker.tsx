@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, CircleSlash } from "lucide-react";
-import remyMark from "@/assets/remy-mark.png";
+import { Check, ChevronDown, CircleSlash, Star } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   CommandDialog,
@@ -12,7 +12,15 @@ import {
 } from "@/components/ui/command";
 import { InputGroupButton, InputGroupText } from "@/components/ui/input-group";
 import { ProviderMark } from "@/components/ProviderMark";
-import { modelLabel, PROVIDERS, type ModelChoice, type Provider } from "@/lib/providers";
+import {
+  modelLabel,
+  providerLabel,
+  resolvedModelLabel,
+  PROVIDERS,
+  type ModelChoice,
+  type Provider,
+  type ProviderModel,
+} from "@/lib/providers";
 import { useStore } from "@/state/store";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +69,10 @@ function useProviders(): Provider[] {
   return providers ?? PROVIDERS;
 }
 
+function displayModel(model: ProviderModel): string {
+  return model.context ? `${model.label} (${model.context})` : model.label;
+}
+
 /// The dialog on its own, for a caller that already has a trigger.
 export function ModelPicker({
   open,
@@ -82,8 +94,25 @@ export function ModelPicker({
   defaultChoice?: ModelChoice;
 }) {
   const providers = useProviders();
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
   const off = allowOff && value.model === OFF;
   const inherited = allowDefault && value.provider === REMY_DEFAULT;
+  const favorites = new Set(settings?.favoriteModels ?? []);
+
+  const toggleFavorite = (provider: string, model: string) => {
+    const key = `${provider}:${model}`;
+    const next = favorites.has(key)
+      ? [...favorites].filter((entry) => entry !== key)
+      : [...favorites, key];
+    void saveSettings({ favoriteModels: next }).catch(() => toast.error("Couldn't update favorites"));
+  };
+
+  const favoriteModels = providers.flatMap((provider) =>
+    provider.models.flatMap((model) =>
+      model.value && favorites.has(`${provider.id}:${model.value}`) ? [{ provider, model }] : [],
+    ),
+  );
 
   const pick = (choice: ModelChoice) => {
     onOpenChange(false);
@@ -108,20 +137,49 @@ export function ModelPicker({
       <CommandList className="max-h-[440px]">
         <CommandEmpty>No model by that name.</CommandEmpty>
         {allowDefault && (
-          <CommandGroup heading="From Remy">
+          <CommandGroup>
             <CommandItem
-              value="Remy default inherited"
+              value="Default inherited"
               onSelect={() => pick({ provider: REMY_DEFAULT, model: "" })}
             >
-              <img src={remyMark} alt="" className="size-4 rounded-[4px]" />
-              <span>Remy default</span>
-              {defaultChoice && (
-                <span className="text-xs text-muted-foreground">
-                  {modelLabel(providers, defaultChoice)}
-                </span>
-              )}
+              <ProviderMark provider={defaultChoice?.provider ?? "claude"} />
+              <span>
+                {defaultChoice
+                  ? `Default (${providerLabel(providers, defaultChoice.provider)} ${resolvedModelLabel(providers, defaultChoice)})`
+                  : "Default"}
+              </span>
               {inherited ? <Check className="ml-auto" /> : null}
             </CommandItem>
+          </CommandGroup>
+        )}
+        {favoriteModels.length > 0 && (
+          <CommandGroup heading="Favorites">
+            {favoriteModels.map(({ provider, model }) => (
+              <CommandItem
+                key={`favorite:${provider.id}:${model.value}`}
+                value={`${model.label} ${provider.label} favorite`}
+                keywords={[model.value, provider.id]}
+                disabled={provider.available === false}
+                onSelect={() => pick({ provider: provider.id, model: model.value })}
+              >
+                <ProviderMark provider={provider.id} />
+                <span className="min-w-0 truncate">{displayModel(model)}</span>
+                <span className="text-xs text-muted-foreground">{provider.label}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Remove ${model.label} from favorites`}
+                  className="ml-auto text-yellow-500"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleFavorite(provider.id, model.value);
+                  }}
+                >
+                  <Star className="fill-current" />
+                </Button>
+              </CommandItem>
+            ))}
           </CommandGroup>
         )}
         {providers.map((provider) => {
@@ -145,12 +203,27 @@ export function ModelPicker({
                   onSelect={() => pick({ provider: provider.id, model: model.value })}
                 >
                   <ProviderMark provider={provider.id} />
-                  <span className="min-w-0 truncate">{model.label}</span>
-                  {model.detail && (
-                    <span className="min-w-0 truncate text-xs text-muted-foreground">{model.detail}</span>
+                  <span className="min-w-0 truncate">{displayModel(model)}</span>
+                  {model.value && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`${favorites.has(`${provider.id}:${model.value}`) ? "Remove" : "Add"} ${model.label} ${favorites.has(`${provider.id}:${model.value}`) ? "from" : "to"} favorites`}
+                      className={cn(
+                        "ml-auto text-muted-foreground opacity-60 hover:opacity-100",
+                        favorites.has(`${provider.id}:${model.value}`) && "text-yellow-500 opacity-100",
+                      )}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleFavorite(provider.id, model.value);
+                      }}
+                    >
+                      <Star className={cn(favorites.has(`${provider.id}:${model.value}`) && "fill-current")} />
+                    </Button>
                   )}
                   {!off && !inherited && provider.id === value.provider && model.value === (value.model ?? "") ? (
-                    <Check className="ml-auto" />
+                    <Check />
                   ) : null}
                 </CommandItem>
               ))}
@@ -204,9 +277,13 @@ export function ModelPickerButton({
   const providers = useProviders();
   const [open, setOpen] = useState(false);
   const inherited = allowDefault && value.provider === REMY_DEFAULT;
-  const label = inherited ? "Remy default" : value.model === OFF ? "Off" : modelLabel(providers, value);
+  const label = inherited
+    ? defaultChoice
+      ? `Default (${providerLabel(providers, defaultChoice.provider)} ${resolvedModelLabel(providers, defaultChoice)})`
+      : "Default"
+    : value.model === OFF ? "Off" : modelLabel(providers, value);
   const mark = inherited
-    ? <img src={remyMark} alt="" className="size-4 rounded-[4px]" />
+    ? <ProviderMark provider={defaultChoice?.provider ?? "claude"} />
     : <ProviderMark provider={value.provider} />;
 
   if (disabled && variant === "composer") {
@@ -235,7 +312,7 @@ export function ModelPickerButton({
           size="sm"
           title={title}
           disabled={disabled}
-          className={cn("w-56 shrink-0 justify-start font-normal", className)}
+          className={cn("w-72 shrink-0 justify-start font-normal", className)}
           onClick={() => setOpen(true)}
         >
           {mark}

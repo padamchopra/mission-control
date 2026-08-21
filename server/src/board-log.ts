@@ -41,6 +41,7 @@ export interface LogEvent {
 }
 
 const localAppendListeners = new Set<(event: LogEvent) => void>();
+const remoteMergeListeners = new Set<(event: LogEvent) => void>();
 
 /// Runs after this machine writes a board event. Callbacks are deferred until
 /// the writer has rebuilt its projection, so a window reacting to the signal
@@ -48,6 +49,13 @@ const localAppendListeners = new Set<(event: LogEvent) => void>();
 export function onLocalAppend(listener: (event: LogEvent) => void): () => void {
   localAppendListeners.add(listener);
   return () => localAppendListeners.delete(listener);
+}
+
+/// Runs after peer events have landed. Deferred so the caller can rebuild the
+/// board projections before subscribers read the changed ticket or agent.
+export function onRemoteMerge(listener: (event: LogEvent) => void): () => void {
+  remoteMergeListeners.add(listener);
+  return () => remoteMergeListeners.delete(listener);
 }
 
 /// This machine's name in the log. Minted once and kept, because every event
@@ -246,6 +254,7 @@ export function mergeRemote(events: unknown): number {
   if (parsed.length === 0) return 0;
 
   let landed = 0;
+  const landedEvents: LogEvent[] = [];
   runTransaction(() => {
     const insert = db.prepare(
       `insert or ignore into board_log (id, device_id, lamport, at, entity, entity_id, kind, json)
@@ -262,8 +271,18 @@ export function mergeRemote(events: unknown): number {
         event.kind,
         JSON.stringify(event.payload),
       );
-      if (Number(result.changes) > 0) landed += 1;
+      if (Number(result.changes) > 0) {
+        landed += 1;
+        landedEvents.push(event);
+      }
     }
   });
+  if (landedEvents.length > 0) {
+    queueMicrotask(() => {
+      for (const event of landedEvents) {
+        for (const listener of remoteMergeListeners) listener(event);
+      }
+    });
+  }
   return landed;
 }
