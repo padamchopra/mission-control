@@ -34,6 +34,11 @@ function migrate(database: DatabaseSync): void {
       created_at integer not null,
       updated_at integer not null,
       claude_session_id text,
+      -- Which agent runs this thread, and the id that resumes it there. Each
+      -- provider keeps its own transcript, so each has its own column: a thread
+      -- that ran on one is not resumable on the other.
+      provider text not null default 'claude',
+      codex_thread_id text,
       turns integer not null default 0,
       cost_usd real,
       context_json text,
@@ -209,6 +214,16 @@ function migrate(database: DatabaseSync): void {
   }
   try {
     database.exec("alter table tickets add column number integer not null default 0");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
+  try {
+    database.exec("alter table chats add column provider text not null default 'claude'");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
+  try {
+    database.exec("alter table chats add column codex_thread_id text");
   } catch {
     // Column already exists on databases created after this migration.
   }

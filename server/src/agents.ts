@@ -3,6 +3,7 @@ import { append, applyFields, entityIds, eventsFor } from "./board-log.js";
 import type { ChatPermissionMode } from "./chat.js";
 import { config } from "./config.js";
 import { db, runTransaction } from "./db.js";
+import { providerId, providerModel, type ProviderId } from "./providers.js";
 
 // An agent is a thread with a character on the front: the same Claude, the same
 // worktree, the same feed, started with its instructions appended to the preset
@@ -22,7 +23,9 @@ export interface Agent {
   handle: string;
   role?: string;
   instructions: string;
-  provider: string;
+  provider: ProviderId;
+  /// In its provider's own naming. Absent leaves the choice to whatever that
+  /// tool is configured with.
   model?: string;
   permissionMode: ChatPermissionMode;
   avatar?: string;
@@ -48,7 +51,6 @@ const PERMISSION_MODES: ChatPermissionMode[] = [
   "plan",
   "bypassPermissions",
 ];
-const MODELS = ["", "opus", "sonnet", "haiku"];
 const GIT_IDENTITIES: GitIdentityMode[] = ["off", "author", "full"];
 
 const EDITABLE = [
@@ -117,7 +119,7 @@ function fold(id: string): Agent | undefined {
         name: String(event.payload.name ?? "Agent"),
         handle: String(event.payload.handle ?? "agent"),
         instructions: String(event.payload.instructions ?? ""),
-        provider: String(event.payload.provider ?? "claude"),
+        provider: providerId(event.payload.provider),
         permissionMode: oneOf(PERMISSION_MODES, event.payload.permissionMode, "default"),
         autoStart: event.payload.autoStart !== false,
         handoffTo: Array.isArray(event.payload.handoffTo) ? (event.payload.handoffTo as string[]) : [],
@@ -209,7 +211,7 @@ function toAgent(row: Record<string, unknown>): Agent {
     handle: String(row.handle),
     ...(row.role ? { role: String(row.role) } : {}),
     instructions: String(row.instructions ?? ""),
-    provider: String(row.provider ?? "claude"),
+    provider: providerId(row.provider),
     ...(row.model ? { model: String(row.model) } : {}),
     permissionMode: String(row.permission_mode) as ChatPermissionMode,
     ...(row.avatar ? { avatar: String(row.avatar) } : {}),
@@ -261,8 +263,11 @@ export function agentByHandle(handle: string): Agent | undefined {
 export const WORKSPACE_AGENT = "workspace";
 
 /// The workspace agent as an `Agent`, so anything that runs a turn takes one
-/// shape. Not a row: it cannot be renamed, edited or deleted, and an empty
-/// `model` is what makes it this machine's default rather than a choice.
+/// shape. Not a row: it cannot be renamed, edited or deleted.
+///
+/// Its provider and model are this machine's own, which is the whole idea — the
+/// workspace agent is the absence of a persona, not a provider of its own, so it
+/// runs on exactly what a thread you started yourself would.
 export function workspaceAgent(): Agent {
   return {
     id: WORKSPACE_AGENT,
@@ -270,7 +275,8 @@ export function workspaceAgent(): Agent {
     handle: WORKSPACE_AGENT,
     role: "The workspace's own default model, with no instructions in front of it",
     instructions: "",
-    provider: "claude",
+    provider: config.defaultProvider,
+    ...(config.defaultModel ? { model: config.defaultModel } : {}),
     permissionMode: "default",
     autoStart: true,
     handoffTo: [],
@@ -326,8 +332,16 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
   }
   if (input.role !== undefined) patch.role = text(input.role, 80) ?? "";
   if (input.instructions !== undefined) patch.instructions = text(input.instructions, 8000) ?? "";
-  if (input.provider !== undefined) patch.provider = input.provider === "codex" ? "codex" : "claude";
-  if (input.model !== undefined) patch.model = oneOf(MODELS, input.model, "");
+  // Provider and model are one choice: moving an agent to Codex takes its model
+  // with it, to Codex's default rather than to a Claude alias Codex would refuse.
+  if (input.provider !== undefined || input.model !== undefined) {
+    const provider = input.provider === undefined
+      ? (existing?.provider ?? config.defaultProvider)
+      : providerId(input.provider, existing?.provider);
+    const model = input.model === undefined ? (existing?.model ?? "") : input.model;
+    if (input.provider !== undefined) patch.provider = provider;
+    patch.model = providerModel(provider, model);
+  }
   if (input.permissionMode !== undefined) {
     patch.permissionMode = oneOf(PERMISSION_MODES, input.permissionMode, existing?.permissionMode ?? "default");
   }
