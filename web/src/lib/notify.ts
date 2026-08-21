@@ -3,7 +3,7 @@
 ///
 /// The server already decides what is worth a banner and pushes it down the
 /// notify socket as a `notification` frame — the same frames that reach a phone
-/// through ntfy when nothing is connected. This turns one into a real
+/// through Apple Push when nothing is connected. This turns one into a real
 /// notification and routes the click back to the thread it came from.
 
 export interface NotifyFrame {

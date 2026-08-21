@@ -196,6 +196,14 @@ function migrate(database: DatabaseSync): void {
       paired_at integer not null,
       last_seen integer
     );
+    -- iPhones that receive Apple Push from this daemon. A token is the phone's
+    -- identity; the name is whatever it called itself when it registered.
+    create table if not exists push_devices (
+      token text primary key,
+      name text not null,
+      registered_at integer not null,
+      last_seen integer not null
+    );
   `);
   try {
     database.exec("alter table workspaces add column icon text");

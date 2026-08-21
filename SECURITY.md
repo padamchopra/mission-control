@@ -70,6 +70,4 @@ security-relevant even though it's only meant to be reachable by its owner.
   Bypass) is the same tradeoff as the CLI.
 - **Terminal input reaches the pane's program.** Inherent to the leftover tmux
   remote — you are typing into your own shell.
-- **Notification text transits ntfy** (unless self-hosted). Kept terse (session
-  or chat + short reason); the topic is random and unguessable. Self-host ntfy
-  to keep it entirely on your own infrastructure.
+- **Notification text transits Apple Push** when no window is open. Kept terse (thread + short reason). The APNs key lives in `~/.remy/apns.json` on the Mac that sends the push.

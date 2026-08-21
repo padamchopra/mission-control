@@ -1,6 +1,6 @@
 # Remy
 
-Remy is a remote for [Claude Code](https://claude.com/claude-code) and [Codex](https://developers.openai.com/codex) on your own machines. Point it at a folder, say what you want done, and the agent runs on the Mac that actually holds the repo — while you watch from the desktop app, a browser tab, or your phone on the couch.
+Remy is a remote for [Claude Code](https://claude.com/claude-code) and [Codex](https://developers.openai.com/codex) on your own machines. Point it at a folder, say what you want done, and the agent runs on the Mac that actually holds the repo — while you watch from the desktop app, a browser tab, or the iPhone app on the couch.
 
 <img src="docs/images/threads.png" alt="Remy showing four threads across two machines, with a composer for a new one" width="100%" />
 
@@ -60,18 +60,27 @@ From then on the two share a planning board — tickets and agents converge on b
 
 If a machine is somewhere Tailscale is not, **Pair with a link instead** takes a `remy://configure?…` link you copy from the other side.
 
+## On the iPhone
+
+The same remote, in your pocket. Pair it from **Settings → Devices**.
+
+<p>
+<img src="docs/images/phone-pair.png" alt="Pairing the iPhone app with a Mac" width="280" />
+<img src="docs/images/phone-threads.png" alt="The iPhone app with its sidebar open on a new thread" width="280" />
+</p>
+
 ## Where notifications go
 
 Every device card has a **Notifications** switch, and it means: when a thread on *this* machine needs you, tell *that* device. Turn on the ones you want. Turn off the machine you never sit at.
 
-When a window is open, notifications are banners. When none is, they go to your phone through [ntfy](https://ntfy.sh) — install the free app and subscribe to the topic `./deploy/setup.sh` prints. Notification text through hosted `ntfy.sh` passes over their server, so Remy keeps it terse; point `ntfyServer` at your own if you would rather it did not.
+When a window is open, notifications are banners. When none is, they go to your iPhone through Apple Push. Pair the iPhone app from **Settings → Devices**, and put your APNs key in `~/.remy/apns.json` (see `deploy/apns.json.example`).
 
 ## Some notes
 
 This is early, and built for one person's setup first. Expect rough edges.
 
 - **macOS only** for now. The daemon is Node and would likely run elsewhere; nobody has tried.
-- **The iOS app in `ios/` is well out of date.** It still speaks an older tmux-based remote. Notifications to your phone work; the app does not represent the current product.
+- **The iOS app** in `mobile/` is a React Native remote. It cannot run threads on its own — pair it with a Mac from Settings → Devices.
 - **Stay awake** prevents *idle* sleep. Closing a MacBook lid is a different thing and can still sleep the machine.
 - **Repos on an external drive** need Full Disk Access for Remy, in System Settings → Privacy & Security.
 - **Running a 1M context window?** Transcripts do not record the window size, so set `contextLimit` if the meter looks wrong.

@@ -124,8 +124,6 @@ STORE="$MC_DIR/store.mjs"
 TOKEN="$(node "$STORE" get config token 2>/dev/null || echo "<server did not start — check $MC_DIR/server.log>")"
 PORT="$(node "$STORE" get config port 2>/dev/null || echo 8420)"
 TS_HOST="$("$TAILSCALE" status --json 2>/dev/null | node -p 'try { JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"") } catch { "<tailscale hostname>" }' 2>/dev/null || echo "<tailscale hostname>")"
-NTFY_SERVER="$(node "$STORE" get config ntfyServer 2>/dev/null || echo "https://ntfy.sh")"
-NTFY_TOPIC="$(node "$STORE" get config ntfyTopic 2>/dev/null || echo "<ntfy topic>")"
 
 if curl -s -m 3 -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/health" | grep -q '"ok":true'; then
   HEALTH="healthy"
@@ -161,7 +159,7 @@ cat <<SUMMARY
 Remy server: $HEALTH
 Tailnet exposure:        $SERVE_NOTE
 
-Pair the app: open Settings → "Scan pairing QR" and scan this:
+Pair the app: open Remy on your iPhone and scan this:
 ============================================================
 SUMMARY
 
@@ -175,15 +173,13 @@ Or enter manually:
   Server URL : $APP_URL
   Token      : $TOKEN
 
-On desktop, copy this link and use "Paste pairing link" in the app:
+On desktop, copy this link and use "Paste pairing link" in the iPhone app:
   $PAIR_LINK
 
 Reprint this QR anytime:  ./deploy/show-pairing.sh
 
-Notifications (ntfy) — install the "ntfy" app on your phone, add
-server $NTFY_SERVER, and subscribe to topic:
-  $NTFY_TOPIC
-Notifications tap through to the session in Remy.
+Notifications go to the iPhone app through Apple Push. Copy deploy/apns.json.example
+to ~/.remy/apns.json with your key, then pair the phone.
 
 Once the app is on your phone, turn off Claude Code remote control
 (remoteControlAtStartup: false) — Remy replaces it.
