@@ -14,7 +14,10 @@ import { providerId, providerModel, type ProviderId } from "./providers.js";
 // that loads every chat at import time. Types are erased; the permission modes
 // below are the one small duplication that buys that.
 
-export type GitIdentityMode = "off" | "author" | "full";
+export const REMY_DEFAULT = "default";
+
+export type AgentProvider = ProviderId | typeof REMY_DEFAULT;
+export type GitIdentityMode = typeof REMY_DEFAULT | "off" | "author";
 
 export interface Agent {
   id: string;
@@ -23,7 +26,8 @@ export interface Agent {
   handle: string;
   role?: string;
   instructions: string;
-  provider: ProviderId;
+  /// `default` follows this machine's thread default when a thread starts.
+  provider: AgentProvider;
   /// In its provider's own naming. Absent leaves the choice to whatever that
   /// tool is configured with.
   model?: string;
@@ -51,7 +55,7 @@ const PERMISSION_MODES: ChatPermissionMode[] = [
   "plan",
   "bypassPermissions",
 ];
-const GIT_IDENTITIES: GitIdentityMode[] = ["off", "author", "full"];
+const GIT_IDENTITIES: GitIdentityMode[] = [REMY_DEFAULT, "off", "author"];
 
 const EDITABLE = [
   "name",
@@ -99,6 +103,19 @@ function oneOf<T extends string>(allowed: readonly T[], value: unknown, fallback
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
+function gitIdentity(value: unknown, fallback: GitIdentityMode): GitIdentityMode {
+  // `full` is the retired agent-as-committer mode. Treat old events and clients
+  // as agent attribution so history converges without preserving that option.
+  if (value === "full") return "author";
+  return oneOf(GIT_IDENTITIES, value, fallback);
+}
+
+function agentProvider(value: unknown, fallback: AgentProvider = REMY_DEFAULT): AgentProvider {
+  if (value === REMY_DEFAULT) return REMY_DEFAULT;
+  if (value === "claude" || value === "codex") return value;
+  return fallback;
+}
+
 function text(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -119,11 +136,11 @@ function fold(id: string): Agent | undefined {
         name: String(event.payload.name ?? "Agent"),
         handle: String(event.payload.handle ?? "agent"),
         instructions: String(event.payload.instructions ?? ""),
-        provider: providerId(event.payload.provider),
+        provider: agentProvider(event.payload.provider),
         permissionMode: oneOf(PERMISSION_MODES, event.payload.permissionMode, "default"),
         autoStart: event.payload.autoStart !== false,
         handoffTo: Array.isArray(event.payload.handoffTo) ? (event.payload.handoffTo as string[]) : [],
-        gitIdentity: oneOf(GIT_IDENTITIES, event.payload.gitIdentity, "author"),
+        gitIdentity: gitIdentity(event.payload.gitIdentity, REMY_DEFAULT),
         // `preset` is not editable, so it is read from the create event rather
         // than folded — and without it `seedPresetAgents` would find nothing
         // and seed the built-ins again on every boot.
@@ -139,7 +156,11 @@ function fold(id: string): Agent | undefined {
   }
   // Derived last, from the handle the fold settled on, so a renamed handle
   // takes its address with it.
-  return agent && { ...agent, gitEmail: agentGitEmail(agent.handle) };
+  return agent && {
+    ...agent,
+    gitIdentity: gitIdentity(agent.gitIdentity, REMY_DEFAULT),
+    gitEmail: agentGitEmail(agent.handle),
+  };
 }
 
 function write(agent: Agent): void {
@@ -211,14 +232,14 @@ function toAgent(row: Record<string, unknown>): Agent {
     handle: String(row.handle),
     ...(row.role ? { role: String(row.role) } : {}),
     instructions: String(row.instructions ?? ""),
-    provider: providerId(row.provider),
+    provider: agentProvider(row.provider),
     ...(row.model ? { model: String(row.model) } : {}),
     permissionMode: String(row.permission_mode) as ChatPermissionMode,
     ...(row.avatar ? { avatar: String(row.avatar) } : {}),
     ...(row.tint ? { tint: String(row.tint) } : {}),
     autoStart: Number(row.auto_start) === 1,
     handoffTo,
-    gitIdentity: oneOf(GIT_IDENTITIES, row.git_identity, "author"),
+    gitIdentity: gitIdentity(row.git_identity, REMY_DEFAULT),
     ...(row.git_name ? { gitName: String(row.git_name) } : {}),
     // Derived rather than read back, so an address stored before you signed in
     // to `gh` does not outlive the fact.
@@ -294,6 +315,16 @@ export function assignedAgent(id: string | undefined): Agent | undefined {
   return id === WORKSPACE_AGENT ? workspaceAgent() : getAgent(id);
 }
 
+/// The concrete provider and model an inherited agent uses right now.
+///
+/// Kept out of the stored row so changing the machine default changes every
+/// agent that still follows it, including agents made before that change.
+export function resolvedAgentModel(agent: Agent): { provider: ProviderId; model: string } {
+  const provider = agent.provider === REMY_DEFAULT ? config.defaultProvider : agent.provider;
+  const asked = agent.provider === REMY_DEFAULT ? config.defaultModel : agent.model;
+  return { provider, model: providerModel(provider, asked) };
+}
+
 // ── writing ─────────────────────────────────────────────────────────────────
 
 /// Everything a caller may set, cleaned. Keys the caller left out stay out, so
@@ -335,12 +366,20 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
   // Provider and model are one choice: moving an agent to Codex takes its model
   // with it, to Codex's default rather than to a Claude alias Codex would refuse.
   if (input.provider !== undefined || input.model !== undefined) {
-    const provider = input.provider === undefined
-      ? (existing?.provider ?? config.defaultProvider)
-      : providerId(input.provider, existing?.provider);
-    const model = input.model === undefined ? (existing?.model ?? "") : input.model;
-    if (input.provider !== undefined) patch.provider = provider;
-    patch.model = providerModel(provider, model);
+    if (input.provider === REMY_DEFAULT) {
+      patch.provider = REMY_DEFAULT;
+      patch.model = "";
+    } else {
+      const current = existing?.provider === REMY_DEFAULT
+        ? config.defaultProvider
+        : existing?.provider ?? config.defaultProvider;
+      const provider = input.provider === undefined ? current : providerId(input.provider, current);
+      const model = input.model === undefined ? (existing?.model ?? "") : input.model;
+      if (input.provider !== undefined || (input.model !== undefined && input.model !== "")) {
+        patch.provider = provider;
+      }
+      patch.model = providerModel(provider, model);
+    }
   }
   if (input.permissionMode !== undefined) {
     patch.permissionMode = oneOf(PERMISSION_MODES, input.permissionMode, existing?.permissionMode ?? "default");
@@ -353,7 +392,7 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
     patch.handoffTo = [...new Set(list.map(agentHandle).filter((h): h is string => Boolean(h)))];
   }
   if (input.gitIdentity !== undefined) {
-    patch.gitIdentity = oneOf(GIT_IDENTITIES, input.gitIdentity, existing?.gitIdentity ?? "author");
+    patch.gitIdentity = gitIdentity(input.gitIdentity, existing?.gitIdentity ?? REMY_DEFAULT);
   }
   if (input.gitName !== undefined) patch.gitName = text(input.gitName, 60) ?? "";
   // `gitEmail` is deliberately not settable: it is derived from the handle and
@@ -368,13 +407,13 @@ export function createAgent(input: Record<string, unknown>): Agent {
   const handle = String(patch.handle);
   const created = {
     instructions: "",
-    // What a new agent starts on comes from settings, so the API and the pane
-    // agree on the answer rather than each carrying its own literal.
-    provider: config.defaultProvider,
+    // Store inheritance rather than today's answer, so a later settings change
+    // reaches this agent without rewriting it.
+    provider: REMY_DEFAULT,
     permissionMode: "default",
     autoStart: true,
     handoffTo: [],
-    gitIdentity: config.defaultGitIdentity,
+    gitIdentity: REMY_DEFAULT,
     gitName: patch.name,
     ...patch,
     ...(input.preset ? { preset: String(input.preset) } : {}),
@@ -415,15 +454,13 @@ export function deleteAgent(id: string): void {
 /// This is attribution, not authentication: it records which agent wrote a
 /// commit and proves nothing about who ran it.
 export function gitIdentityEnv(agent: Agent | undefined): NodeJS.ProcessEnv {
-  if (!agent || agent.gitIdentity === "off") return {};
+  const identity = agent?.gitIdentity === REMY_DEFAULT ? config.defaultGitIdentity : agent?.gitIdentity;
+  if (!agent || identity === "off") return {};
   const name = agent.gitName?.trim() || agent.name;
   const email = agentGitEmail(agent.handle);
   return {
     GIT_AUTHOR_NAME: name,
     GIT_AUTHOR_EMAIL: email,
-    ...(agent.gitIdentity === "full"
-      ? { GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email }
-      : {}),
   };
 }
 
@@ -451,7 +488,7 @@ const PRESETS: Preset[] = [
     tint: "violet",
     model: "",
     permissionMode: "plan",
-    gitIdentity: "off",
+    gitIdentity: REMY_DEFAULT,
     handoffTo: ["builder"],
     instructions: [
       "You are the product manager. Turn a rough ticket into product scope before anyone writes code.",
@@ -471,7 +508,7 @@ const PRESETS: Preset[] = [
     tint: "blue",
     model: "",
     permissionMode: "acceptEdits",
-    gitIdentity: "author",
+    gitIdentity: REMY_DEFAULT,
     handoffTo: ["qa"],
     instructions: [
       "You implement tickets. Read the ticket and every comment on it before you touch a file — the scope was decided before you arrived.",
@@ -493,7 +530,7 @@ const PRESETS: Preset[] = [
     tint: "amber",
     model: "",
     permissionMode: "acceptEdits",
-    gitIdentity: "off",
+    gitIdentity: REMY_DEFAULT,
     handoffTo: ["builder"],
     instructions: [
       "You are QA. Test work that is already implemented against the ticket's acceptance criteria.",
@@ -553,5 +590,24 @@ export function seedPresetAgents(): void {
     } catch (error) {
       console.error(`could not seed the ${preset.name} agent:`, error);
     }
+  }
+
+  // Before inheritance existed, creation copied both machine defaults into
+  // every row. A later field event means someone chose an override; without
+  // one, replace that old copy with the live default exactly once.
+  for (const agent of listAgents()) {
+    const events = eventsFor("agent", agent.id);
+    const fields = events.filter((event) => event.kind === "field");
+    const createdWithAModel = events.some(
+      (event) => event.kind === "create" && typeof event.payload.model === "string" && event.payload.model.length > 0,
+    );
+    const modelWasPicked = createdWithAModel || fields.some(
+      (event) => event.payload.provider !== undefined || event.payload.model !== undefined,
+    );
+    const identityWasPicked = fields.some((event) => event.payload.gitIdentity !== undefined);
+    const patch: Record<string, unknown> = {};
+    if (!modelWasPicked && agent.provider !== REMY_DEFAULT) patch.provider = REMY_DEFAULT;
+    if (!identityWasPicked && agent.gitIdentity !== REMY_DEFAULT) patch.gitIdentity = REMY_DEFAULT;
+    if (Object.keys(patch).length > 0) updateAgent(agent.id, patch);
   }
 }

@@ -31,10 +31,10 @@ export interface Person {
   agent?: Agent;
 }
 
-export function people(agents: Agent[]): Person[] {
+export function people(agents: Agent[], workspaceName?: string): Person[] {
   return [
     { id: YOU, handle: YOU, name: "You" },
-    { id: WORKSPACE_AGENT, handle: WORKSPACE_AGENT, name: "Workspace agent" },
+    { id: WORKSPACE_AGENT, handle: WORKSPACE_AGENT, name: workspaceName ?? "Workspace agent" },
     ...agents.map((agent) => ({ id: agent.id, handle: agent.handle, name: agent.name, agent })),
   ];
 }

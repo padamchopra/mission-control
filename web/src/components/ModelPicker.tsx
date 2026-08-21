@@ -77,7 +77,7 @@ export function ModelPicker({
   onPick: (choice: ModelChoice) => void;
   /// Offers declining the job altogether, for Remy's own model.
   allowOff?: boolean;
-  /// Offers following the machine's thread default, for a workspace.
+  /// Offers following the machine's thread default, for an agent or workspace.
   allowDefault?: boolean;
   defaultChoice?: ModelChoice;
 }) {
@@ -116,7 +116,9 @@ export function ModelPicker({
               <img src={remyMark} alt="" className="size-4 rounded-[4px]" />
               <span>Remy default</span>
               {defaultChoice && (
-                <span className="text-xs text-muted-foreground">{modelLabel(providers, defaultChoice)}</span>
+                <span className="text-xs text-muted-foreground">
+                  {modelLabel(providers, defaultChoice)}
+                </span>
               )}
               {inherited ? <Check className="ml-auto" /> : null}
             </CommandItem>

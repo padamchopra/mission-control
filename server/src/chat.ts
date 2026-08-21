@@ -14,7 +14,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { agentCommand } from "./agent.js";
-import { getAgent, gitIdentityEnv, type Agent } from "./agents.js";
+import { getAgent, gitIdentityEnv, resolvedAgentModel, type Agent } from "./agents.js";
 import { deviceId } from "./board-log.js";
 import {
   codexEntry,
@@ -1319,12 +1319,13 @@ export function createChat(input: {
   const agent = input.agentId ? getAgent(input.agentId) : undefined;
   if (input.agentId && !agent) throw new Error("no such agent");
   // A workspace that runs on something of its own stands where the machine's
-  // default would — that is the whole of what setting one means. An agent still
-  // outranks it, because an agent was written to think with what it names.
-  const machine = input.workspaceDefault?.provider
+  // default would. An agent still outranks it, including one that follows the
+  // machine default rather than naming a model of its own.
+  const workspace = input.workspaceDefault?.provider
     ? { provider: input.workspaceDefault.provider, model: input.workspaceDefault.model ?? "" }
     : { provider: config.defaultProvider, model: config.defaultModel };
-  const provider = providerId(input.provider ?? agent?.provider ?? machine.provider);
+  const inherited = agent ? resolvedAgentModel(agent) : workspace;
+  const provider = providerId(input.provider ?? inherited.provider);
   // Fail here rather than on the first message, so a host without the tool says
   // so while the thread is still being created.
   agentCommand(provider);
@@ -1332,7 +1333,7 @@ export function createChat(input: {
   // other provider is dropped rather than passed to a CLI that would refuse it.
   // `??` rather than `||`, so asking for a provider's own Default is read as the
   // choice it is instead of a gap to fill with somebody else's model.
-  const model = providerModel(provider, input.model ?? agent?.model ?? machine.model);
+  const model = providerModel(provider, input.model ?? inherited.model);
   const record: ChatRecord = {
     id: randomUUID(),
     title: input.title?.trim() || "New chat",

@@ -142,6 +142,37 @@ test("a working thread picks up a ticket from Todo", () => {
   assert.equal(tickets.getTicket(ticket.id)?.status, "in_progress");
 });
 
+test("starting a ticket hands You and Nobody to the workspace agent", () => {
+  const board = project("Start assignees");
+  const nobody = tickets.createTicket({ projectId: board.id, title: "Unassigned", status: "backlog" });
+  const mine = tickets.createTicket({
+    projectId: board.id,
+    title: "Mine",
+    status: "todo",
+    assigneeAgentId: tickets.YOU,
+  });
+  const builder = agents.createAgent({ name: "Start builder" });
+  const assigned = tickets.createTicket({
+    projectId: board.id,
+    title: "Assigned",
+    status: "todo",
+    assigneeAgentId: builder.id,
+  });
+
+  assert.deepEqual(tickets.prepareTicketStart(nobody.id), {
+    ticket: tickets.getTicket(nobody.id),
+  });
+  assert.equal(tickets.getTicket(nobody.id)?.assigneeAgentId, agents.WORKSPACE_AGENT);
+  assert.deepEqual(tickets.prepareTicketStart(mine.id), {
+    ticket: tickets.getTicket(mine.id),
+  });
+  assert.equal(tickets.getTicket(mine.id)?.assigneeAgentId, agents.WORKSPACE_AGENT);
+  assert.equal(tickets.prepareTicketStart(assigned.id).agentId, builder.id);
+
+  tickets.setTicketStatus(assigned.id, "in_progress");
+  assert.throws(() => tickets.prepareTicketStart(assigned.id), /Backlog or Todo/);
+});
+
 test("a status change records who made it", () => {
   const board = project("Actors");
   const ticket = tickets.createTicket({ projectId: board.id, title: "Who moved it" });
@@ -303,7 +334,7 @@ test("an agent handle is unique and usable in a tool call", () => {
   assert.equal(agents.updateAgent(first.id, { handle: "iris" }).handle, "iris");
 });
 
-test("git identity modes decide which variables a thread gets", () => {
+test("commit attribution decides whether an agent authors a commit", () => {
   const off = agents.createAgent({ name: "Quiet", gitIdentity: "off" });
   assert.deepEqual(agents.gitIdentityEnv(off), {});
 
@@ -314,12 +345,84 @@ test("git identity modes decide which variables a thread gets", () => {
   // Author-only deliberately leaves the human as committer.
   assert.equal(authorEnv.GIT_COMMITTER_NAME, undefined);
 
-  const full = agents.createAgent({ name: "Both", gitIdentity: "full" });
-  const fullEnv = agents.gitIdentityEnv(full);
-  assert.equal(fullEnv.GIT_COMMITTER_NAME, "Both");
-  assert.equal(fullEnv.GIT_COMMITTER_EMAIL, "both@remy.invalid");
+  const legacy = agents.createAgent({ name: "Legacy", gitIdentity: "full" });
+  assert.equal(legacy.gitIdentity, "author");
+  assert.equal(agents.gitIdentityEnv(legacy).GIT_COMMITTER_NAME, undefined);
 
   assert.deepEqual(agents.gitIdentityEnv(undefined), {}, "a thread with no agent keeps your identity");
+});
+
+test("an inherited agent follows later model and git identity defaults", () => {
+  const previous = {
+    provider: config.config.defaultProvider,
+    model: config.config.defaultModel,
+    identity: config.config.defaultGitIdentity,
+  };
+  try {
+    config.config.defaultProvider = "claude";
+    config.config.defaultModel = "sonnet";
+    config.config.defaultGitIdentity = "author";
+    const agent = agents.createAgent({ name: "Follower" });
+
+    assert.equal(agent.provider, "default");
+    assert.equal(agent.gitIdentity, "default");
+    assert.deepEqual(agents.resolvedAgentModel(agent), { provider: "claude", model: "sonnet" });
+    assert.equal(agents.gitIdentityEnv(agent).GIT_COMMITTER_NAME, undefined);
+
+    config.config.defaultProvider = "codex";
+    config.config.defaultModel = "gpt-5.6-terra";
+    config.config.defaultGitIdentity = "off";
+    assert.deepEqual(agents.resolvedAgentModel(agent), { provider: "codex", model: "gpt-5.6-terra" });
+    assert.deepEqual(agents.gitIdentityEnv(agent), {});
+
+    const fixed = agents.updateAgent(agent.id, {
+      provider: "claude",
+      model: "opus",
+      gitIdentity: "off",
+    });
+    assert.deepEqual(agents.resolvedAgentModel(fixed), { provider: "claude", model: "opus" });
+    assert.deepEqual(agents.gitIdentityEnv(fixed), {});
+  } finally {
+    config.config.defaultProvider = previous.provider;
+    config.config.defaultModel = previous.model;
+    config.config.defaultGitIdentity = previous.identity;
+  }
+});
+
+test("existing agents inherit defaults unless a field records an override", () => {
+  const inheritedId = "legacy-inherited-agent";
+  log.append("agent", inheritedId, "create", {
+    name: "Legacy follower",
+    handle: "legacy-follower",
+    provider: "claude",
+    gitIdentity: "author",
+  });
+  agents.reproject(inheritedId);
+
+  const fixedId = "legacy-fixed-agent";
+  log.append("agent", fixedId, "create", {
+    name: "Legacy fixed",
+    handle: "legacy-fixed",
+    provider: "claude",
+    gitIdentity: "author",
+  });
+  log.append("agent", fixedId, "field", {
+    provider: "codex",
+    model: "gpt-5.6-terra",
+    gitIdentity: "full",
+  });
+  agents.reproject(fixedId);
+
+  agents.seedPresetAgents();
+  assert.equal(agents.getAgent(inheritedId)?.provider, "default");
+  assert.equal(agents.getAgent(inheritedId)?.gitIdentity, "default");
+  assert.equal(agents.getAgent(fixedId)?.provider, "codex");
+  assert.equal(agents.getAgent(fixedId)?.model, "gpt-5.6-terra");
+  assert.equal(agents.getAgent(fixedId)?.gitIdentity, "author");
+
+  const migratedEventCount = log.eventsFor("agent", inheritedId).length;
+  agents.seedPresetAgents();
+  assert.equal(log.eventsFor("agent", inheritedId).length, migratedEventCount);
 });
 
 test("an agent's commit address is derived, not set", () => {
@@ -380,7 +483,7 @@ test("the built-in agents seed once and stay editable", () => {
   const builder = agents.agentByHandle("builder");
   assert.ok(builder, "builder should be seeded");
   assert.equal(builder.permissionMode, "acceptEdits");
-  assert.equal(builder.gitIdentity, "author");
+  assert.equal(builder.gitIdentity, "default");
   const edited = agents.updateAgent(builder.id, { role: "Changed by hand" });
   assert.equal(edited.role, "Changed by hand");
 });

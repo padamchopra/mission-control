@@ -6,6 +6,7 @@ import {
   Link2,
   Link2Off,
   MessagesSquare,
+  Play,
   Plus,
   Send,
   Trash2,
@@ -108,6 +109,7 @@ export function TicketView({
   const updateTicket = useStore((s) => s.updateTicket);
   const moveTicket = useStore((s) => s.moveTicket);
   const deleteTicket = useStore((s) => s.deleteTicket);
+  const startTicket = useStore((s) => s.startTicket);
   const commentOnTicket = useStore((s) => s.commentOnTicket);
   const detachThread = useStore((s) => s.detachThread);
   const readActivity = useStore((s) => s.ticketActivity);
@@ -115,6 +117,7 @@ export function TicketView({
   const [activity, setActivity] = useState<TicketActivity[]>([]);
   const [attaching, setAttaching] = useState(false);
   const [addingSub, setAddingSub] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [editingBody, setEditingBody] = useState(false);
   const [draft, setDraft] = useState(ticket.body);
 
@@ -159,6 +162,24 @@ export function TicketView({
           { label: ticket.key },
         ]}
       >
+        {(ticket.status === "backlog" || ticket.status === "todo") && (
+          <Button
+            size="sm"
+            disabled={starting}
+            onClick={() => {
+              setStarting(true);
+              void startTicket(ticket.id)
+                .then((thread) => onOpenThread(thread.id))
+                .catch((error) => {
+                  setStarting(false);
+                  toast.error("Couldn't start that thread", { description: apiError(error) });
+                });
+            }}
+          >
+            <Play />
+            {starting ? "Starting…" : "Start thread"}
+          </Button>
+        )}
         <AlertDialog>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -294,7 +315,12 @@ export function TicketView({
                         <StatusIcon status={child.status} />
                         <span className="font-mono text-[11px] text-muted-foreground">{child.key}</span>
                         <span className="min-w-0 flex-1 truncate text-sm">{child.title}</span>
-                        <AssigneeAvatar assignee={child.assigneeAgentId} agents={agents} />
+                        <AssigneeAvatar
+                          assignee={child.assigneeAgentId}
+                          agents={agents}
+                          workspace={workspace}
+                          workspaceName={project?.name}
+                        />
                       </button>
                     </li>
                   ))}
@@ -443,9 +469,14 @@ export function TicketView({
                   {/* You first, then the workspace itself: a ticket you keep is
                       the common case, and an agent only starts on one that was
                       handed to it. */}
-                  {people(agents).map((person) => (
+                  {people(agents, workspace?.name ?? project?.name).map((person) => (
                     <SelectItem key={person.id} value={person.id}>
-                      <AssigneeAvatar assignee={person.id} agents={agents} />
+                      <AssigneeAvatar
+                        assignee={person.id}
+                        agents={agents}
+                        workspace={workspace}
+                        workspaceName={project?.name}
+                      />
                       {person.name}
                     </SelectItem>
                   ))}

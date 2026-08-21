@@ -172,7 +172,7 @@ export interface ServerSettings {
   repoUpdate: "off" | "hourly" | "sixHourly" | "daily";
   worktreeBranchPrefix: string;
   avatar: string;
-  defaultGitIdentity: "off" | "author" | "full";
+  defaultGitIdentity: "off" | "author";
   defaultProvider: string;
   /// Absent from a Mac on an older build, which started every thread on Ask.
   defaultPermissionMode?: string;
@@ -192,7 +192,7 @@ export interface Agent {
   tint?: string;
   autoStart: boolean;
   handoffTo: string[];
-  gitIdentity: "off" | "author" | "full";
+  gitIdentity: "default" | "off" | "author";
   gitName?: string;
   gitEmail?: string;
   preset?: string;
