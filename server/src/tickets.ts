@@ -490,6 +490,27 @@ export function updateTicket(id: string, input: Record<string, unknown>): Ticket
   return getTicketOrThrow(id);
 }
 
+/// Resolves who a thread started from the board runs as.
+///
+/// Starting work is itself the handoff for a ticket held by the person or by
+/// nobody, so those two become the workspace agent before the thread sees its
+/// ticket context. A named agent stays named.
+export function prepareTicketStart(id: string): { ticket: TicketView; agentId?: string } {
+  let ticket = getTicket(id);
+  if (!ticket) throw new Error("no such ticket");
+  if (ticket.status !== "backlog" && ticket.status !== "todo") {
+    throw new Error("Move this ticket to Backlog or Todo before starting it.");
+  }
+  if (!ticket.assigneeAgentId || ticket.assigneeAgentId === YOU) {
+    ticket = updateTicket(ticket.id, { assigneeAgentId: WORKSPACE_AGENT });
+  }
+  if (ticket.assigneeAgentId === WORKSPACE_AGENT) return { ticket };
+  if (!ticket.assigneeAgentId || !getAgent(ticket.assigneeAgentId)) {
+    throw new Error("Assign this ticket to an agent before starting it.");
+  }
+  return { ticket, agentId: ticket.assigneeAgentId };
+}
+
 /// Moves a ticket, recording who moved it. `actor` is what the feed shows, and
 /// what tells a derived move apart from one you made.
 export function setTicketStatus(

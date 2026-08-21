@@ -12,6 +12,7 @@ import {
   listProjects,
   syncProjectBindings,
   updateProject,
+  workspacePathForProject,
 } from "./projects.js";
 import {
   commentOnTicket,
@@ -22,6 +23,7 @@ import {
   linkThread,
   listTickets,
   moveTicket,
+  prepareTicketStart,
   setTicketStatus,
   syncTicketFromThread,
   ticketActivity,
@@ -762,6 +764,35 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && parts[2] === "activity") {
         if (!getTicket(id)) return json(res, 404, { error: "no such ticket" });
         return json(res, 200, { activity: ticketActivity(id) });
+      }
+      if (req.method === "POST" && parts[2] === "start") {
+        try {
+          const current = getTicket(id);
+          if (!current) return json(res, 404, { error: "no such ticket" });
+          if (current.deviceId && current.deviceId !== deviceId) {
+            return json(res, 409, { error: "This ticket runs on another device." });
+          }
+          const cwd = await workspacePathForProject(current.projectId);
+          if (!cwd) return json(res, 409, { error: "This workspace is not on this device." });
+
+          const { ticket, agentId } = prepareTicketStart(id);
+          const chat = createChat({
+            cwd,
+            title: ticket.title,
+            ...(agentId ? { agentId } : {}),
+          });
+          try {
+            await sendChatMessage(chat.id, `Work on ${ticket.key}`);
+          } catch (error) {
+            deleteChat(chat.id);
+            throw error;
+          }
+          broadcast({ type: "board" });
+          return json(res, 200, { chat: getChat(chat.id) ?? chat });
+        } catch (error) {
+          const message = (error as Error).message || "Couldn't start that thread.";
+          return json(res, /no such/.test(message) ? 404 : 409, { error: message });
+        }
       }
       if (req.method === "PATCH" && parts.length === 2) {
         const body = await readJson(req);

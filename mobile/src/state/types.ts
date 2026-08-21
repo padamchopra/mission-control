@@ -168,7 +168,7 @@ export interface ServerSettings {
   repoUpdate: "off" | "hourly" | "sixHourly" | "daily";
   worktreeBranchPrefix: string;
   avatar: string;
-  defaultGitIdentity: "off" | "author" | "full";
+  defaultGitIdentity: "off" | "author";
   defaultProvider: string;
   notifySelf?: boolean;
 }
@@ -186,7 +186,7 @@ export interface Agent {
   tint?: string;
   autoStart: boolean;
   handoffTo: string[];
-  gitIdentity: "off" | "author" | "full";
+  gitIdentity: "default" | "off" | "author";
   gitName?: string;
   gitEmail?: string;
   preset?: string;

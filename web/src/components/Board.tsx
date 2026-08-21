@@ -59,6 +59,7 @@ import { PaneHeader } from "@/components/PaneHeader";
 import { ProjectScope, chosenPrefixes, scopedProjects } from "@/components/ProjectScope";
 import { TaskTabs, type TaskTab } from "@/components/TaskTabs";
 import { deviceIcon } from "@/lib/devices";
+import { localWorkspace } from "@/lib/projects";
 import { AssigneeAvatar, StatusIcon, SubTicketProgress } from "@/components/TicketGlyphs";
 import { apiError } from "@/lib/api-error";
 import {
@@ -75,7 +76,7 @@ import {
 } from "@/lib/tickets";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
-import type { Agent, Chat, Project, Server, Ticket, TicketStatus } from "@/state/types";
+import type { Agent, Chat, Project, Server, Ticket, TicketStatus, Workspace } from "@/state/types";
 
 /// The board: one column per status, cards in rank order.
 ///
@@ -236,6 +237,8 @@ export function Board({
                   allTickets={scoped}
                   agents={agents}
                   chats={chats}
+                  projects={projects}
+                  workspaces={workspaces}
                   onOpenTicket={onOpenTicket}
                 />
               ))}
@@ -248,6 +251,7 @@ export function Board({
                 agents={agents}
                 thread={currentThread(chats, dragging)}
                 device={deviceForTicket(dragging, boardDevices, servers)}
+                workspace={workspaceForTicket(dragging, projects, workspaces)}
                 progress={subTicketProgress(scoped, dragging)}
                 className="rotate-1 shadow-lg"
               />
@@ -273,6 +277,8 @@ function Column({
   allTickets,
   agents,
   chats,
+  projects,
+  workspaces,
   onOpenTicket,
 }: {
   status: TicketStatus;
@@ -280,6 +286,8 @@ function Column({
   allTickets: Ticket[];
   agents: Agent[];
   chats: Chat[];
+  projects: Project[];
+  workspaces: Workspace[];
   onOpenTicket: (key: string) => void;
 }) {
   const servers = useStore((s) => s.servers);
@@ -308,6 +316,7 @@ function Column({
             agents={agents}
             thread={currentThread(chats, ticket)}
             device={deviceForTicket(ticket, boardDevices, servers)}
+            workspace={workspaceForTicket(ticket, projects, workspaces)}
             onOpen={() => onOpenTicket(ticket.key)}
           />
         ))}
@@ -323,6 +332,7 @@ function CardBody({
   agents,
   thread,
   device,
+  workspace,
   progress,
   className,
 }: {
@@ -330,6 +340,7 @@ function CardBody({
   agents: Agent[];
   thread?: Chat;
   device?: Server;
+  workspace?: Workspace;
   progress: { done: number; total: number };
   className?: string;
 }) {
@@ -363,7 +374,11 @@ function CardBody({
           </Tooltip>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <AssigneeAvatar assignee={ticket.assigneeAgentId} agents={agents} />
+          <AssigneeAvatar
+            assignee={ticket.assigneeAgentId}
+            agents={agents}
+            workspace={workspace}
+          />
         </span>
       </div>
 
@@ -401,6 +416,7 @@ function TicketCard({
   agents,
   thread,
   device,
+  workspace,
   onOpen,
 }: {
   ticket: Ticket;
@@ -408,6 +424,7 @@ function TicketCard({
   agents: Agent[];
   thread?: Chat;
   device?: Server;
+  workspace?: Workspace;
   onOpen: () => void;
 }) {
   const moveTicket = useStore((s) => s.moveTicket);
@@ -463,6 +480,7 @@ function TicketCard({
             agents={agents}
             thread={thread}
             device={device}
+            workspace={workspace}
             progress={subTicketProgress(allTickets, ticket)}
             className="bg-transparent hover:bg-transparent"
           />
@@ -488,6 +506,11 @@ function TicketCard({
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+function workspaceForTicket(ticket: Ticket, projects: Project[], workspaces: Workspace[]): Workspace | undefined {
+  const project = projects.find((entry) => entry.id === ticket.projectId);
+  return project ? localWorkspace(project, workspaces) : undefined;
 }
 
 export function NewTicketDialog({

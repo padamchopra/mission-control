@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, Plus, Trash2 } from "lucide-react";
+import { Bot, Plus, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -37,7 +36,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditableName } from "@/components/EditableName";
-import { ModelPickerButton } from "@/components/ModelPicker";
+import { ModelPickerButton, REMY_DEFAULT } from "@/components/ModelPicker";
 import { apiError } from "@/lib/api-error";
 import type { ModelChoice } from "@/lib/providers";
 import { TINT_IDS, tintOf } from "@/lib/tints";
@@ -63,9 +62,13 @@ const PERMISSIONS = [
 ];
 
 const IDENTITIES = [
-  { value: "off", label: "Yours", detail: "Commits carry your name, as they do now." },
-  { value: "author", label: "Author", detail: "The agent authors it, you commit it." },
-  { value: "full", label: "Author and committer", detail: "The agent takes both names." },
+  { value: "off", label: "You", detail: "Commits carry your name." },
+  { value: "author", label: "Agent", detail: "The agent is the author; you remain the committer." },
+];
+
+const AGENT_IDENTITIES = [
+  { value: REMY_DEFAULT, label: "Remy default", detail: "Follows the choice in General." },
+  ...IDENTITIES,
 ];
 
 export function AgentsPane({
@@ -98,19 +101,9 @@ export function AgentsPane({
   }, [loadBoard]);
 
   const agent = useMemo(
-    () => agents.find((entry) => entry.handle === selected) ?? agents[0],
+    () => agents.find((entry) => entry.handle === selected),
     [agents, selected],
   );
-
-  // A tab opened with no agent named lands on the first one, written into the
-  // URL so a reload and the back button agree with the screen.
-  //
-  // Only when the URL names none. A URL naming an agent that is not in the list
-  // is left alone: it is almost always a list that has not arrived yet, and
-  // rewriting it would yank you off the agent you just created.
-  useEffect(() => {
-    if (!selected && agents[0]) onSelect(agents[0].handle);
-  }, [selected, agents, onSelect]);
 
   const create = async () => {
     setCreating(true);
@@ -119,9 +112,6 @@ export function AgentsPane({
       // is the form, and the server makes the handle unique.
       const made = await saveAgent(undefined, {
         name: "New agent",
-        gitIdentity: defaultGitIdentity,
-        provider: defaultProvider,
-        model: defaultModel,
       });
       onSelect(made.handle);
     } catch (error) {
@@ -131,26 +121,6 @@ export function AgentsPane({
     }
   };
 
-  if (agents.length === 0) {
-    return (
-      <Empty className="flex-1">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Bot />
-          </EmptyMedia>
-          <EmptyTitle>No agents yet</EmptyTitle>
-          <EmptyDescription>Write one, and a thread can run as it.</EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
-          <Button onClick={() => void create()} disabled={creating}>
-            <Plus />
-            New agent
-          </Button>
-        </EmptyContent>
-      </Empty>
-    );
-  }
-
   return (
     <div className="flex min-h-0 flex-1">
       <nav
@@ -159,9 +129,27 @@ export function AgentsPane({
       >
         <ScrollArea className="min-h-0 flex-1">
           <ul className="flex flex-col gap-0.5 p-2">
+            <li>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-current={!selected ? "page" : undefined}
+                onClick={() => onSelect(undefined)}
+                className={cn(
+                  "h-auto w-full justify-start gap-2.5 px-2 py-1.5 font-normal",
+                  !selected ? "bg-sidebar-row-selected" : "hover:bg-sidebar-row-hover",
+                )}
+              >
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <Settings2 className="size-3.5" />
+                </span>
+                <span className="text-sm leading-5">General</span>
+              </Button>
+            </li>
+            <li aria-hidden="true" className="my-1 border-t border-border" />
             {agents.map((entry) => {
               const colors = tintOf(entry.tint);
-              const active = entry.handle === agent?.handle;
+              const active = entry.handle === selected;
               return (
                 <li key={entry.id}>
                   <button
@@ -210,53 +198,111 @@ export function AgentsPane({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex w-full max-w-2xl flex-col gap-6 px-6 py-6">
-          <Field orientation="horizontal" className="items-center">
-            <FieldContent>
-              <FieldLabel htmlFor="default-model">What new agents think with</FieldLabel>
-              <FieldDescription className="text-xs">
-                Also what a new thread starts on. Each agent can say otherwise.
-              </FieldDescription>
-            </FieldContent>
-            <ModelPickerButton
-              id="default-model"
-              value={{ provider: defaultProvider, model: defaultModel }}
-              onPick={onSaveDefault}
+          {!selected ? (
+            <AgentDefaults
+              defaultGitIdentity={defaultGitIdentity}
+              defaultProvider={defaultProvider}
+              defaultModel={defaultModel}
+              onSaveDefaultIdentity={onSaveDefaultIdentity}
+              onSaveDefault={onSaveDefault}
             />
-          </Field>
-
-          <Field orientation="horizontal" className="items-center">
-            <FieldContent>
-              <FieldLabel htmlFor="default-git-identity">Git identity for new agents</FieldLabel>
-              <FieldDescription className="text-xs">
-                Which of git's two names an agent takes. Attribution, not proof.
-              </FieldDescription>
-            </FieldContent>
-            <Select value={defaultGitIdentity} onValueChange={onSaveDefaultIdentity}>
-              <SelectTrigger id="default-git-identity" size="sm" className="w-56 shrink-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectGroup>
-                  {IDENTITIES.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Separator />
-
-          {agent && <AgentDetail key={agent.id} agent={agent} onDeleted={() => onSelect(undefined)} />}
+          ) : agent ? (
+            <AgentDetail
+              key={agent.id}
+              agent={agent}
+              defaultGitIdentity={defaultGitIdentity}
+              defaultProvider={defaultProvider}
+              defaultModel={defaultModel}
+              onDeleted={() => onSelect(undefined)}
+            />
+          ) : (
+            <Empty className="flex-1">
+              <EmptyHeader>
+                <EmptyMedia variant="icon"><Bot /></EmptyMedia>
+                <EmptyTitle>No agent called @{selected}</EmptyTitle>
+                <EmptyDescription>Pick an agent from the list.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
         </div>
       </ScrollArea>
     </div>
   );
 }
 
-function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void }) {
+function AgentDefaults({
+  defaultGitIdentity,
+  defaultProvider,
+  defaultModel,
+  onSaveDefaultIdentity,
+  onSaveDefault,
+}: {
+  defaultGitIdentity: string;
+  defaultProvider: string;
+  defaultModel: string;
+  onSaveDefaultIdentity: (value: string) => void;
+  onSaveDefault: (choice: ModelChoice) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h2 className="text-lg leading-tight font-semibold">General</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Defaults that inherited agents follow.</p>
+      </header>
+
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="default-model">Model</FieldLabel>
+          <FieldDescription className="text-xs">
+            New threads and agents set to Remy default follow this choice.
+          </FieldDescription>
+        </FieldContent>
+        <ModelPickerButton
+          id="default-model"
+          value={{ provider: defaultProvider, model: defaultModel }}
+          onPick={onSaveDefault}
+        />
+      </Field>
+
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
+          <FieldLabel htmlFor="default-git-identity">Commit attribution</FieldLabel>
+          <FieldDescription className="text-xs">
+            Agents set to Remy default follow this choice.
+          </FieldDescription>
+        </FieldContent>
+        <Select value={defaultGitIdentity} onValueChange={onSaveDefaultIdentity}>
+          <SelectTrigger id="default-git-identity" size="sm" className="w-56 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {IDENTITIES.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+    </div>
+  );
+}
+
+function AgentDetail({
+  agent,
+  defaultGitIdentity,
+  defaultProvider,
+  defaultModel,
+  onDeleted,
+}: {
+  agent: Agent;
+  defaultGitIdentity: string;
+  defaultProvider: string;
+  defaultModel: string;
+  onDeleted: () => void;
+}) {
   const agents = useStore((s) => s.agents);
   const saveAgent = useStore((s) => s.saveAgent);
   const deleteAgent = useStore((s) => s.deleteAgent);
@@ -290,6 +336,7 @@ function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void
 
   const colors = tintOf(agent.tint);
   const identity = agent.gitIdentity;
+  const resolvedIdentity = identity === REMY_DEFAULT ? defaultGitIdentity : identity;
 
   return (
     <div className="flex flex-col gap-6">
@@ -415,7 +462,9 @@ function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void
           <ModelPickerButton
             id="agent-model"
             className="w-full"
-            value={{ provider: agent.provider || "claude", model: agent.model ?? "" }}
+            allowDefault
+            defaultChoice={{ provider: defaultProvider, model: defaultModel }}
+            value={{ provider: agent.provider || REMY_DEFAULT, model: agent.model ?? "" }}
             onPick={(next) => void save({ provider: next.provider, model: next.model }, "what it thinks with")}
           />
         </Field>
@@ -447,20 +496,20 @@ function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void
       <Separator />
 
       <Field>
-        <FieldLabel htmlFor="agent-identity">Git identity</FieldLabel>
+        <FieldLabel htmlFor="agent-identity">Commit attribution</FieldLabel>
         <FieldDescription className="text-xs">
-          {IDENTITIES.find((option) => option.value === identity)?.detail} Attribution, not proof.
+          {AGENT_IDENTITIES.find((option) => option.value === identity)?.detail}
         </FieldDescription>
         <Select
           value={identity}
-          onValueChange={(next) => void save({ gitIdentity: next }, "what it signs commits with")}
+          onValueChange={(next) => void save({ gitIdentity: next }, "who its commits credit")}
         >
           <SelectTrigger id="agent-identity" size="sm" className="w-64">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              {IDENTITIES.map((option) => (
+              {AGENT_IDENTITIES.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -470,12 +519,12 @@ function AgentDetail({ agent, onDeleted }: { agent: Agent; onDeleted: () => void
         </Select>
       </Field>
 
-      {identity !== "off" && (
+      {resolvedIdentity !== "off" && (
         <Field>
           <FieldLabel htmlFor="agent-git-name">Name on commits</FieldLabel>
           <FieldDescription className="text-xs">
-            Beside it goes <span className="font-mono">{agent.gitEmail}</span>, from its handle and
-            your GitHub account.
+            Remy pairs it with <span className="font-mono">{agent.gitEmail}</span>; .invalid is reserved
+            and cannot receive mail.
           </FieldDescription>
           <Input
             id="agent-git-name"
