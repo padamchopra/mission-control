@@ -445,20 +445,22 @@ interface Preset {
 const PRESETS: Preset[] = [
   {
     preset: "scout",
-    name: "Scout",
-    handle: "scout",
-    role: "Scopes a ticket before anyone writes code",
+    name: "PM",
+    handle: "pm",
+    role: "Turns a rough ticket into clear product scope",
     tint: "violet",
     model: "",
     permissionMode: "plan",
     gitIdentity: "off",
     handoffTo: ["builder"],
     instructions: [
-      "You scope work. You do not write code, and you do not need permission to say a ticket is not ready.",
+      "You are the product manager. Turn a rough ticket into product scope before anyone writes code.",
       "",
-      "Read enough of the repository to be specific. Then leave one comment on the ticket covering: what changes, which files, what the acceptance criteria are, and what you deliberately left out.",
+      "Read the ticket and its discussion, then rewrite it with the Remy ticket tools. Cover the user problem, intended outcome, in-scope behavior, explicit non-goals, acceptance criteria, and any product decision that still needs the user.",
       "",
-      "Name the risk you would want to know about if you were the one building it. If the ticket is too big, split it rather than scoping it vaguely.",
+      "Stay at product level. Do not prescribe files, architecture, APIs, data models, libraries, or test implementation. Do not write code. Split the ticket only when the product outcomes can be delivered independently.",
+      "",
+      "When the scope is ready, hand the ticket to @builder. If product intent is unresolved, leave it in Needs input and ask one concrete question.",
     ].join("\n"),
   },
   {
@@ -470,7 +472,7 @@ const PRESETS: Preset[] = [
     model: "",
     permissionMode: "acceptEdits",
     gitIdentity: "author",
-    handoffTo: ["critic"],
+    handoffTo: ["qa"],
     instructions: [
       "You implement tickets. Read the ticket and every comment on it before you touch a file — the scope was decided before you arrived.",
       "",
@@ -479,52 +481,71 @@ const PRESETS: Preset[] = [
       "Commit as you go, in small commits with a sentence in the imperative for a subject. Run whatever checks the project has before you say you are finished, and say what you ran.",
       "",
       "If the ticket turns out to be wrong, stop and say so on the ticket. Do not quietly build something else.",
+      "",
+      "When the implementation and its checks are complete, leave the evidence on the ticket and hand it to @qa.",
     ].join("\n"),
   },
   {
     preset: "critic",
-    name: "Critic",
-    handle: "critic",
-    role: "Reads the diff and runs the checks",
+    name: "QA",
+    handle: "qa",
+    role: "Tests the finished behavior against the ticket",
     tint: "amber",
     model: "",
-    permissionMode: "default",
-    gitIdentity: "author",
+    permissionMode: "acceptEdits",
+    gitIdentity: "off",
     handoffTo: ["builder"],
     instructions: [
-      "You review work that is already written. Read the diff against the base branch, then run the project's own checks.",
+      "You are QA. Test work that is already implemented against the ticket's acceptance criteria.",
       "",
-      "Report only what you can point at: a file, a line, and what breaks. A finding you cannot reproduce is not a finding.",
+      "Follow the repository's QA instructions. Run the relevant automated checks, then exercise the real behavior in the running app, browser, simulator, emulator, or device when the project supports it. Inspect persisted or API state when the screen alone cannot prove the result.",
       "",
-      "Hand back to the builder if something is genuinely wrong. Otherwise say what you checked and what you did not.",
-    ].join("\n"),
-  },
-  {
-    preset: "triager",
-    name: "Triager",
-    handle: "triager",
-    role: "Keeps the backlog honest",
-    tint: "teal",
-    model: "haiku",
-    permissionMode: "plan",
-    gitIdentity: "off",
-    handoffTo: [],
-    instructions: [
-      "You keep the backlog readable. Merge duplicates, give vague tickets a title that names the subject rather than the instruction, and set a priority you can defend in one sentence.",
+      "Do not change product source code. Record exactly what you tested and the evidence in a ticket comment. For a reproducible failure, move the ticket to Needs input and hand it back to @builder. When every acceptance criterion passes, move it to Done.",
       "",
-      "You do not close tickets and you do not write code. When a ticket cannot be understood, say what is missing.",
+      "A finding needs a reproducible sequence, expected behavior, actual behavior, and the environment where it happened. Say what you could not test.",
     ].join("\n"),
   },
 ];
 
-/// Seeds the built-in agents once. They are ordinary rows afterwards — editable
-/// and deletable — and `preset` exists only so this never runs twice.
+function presetPatch(preset: Preset): Record<string, unknown> {
+  const { preset: _preset, ...patch } = preset;
+  return { ...patch, gitName: preset.name };
+}
+
+/// Seeds the built-in agents once. An untouched legacy Scout or Critic is
+/// upgraded to PM or QA; other edits stay in place apart from replacing a
+/// retired Critic handoff with QA. Existing Triagers remain, but new boards do
+/// not seed one.
 export function seedPresetAgents(): void {
-  const seen = new Set(
-    (db.prepare("select preset from agents where preset is not null").all() as { preset: string }[]).map(
-      (row) => row.preset,
-    ),
-  );
+  const existing = listAgents().filter((agent) => agent.preset);
+  const byPreset = new Map(existing.map((agent) => [agent.preset!, agent]));
+  let criticMigrated = false;
+  for (const preset of PRESETS) {
+    const agent = byPreset.get(preset.preset);
+    if (!agent || eventsFor("agent", agent.id).length !== 1) continue;
+    if (preset.preset !== "scout" && preset.preset !== "critic") continue;
+    if (preset.preset === "scout" && (agent.name !== "Scout" || agent.handle !== "scout")) continue;
+    if (preset.preset === "critic" && (agent.name !== "Critic" || agent.handle !== "critic")) continue;
+    try {
+      updateAgent(agent.id, presetPatch(preset));
+      if (preset.preset === "critic") criticMigrated = true;
+    } catch (error) {
+      console.error(`could not upgrade the ${agent.name} agent:`, error);
+    }
+  }
+  if (criticMigrated) {
+    const builder = byPreset.get("builder");
+    if (builder?.handoffTo.includes("critic")) {
+      const next = PRESETS.find((preset) => preset.preset === "builder")!;
+      updateAgent(
+        builder.id,
+        eventsFor("agent", builder.id).length === 1
+          ? presetPatch(next)
+          : { handoffTo: builder.handoffTo.map((handle) => handle === "critic" ? "qa" : handle) },
+      );
+    }
+  }
+  const seen = new Set(existing.map((agent) => agent.preset!));
   for (const preset of PRESETS) {
     if (seen.has(preset.preset)) continue;
     try {

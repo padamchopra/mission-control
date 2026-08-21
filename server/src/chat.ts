@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   query,
   type Options,
@@ -14,6 +15,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { agentCommand } from "./agent.js";
 import { getAgent, gitIdentityEnv, type Agent } from "./agents.js";
+import { deviceId } from "./board-log.js";
 import {
   codexEntry,
   codexTodos,
@@ -56,7 +58,9 @@ import {
   type ConvQuestion,
   type ConvTodo,
 } from "./transcript.js";
-import { forgetChat, syncTicketFromThread } from "./tickets.js";
+import { claudeTicketMcpServer, ticketPromptContext } from "./ticket-tools.js";
+import { remyToolToken } from "./ticket-tool-auth.js";
+import { forgetChat, linkTicketFromWorkPrompt, syncTicketFromThread } from "./tickets.js";
 import { uploadRoot } from "./uploads.js";
 import { nameDetachedWorktree } from "./workspaces.js";
 
@@ -88,6 +92,8 @@ const PERMISSION_MODES: ChatPermissionMode[] = [
   "plan",
   "bypassPermissions",
 ];
+
+const ticketMcpPath = fileURLToPath(new URL("./ticket-mcp.js", import.meta.url));
 
 /// A tool call Claude is blocked on. Mirrors the shape of a tool entry so the
 /// client can render the pending card with the same vocabulary as the feed.
@@ -332,7 +338,7 @@ class Chat {
     const busy = next === "working" || next === "needs_input";
     this.workingSince = busy ? (this.workingSince ?? nowMs()) : undefined;
     this.currentState = next;
-    // A ticket following this thread moves with it, but only between In
+    // A ticket following this thread starts from Todo, then moves between In
     // progress and Needs input — see `syncTicketFromThread`.
     try {
       syncTicketFromThread(this.record.id, next);
@@ -389,6 +395,9 @@ class Chat {
     // A better name is worth having but not worth waiting for, so it runs
     // alongside the turn and lands whenever it lands.
     if (first) void this.rename(trimmed);
+    linkTicketFromWorkPrompt(this.record.id, trimmed, this.record.agentId);
+    const ticketContext = ticketPromptContext(this.record.id);
+    const agentPrompt = ticketContext ? `${ticketContext}\n\n${trimmed}` : trimmed;
     this.append({ id: `u-${randomUUID()}`, kind: "user", text: clip(trimmed, MAX_TEXT) });
     this.record.error = undefined;
     // A prompt typed while Claude is blocked on a permission is queued behind
@@ -399,14 +408,14 @@ class Chat {
     if (this.record.provider === "codex") {
       // A turn already running keeps the prompt until it finishes; nothing is
       // lost and the order is the order they were typed in.
-      this.codexQueue.push(trimmed);
+      this.codexQueue.push(agentPrompt);
       if (!this.codex) void this.drainCodex();
       this.push();
       this.persist();
       return;
     }
     const session = await this.start();
-    session.queue.push(userMessage(trimmed));
+    session.queue.push(userMessage(agentPrompt));
     this.push();
     this.persist();
   }
@@ -559,6 +568,26 @@ class Chat {
       ...(this.record.model ? { model: this.record.model } : {}),
       ...(this.record.claudeSessionId ? { resume: this.record.claudeSessionId } : {}),
       includePartialMessages: true,
+      mcpServers: {
+        remy: claudeTicketMcpServer(this.record.id, this.record.agentId, {
+          currentCwd: this.record.cwd,
+          list: listChats,
+          read: getChat,
+          start: async (input) => {
+            const created = createChat({
+              cwd: input.cwd,
+              title: input.title?.trim() || input.prompt.split("\n")[0]?.trim().slice(0, 120),
+              provider: input.provider,
+              model: input.model,
+              agentId: input.agentId,
+            });
+            await sendChatMessage(created.id, input.prompt);
+            return getChat(created.id)!;
+          },
+          send: sendChatMessage,
+          stop: stopChat,
+        }),
+      },
       canUseTool: (tool, input, callbackOptions) => this.canUseTool(tool, input, callbackOptions),
       env: agentEnvironment(agent),
       // Uploaded media is referenced by path in the message that carries it;
@@ -893,6 +922,17 @@ class Chat {
           ...(this.record.codexThreadId ? { threadId: this.record.codexThreadId } : {}),
           // Uploaded media is referenced by path in the message that carries it.
           additionalDirectories: [uploadRoot],
+          mcpServer: {
+            command: process.execPath,
+            args: [ticketMcpPath],
+            env: {
+              REMY_API_URL: `http://127.0.0.1:${config.port}`,
+              REMY_API_TOKEN: remyToolToken(this.record.id),
+              REMY_CHAT_ID: this.record.id,
+              REMY_DEVICE_ID: deviceId,
+              ...(this.record.agentId ? { REMY_AGENT_ID: this.record.agentId } : {}),
+            },
+          },
           env: agentEnvironment(agent),
         },
         (event) => {
@@ -1036,6 +1076,9 @@ class Chat {
     options: { signal: AbortSignal; suggestions?: PermissionUpdate[]; title?: string; decisionReason?: string },
   ): Promise<PermissionResult> {
     if (tool === "AskUserQuestion") return this.askUserQuestion(input, options.signal);
+    if (tool.startsWith("mcp__remy__")) {
+      return Promise.resolve({ behavior: "allow", updatedInput: input });
+    }
 
     const requestId = randomUUID();
     const described = describeTool(tool, input);

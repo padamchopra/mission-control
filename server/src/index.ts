@@ -6,7 +6,7 @@ import { config, patchSettings, publicSettings } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
 import { createAgent, deleteAgent, getAgent, listAgents, seedPresetAgents, updateAgent } from "./agents.js";
 import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
-import { deviceId } from "./board-log.js";
+import { deviceId, onLocalAppend } from "./board-log.js";
 import {
   adoptWorkspace,
   listProjects,
@@ -18,10 +18,12 @@ import {
   createTicket,
   deleteTicket,
   getTicket,
+  handoffTicket,
   linkThread,
   listTickets,
   moveTicket,
   setTicketStatus,
+  syncTicketFromThread,
   ticketActivity,
   ticketForChat,
   unlinkThread,
@@ -101,6 +103,7 @@ import { registry, type PendingMessage } from "./registry.js";
 import { getQuickReplies, setQuickReplies } from "./settings.js";
 import { githubAvatar, githubLogin, tooling } from "./tooling.js";
 import { PROVIDERS } from "./providers.js";
+import { isRemyToolRoute, remyToolChatId } from "./ticket-tool-auth.js";
 import { lastUpdateRun, syncRepoUpdateSchedule, updateRepositories } from "./repo-update.js";
 import { attachStream } from "./stream.js";
 import { discoverClaudeTranscript, readContextUsage, readConversation, resolveTranscriptPath, type Conversation } from "./transcript.js";
@@ -244,6 +247,15 @@ function sameMessage(transcriptText: string | undefined, queued: string): boolea
   return key(transcriptText) === key(queued);
 }
 
+// A link can arrive from another device just after its thread changed state.
+// Replaying active local threads when peer events land closes that race; idle
+// threads are skipped so restarting a daemon cannot clear Needs input.
+function syncActiveTicketThreads(): void {
+  for (const chat of listChats()) {
+    if (chat.state !== "idle") syncTicketFromThread(chat.id, chat.state);
+  }
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -269,7 +281,18 @@ const server = createServer(async (req, res) => {
       return json(res, 200, pairStatus(url.searchParams.get("id") ?? ""));
     }
 
-    if (!authorized(req)) return json(res, 401, { error: "unauthorized" });
+    const fullAccess = authorized(req);
+    const scopedChatId = fullAccess ? undefined : remyToolChatId(req.headers.authorization);
+    if (!fullAccess && !scopedChatId) return json(res, 401, { error: "unauthorized" });
+    const scopedChat = scopedChatId ? getChat(scopedChatId) : undefined;
+    if (scopedChatId && !scopedChat) return json(res, 401, { error: "unauthorized" });
+    if (scopedChatId && !isRemyToolRoute(req.method, url.pathname)) {
+      return json(res, 403, { error: "that operation is not available to agents" });
+    }
+    const scopedAgentId = scopedChat?.agentId;
+    const ticketActor = (asked: unknown): string => scopedChatId
+      ? (scopedAgentId ? getAgent(scopedAgentId)?.handle : undefined) ?? "remy"
+      : typeof asked === "string" ? getAgent(asked)?.handle ?? "you" : "you";
 
     if (req.method === "GET" && url.pathname === "/health") {
       return json(res, 200, { ok: true });
@@ -491,7 +514,10 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === "/peers/events" && req.method === "POST") {
       const landed = acceptEvents(await readJson(req));
-      if (landed > 0) broadcast({ type: "board" });
+      if (landed > 0) {
+        syncActiveTicketThreads();
+        broadcast({ type: "board" });
+      }
       return json(res, 200, { landed });
     }
     // A round now, rather than at the next tick.
@@ -720,7 +746,7 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/tickets") {
       const body = await readJson(req);
       try {
-        const ticket = createTicket(body);
+        const ticket = createTicket(body, ticketActor(body.actor));
         broadcast({ type: "board" });
         return json(res, 200, { ticket });
       } catch (error) {
@@ -778,6 +804,7 @@ const server = createServer(async (req, res) => {
         const body = await readJson(req);
         try {
           const ticket = setTicketStatus(id, body.status, {
+            actor: ticketActor(body.actor),
             note: typeof body.note === "string" ? body.note : undefined,
           });
           broadcast({ type: "board" });
@@ -789,7 +816,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "POST" && parts[2] === "comment") {
         const body = await readJson(req);
         try {
-          const ticket = commentOnTicket(id, String(body.body ?? ""));
+          const ticket = commentOnTicket(id, String(body.body ?? ""), ticketActor(body.actor));
           broadcast({ type: "board" });
           // Naming an agent asks it a question. The turn runs on its own and
           // posts its reply as another comment, so the request does not wait
@@ -807,21 +834,61 @@ const server = createServer(async (req, res) => {
       if (req.method === "POST" && parts[2] === "threads") {
         const body = await readJson(req);
         try {
+          const linkedChatId = scopedChatId ?? String(body.chatId ?? "");
+          const linkedDeviceId = scopedChatId
+            ? deviceId
+            : typeof body.deviceId === "string" ? body.deviceId : undefined;
+          const linkedState = scopedChatId ? getChat(scopedChatId)?.state : body.state;
           const ticket = linkThread(id, {
-            chatId: String(body.chatId ?? ""),
-            agentId: typeof body.agentId === "string" ? body.agentId : undefined,
+            chatId: linkedChatId,
+            deviceId: linkedDeviceId,
+            agentId: scopedChatId
+              ? scopedAgentId
+              : typeof body.agentId === "string" ? body.agentId : undefined,
             stage: typeof body.stage === "string" ? body.stage : undefined,
+            linkedBy: scopedChatId || body.linkedBy === "runner" ? "runner" : "you",
           });
+          if (typeof linkedState === "string") {
+            syncTicketFromThread(
+              linkedChatId,
+              linkedState,
+              linkedDeviceId,
+            );
+          }
           broadcast({ type: "board" });
-          return json(res, 200, { ticket });
+          return json(res, 200, { ticket: getTicket(id) ?? ticket });
         } catch (error) {
           const message = (error as Error).message || "could not attach that thread";
           return json(res, /no such/.test(message) ? 404 : 409, { error: message });
         }
       }
+      if (req.method === "POST" && parts[2] === "handoff") {
+        const body = await readJson(req);
+        try {
+          const next = getAgent(String(body.agentId ?? ""));
+          if (!next) return json(res, 404, { error: "no such agent" });
+          if (scopedChatId) {
+            const current = scopedAgentId ? getAgent(scopedAgentId) : undefined;
+            if (!current?.handoffTo.includes(next.handle)) {
+              return json(res, 403, { error: "that handoff is not configured" });
+            }
+          }
+          const actor = ticketActor(body.actor);
+          const ticket = handoffTicket(id, next.id, actor);
+          const moved = setTicketStatus(ticket.id, "todo", { actor });
+          broadcast({ type: "board" });
+          return json(res, 200, { ticket: moved });
+        } catch (error) {
+          return json(res, 404, { error: (error as Error).message || "could not hand off that ticket" });
+        }
+      }
       if (req.method === "DELETE" && parts[2] === "threads" && parts[3]) {
         try {
-          const ticket = unlinkThread(id, decodeURIComponent(parts[3]));
+          const ticket = unlinkThread(
+            id,
+            decodeURIComponent(parts[3]),
+            url.searchParams.get("device") ?? undefined,
+          );
           broadcast({ type: "board" });
           return json(res, 200, { ticket });
         } catch (error) {
@@ -842,12 +909,22 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/chats") {
       const body = await readJson(req);
       try {
+        if (scopedChatId) {
+          const current = getChat(scopedChatId);
+          const cwd = String(body.cwd ?? "").trim();
+          const workspaces = await listWorkspaces();
+          const registered = workspaces.some((workspace) =>
+            cwd === workspace.path || workspace.worktrees.some((worktree) => cwd === worktree.path));
+          if (!current || (cwd !== current.cwd && !registered)) {
+            return json(res, 403, { error: "register that workspace before starting a thread there" });
+          }
+        }
         return json(res, 200, { chat: createChat({
           cwd: String(body.cwd ?? ""),
           title: typeof body.title === "string" ? body.title : undefined,
           provider: typeof body.provider === "string" && body.provider ? body.provider : undefined,
           model: typeof body.model === "string" && body.model ? body.model : undefined,
-          permissionMode: body.permissionMode,
+          permissionMode: scopedChatId ? undefined : body.permissionMode,
           agentId: typeof body.agentId === "string" && body.agentId ? body.agentId : undefined,
         }) });
       } catch (error) {
@@ -906,6 +983,9 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { archive });
       }
       if (req.method === "POST" && parts[2] === "message") {
+        if (scopedChatId === id) {
+          return json(res, 403, { error: "an agent cannot message its own running thread" });
+        }
         const body = await readJson(req);
         try {
           await sendChatMessage(id, String(body.text ?? ""));
@@ -923,6 +1003,9 @@ const server = createServer(async (req, res) => {
         }
       }
       if (req.method === "POST" && parts[2] === "stop") {
+        if (scopedChatId === id) {
+          return json(res, 403, { error: "an agent cannot stop its own running thread" });
+        }
         try {
           stopChat(id);
           return json(res, 200, { ok: true });
@@ -1544,9 +1627,14 @@ setSleepBusyCheck(() =>
 syncSleepAssertion();
 syncRepoUpdateSchedule();
 
-// The built-in agents are ordinary rows once seeded — editable, deletable, and
-// never written again.
+// The built-in agents are ordinary rows once seeded. The seeder also upgrades
+// untouched legacy defaults while preserving anything the user edited.
 seedPresetAgents();
+
+// Board changes can originate outside an HTTP handler: a thread changes its
+// ticket status, a recurrence runs, or an agent uses a ticket tool. Keep every
+// open window live without making each writer remember to send its own frame.
+onLocalAppend(() => broadcast({ type: "board" }));
 
 // Who this machine is signed in as, asked once. It names the branches Remy
 // creates and the address on an agent's commits; Remy names itself when `gh`
@@ -1565,4 +1653,7 @@ startRecurringTickets(() => broadcast({ type: "board" }));
 
 // Board events flow between paired machines whether or not a window is open —
 // the daemon is what is paired, so the sync runs here rather than in a client.
-startPeerSync(() => broadcast({ type: "board" }));
+startPeerSync(() => {
+  syncActiveTicketThreads();
+  broadcast({ type: "board" });
+});

@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { deviceId, eventsSince, mergeRemote, versionVector } from "./board-log.js";
+import { deviceId, eventsSince, mergeRemote, onLocalAppend, versionVector } from "./board-log.js";
 import { config } from "./config.js";
 import { db } from "./db.js";
 import { reprojectAll as reprojectAgents } from "./agents.js";
@@ -451,6 +451,7 @@ function reprojectBoard(): void {
 }
 
 let syncTimer: ReturnType<typeof setInterval> | undefined;
+let requestedSync: ReturnType<typeof setTimeout> | undefined;
 let syncing = false;
 let onBoardChange: (() => void) | undefined;
 
@@ -459,6 +460,14 @@ let onBoardChange: (() => void) | undefined;
 export function startPeerSync(onChange: () => void): void {
   onBoardChange = onChange;
   if (syncTimer) return;
+  onLocalAppend(() => {
+    if (requestedSync) return;
+    requestedSync = setTimeout(() => {
+      requestedSync = undefined;
+      void syncNow();
+    }, 100);
+    requestedSync.unref?.();
+  });
   syncTimer = setInterval(() => void syncNow(), SYNC_EVERY_MS);
   syncTimer.unref?.();
   void syncNow();

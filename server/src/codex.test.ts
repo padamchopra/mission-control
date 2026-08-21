@@ -60,6 +60,23 @@ test("resuming names the thread after every flag it applies to", () => {
   assert.deepEqual(args.slice(6, 8), ["--add-dir", "/uploads"]);
 });
 
+test("a Remy MCP is scoped to the current thread", () => {
+  const args = codexArgs({
+    ...base,
+    permissionMode: "plan",
+    mcpServer: {
+      command: "/usr/local/bin/node",
+      args: ["/app/ticket-mcp.js"],
+      env: { REMY_CHAT_ID: "chat-1", REMY_API_TOKEN: "secret" },
+    },
+  });
+  assert.ok(args.includes('mcp_servers.remy.command="/usr/local/bin/node"'));
+  assert.ok(args.includes('mcp_servers.remy.args=["/app/ticket-mcp.js"]'));
+  assert.ok(args.includes('mcp_servers.remy.env_vars=["REMY_CHAT_ID","REMY_API_TOKEN"]'));
+  assert.ok(!args.some((arg) => arg.includes("secret")));
+  assert.ok(args.includes('mcp_servers.remy.default_tools_approval_mode="approve"'));
+});
+
 test("a line that is not an event is skipped rather than fatal", () => {
   assert.equal(parseCodexEvent("Reading files…"), undefined);
   assert.equal(parseCodexEvent("{ not json"), undefined);

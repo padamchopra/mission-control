@@ -56,6 +56,8 @@ export interface Chat {
   state: ChatState;
   /// Which agent this thread thinks with: `claude` or `codex`.
   provider?: string;
+  /// The named persona running this thread, when it has one.
+  agentId?: string;
   model?: string;
   preview?: string;
   updatedAt: number;
@@ -185,6 +187,7 @@ export interface ChatDetail {
   /// Which agent this thread thinks with. Changeable, like the model: the feed
   /// stays, and the new one arrives knowing only what it is told next.
   provider?: string;
+  agentId?: string;
   model?: string;
   /// How much this thread may do unasked. Changeable, unlike where it runs.
   permissionMode?: string;

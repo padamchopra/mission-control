@@ -133,6 +133,15 @@ test("a thread only moves a ticket between In progress and Needs input", () => {
   assert.equal(tickets.getTicket(ticket.id)?.status, "done");
 });
 
+test("a working thread picks up a ticket from Todo", () => {
+  const board = project("Starts");
+  const ticket = tickets.createTicket({ projectId: board.id, title: "Start here", status: "todo" });
+  tickets.linkThread(ticket.id, { chatId: "chat-start" });
+
+  tickets.syncTicketFromThread("chat-start", "working");
+  assert.equal(tickets.getTicket(ticket.id)?.status, "in_progress");
+});
+
 test("a status change records who made it", () => {
   const board = project("Actors");
   const ticket = tickets.createTicket({ projectId: board.id, title: "Who moved it" });
@@ -161,6 +170,32 @@ test("a thread belongs to at most one ticket", () => {
   const moved = tickets.linkThread(second.id, { chatId: "shared" });
   assert.equal(moved.threads.length, 1);
   assert.equal(tickets.ticketForChat("shared")?.id, second.id);
+});
+
+test("a cross-device thread keeps the device it actually runs on", () => {
+  const board = project("Remote links");
+  const ticket = tickets.createTicket({ projectId: board.id, title: "Run elsewhere", status: "todo" });
+  tickets.linkThread(ticket.id, { chatId: "remote-chat", deviceId: "remote-device" });
+
+  tickets.syncTicketFromThread("remote-chat", "working", "remote-device");
+  assert.equal(tickets.getTicket(ticket.id)?.status, "in_progress");
+  assert.equal(tickets.getTicket(ticket.id)?.threads[0].deviceId, "remote-device");
+
+  tickets.unlinkThread(ticket.id, "remote-chat", "remote-device");
+  assert.equal(tickets.getTicket(ticket.id)?.threads.length, 0);
+});
+
+test("an explicit work request links its ticket before the turn starts", () => {
+  const board = project("Prompts");
+  const ticket = tickets.createTicket({ projectId: board.id, title: "Prompt work", status: "backlog" });
+
+  const linked = tickets.linkTicketFromWorkPrompt("chat-prompt", `Please work on ${ticket.key}`);
+  assert.equal(linked?.id, ticket.id);
+  assert.equal(tickets.ticketForChat("chat-prompt")?.id, ticket.id);
+  assert.equal(tickets.getTicket(ticket.id)?.status, "in_progress");
+
+  const question = tickets.createTicket({ projectId: board.id, title: "Prompt question" });
+  assert.equal(tickets.linkTicketFromWorkPrompt("chat-question", `What is ${question.key}?`), undefined);
 });
 
 test("attaching a thread does not move the ticket by itself", () => {
@@ -333,7 +368,14 @@ test("the built-in agents seed once and stay editable", () => {
   const first = agents.listAgents().filter((agent) => agent.preset).length;
   agents.seedPresetAgents();
   assert.equal(agents.listAgents().filter((agent) => agent.preset).length, first);
-  assert.ok(first >= 4, "the four presets should be there");
+  assert.equal(first, 3, "PM, Builder, and QA should be there");
+
+  const pm = agents.agentByHandle("pm");
+  const qa = agents.agentByHandle("qa");
+  assert.equal(pm?.handoffTo[0], "builder");
+  assert.equal(pm?.permissionMode, "plan");
+  assert.equal(qa?.handoffTo[0], "builder");
+  assert.equal(qa?.permissionMode, "acceptEdits");
 
   const builder = agents.agentByHandle("builder");
   assert.ok(builder, "builder should be seeded");
@@ -402,23 +444,23 @@ test("a comment can name the workspace agent", () => {
 test("a comment records who it named, so renaming an agent renames the mention", () => {
   const board = project("Talkers");
   const ticket = tickets.createTicket({ projectId: board.id, title: "Scope me" });
-  const pm = agents.createAgent({ name: "Product", handle: "pm" });
+  const pm = agents.createAgent({ name: "Product", handle: "product" });
 
-  tickets.commentOnTicket(ticket.id, "@pm what is the scope here? @you should weigh in. team@example.com");
+  tickets.commentOnTicket(ticket.id, "@product what is the scope here? @you should weigh in. team@example.com");
   const comment = tickets.ticketActivity(ticket.id).at(-1);
   assert.ok(comment, "the comment should be on the feed");
   assert.deepEqual(
     comment.mentions,
-    [{ handle: "pm", id: pm.id }, { handle: "you", id: "you" }],
+    [{ handle: "product", id: pm.id }, { handle: "you", id: "you" }],
     "an email address is not a mention, and an unknown name is not either",
   );
 
   // The prose still says `@pm`, and the id still says who that was — which is
   // the whole point of storing the pair.
-  agents.updateAgent(pm.id, { handle: "product" });
+  agents.updateAgent(pm.id, { handle: "product-renamed" });
   const after = tickets.ticketActivity(ticket.id).at(-1)?.mentions?.[0];
-  assert.equal(after?.handle, "pm", "the prose still says what was typed");
-  assert.equal(agents.getAgent(after!.id)?.handle, "product", "and the id says who that is now");
+  assert.equal(after?.handle, "product", "the prose still says what was typed");
+  assert.equal(agents.getAgent(after!.id)?.handle, "product-renamed", "and the id says who that is now");
 });
 
 test("an unknown name in a comment stays plain text", () => {
