@@ -1,7 +1,9 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import { deviceId, eventsSince, mergeRemote, onLocalAppend, versionVector } from "./board-log.js";
 import { config, patchSettings } from "./config.js";
 import { db } from "./db.js";
+import { exportEnvironmentSync, mergeEnvironmentSync } from "./environments.js";
 import { reprojectAll as reprojectAgents, seedPresetAgents } from "./agents.js";
 import { reprojectAll as reprojectProjects } from "./projects.js";
 import { reprojectAll as reprojectRecurrences } from "./recurring.js";
@@ -147,16 +149,28 @@ function peerName(value: unknown, fallback: string): string {
 export async function callPeer<T>(
   peer: Pick<Peer, "url" | "token">,
   path: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; peerAuth?: boolean } = {},
 ): Promise<T> {
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const method = init.method ?? "GET";
+  const timestamp = String(Date.now());
+  const peerSignature = init.peerAuth
+    ? createHmac("sha256", config.token)
+      .update(`remy-peer:${deviceId}:${method}:${path}:${timestamp}`)
+      .digest("base64url")
+    : undefined;
   // Concatenated rather than resolved against a base: a root-relative path
   // resolved against `https://host/remy` would drop the `/remy`, and a peer
   // behind a path prefix is exactly the shape `tailscale serve` can produce.
   const response = await fetch(`${peer.url}${path}`, {
-    method: init.method ?? "GET",
+    method,
     headers: {
       Authorization: `Bearer ${peer.token}`,
+      ...(peerSignature ? {
+        "X-Remy-Peer": deviceId,
+        "X-Remy-Peer-Time": timestamp,
+        "X-Remy-Peer-Signature": peerSignature,
+      } : {}),
       ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -177,6 +191,30 @@ export async function callPeer<T>(
     throw new Error(message);
   }
   return (text ? JSON.parse(text) : null) as T;
+}
+
+/// Proves a sensitive sync request came from a paired daemon rather than a
+/// browser that can use this machine's ordinary API proxy.
+export function isAuthenticatedPeerRequest(
+  headers: Record<string, string | string[] | undefined>,
+  method: string,
+  path: string,
+): boolean {
+  const from = Array.isArray(headers["x-remy-peer"]) ? headers["x-remy-peer"]?.[0] : headers["x-remy-peer"];
+  const timestamp = Array.isArray(headers["x-remy-peer-time"])
+    ? headers["x-remy-peer-time"]?.[0]
+    : headers["x-remy-peer-time"];
+  const signature = Array.isArray(headers["x-remy-peer-signature"])
+    ? headers["x-remy-peer-signature"]?.[0]
+    : headers["x-remy-peer-signature"];
+  const at = Number(timestamp);
+  const peer = from ? getPeer(from) : undefined;
+  if (!peer || !timestamp || !signature || !Number.isFinite(at) || Math.abs(Date.now() - at) > 60_000) return false;
+  const expected = Buffer.from(createHmac("sha256", peer.token)
+    .update(`remy-peer:${from}:${method}:${path}:${timestamp}`)
+    .digest("base64url"));
+  const received = Buffer.from(signature);
+  return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
 function upsert(peer: Peer): Peer {
@@ -485,7 +523,19 @@ async function syncWithPeer(peer: Peer): Promise<number> {
   if (outgoing.length > 0) {
     await callPeer(peer, "/peers/events", { method: "POST", body: { events: outgoing } });
   }
-  return landed;
+  try {
+    const environmentAnswer = await callPeer<{ records?: unknown }>(peer, "/peers/environments/sync", {
+      method: "POST",
+      body: { records: exportEnvironmentSync() },
+      peerAuth: true,
+    });
+    return landed + mergeEnvironmentSync(environmentAnswer.records);
+  } catch (error) {
+    // A machine on the previous release still syncs its board; environments
+    // join once it upgrades instead of making the whole pairing look offline.
+    if (/\b404\b/.test(error instanceof Error ? error.message : String(error))) return landed;
+    throw error;
+  }
 }
 
 /// What this machine answers a peer's sync with: their gaps, and our own cursor

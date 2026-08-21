@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -195,6 +196,26 @@ test("a peer is offline until it has answered, and its token stays in the daemon
 
   db.prepare("update peers set last_seen = ? where id = ?").run(Date.now(), "alpha");
   assert.equal(peers.peerViews()[0].online, true);
+});
+
+test("environment sync needs a paired-daemon signature beyond the API token", () => {
+  db.exec("delete from peers");
+  db.prepare(
+    "insert into peers (id, name, url, token, notify, paired_at) values (?, ?, ?, ?, ?, ?)",
+  ).run("alpha", "Studio", "https://studio.example.ts.net", "sender-token", 0, Date.now());
+  const method = "POST";
+  const path = "/peers/environments/sync";
+  const timestamp = String(Date.now());
+  const signature = createHmac("sha256", "sender-token")
+    .update(`remy-peer:alpha:${method}:${path}:${timestamp}`)
+    .digest("base64url");
+
+  assert.equal(peers.isAuthenticatedPeerRequest({
+    "x-remy-peer": "alpha",
+    "x-remy-peer-time": timestamp,
+    "x-remy-peer-signature": signature,
+  }, method, path), true);
+  assert.equal(peers.isAuthenticatedPeerRequest({}, method, path), false);
 });
 
 test("notifications route only to the peers that asked for them", () => {

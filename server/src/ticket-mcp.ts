@@ -195,6 +195,25 @@ server.registerTool("register_workspace", {
   return ok(`Registered ${result.workspace.name} at ${result.workspace.path}.`);
 });
 
+server.registerTool("run_with_environment", {
+  description: "Run a program in this thread's workspace with its active environment. Values stay in Remy and exact matches are removed from output.",
+  inputSchema: {
+    program: z.string().min(1).max(500).describe("Executable name or absolute path"),
+    args: z.array(z.string().max(20000)).max(200).optional().describe("Arguments passed directly to the executable"),
+    timeout_seconds: z.number().int().min(1).max(300).optional(),
+  },
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+}, async ({ program, args, timeout_seconds }) => {
+  const result = await request<{ command: string; output: string; exitCode: number; environment: string }>(
+    "/runtime/environment-command",
+    { method: "POST", body: { program, args, timeoutSeconds: timeout_seconds } },
+  );
+  return ok([
+    `${result.command} (${result.environment}) exited ${result.exitCode}.`,
+    result.output || "The command produced no output.",
+  ].join("\n\n"));
+});
+
 server.registerTool("list_agents", {
   description: "List the agents available when starting a thread.",
   inputSchema: {},

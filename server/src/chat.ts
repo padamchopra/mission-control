@@ -17,6 +17,13 @@ import { agentCommand } from "./agent.js";
 import { getAgent, gitIdentityEnv, resolvedAgentModel, type Agent } from "./agents.js";
 import { deviceId } from "./board-log.js";
 import {
+  redactForCwd,
+  redactKnownSecrets,
+  runWithEnvironment,
+  type RuntimeCommandInput,
+  type RuntimeCommandResult,
+} from "./environments.js";
+import {
   codexEntry,
   codexTodos,
   codexTokens,
@@ -390,17 +397,18 @@ class Chat {
   async send(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const safeText = await redactForCwd(this.record.cwd, trimmed);
     const first = this.record.entries.length === 0;
     if (first && this.record.title === "New chat") {
-      this.record.title = titleFrom(trimmed);
+      this.record.title = titleFrom(safeText);
     }
     // A better name is worth having but not worth waiting for, so it runs
     // alongside the turn and lands whenever it lands.
-    if (first) void this.rename(trimmed);
-    linkTicketFromWorkPrompt(this.record.id, trimmed, this.record.agentId);
+    if (first) void this.rename(safeText);
+    linkTicketFromWorkPrompt(this.record.id, safeText, this.record.agentId);
     const ticketContext = ticketPromptContext(this.record.id);
-    const agentPrompt = ticketContext ? `${ticketContext}\n\n${trimmed}` : trimmed;
-    this.append({ id: `u-${randomUUID()}`, kind: "user", text: clip(trimmed, MAX_TEXT) });
+    const agentPrompt = ticketContext ? `${ticketContext}\n\n${safeText}` : safeText;
+    this.append({ id: `u-${randomUUID()}`, kind: "user", text: clip(safeText, MAX_TEXT) });
     this.record.error = undefined;
     // A prompt typed while Claude is blocked on a permission is queued behind
     // it, so the chat is still waiting on the human, not working.
@@ -595,6 +603,7 @@ class Chat {
           },
           send: sendChatMessage,
           stop: stopChat,
+          runEnvironment: (input) => this.runEnvironmentCommand(input),
         }),
       },
       canUseTool: (tool, input, callbackOptions) => this.canUseTool(tool, input, callbackOptions),
@@ -1063,7 +1072,7 @@ class Chat {
     if (this.codex) this.codex = undefined;
     this.codexSession?.close();
     this.codexSession = undefined;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = redactKnownSecrets(error instanceof Error ? error.message : String(error));
     this.recordFailure(message);
     this.state = "error";
     this.codexQueue = [];
@@ -1081,8 +1090,9 @@ class Chat {
 
   private recordFailure(detail: string): void {
     if (/abort|interrupt|cancel|SIGTERM/i.test(detail)) return;
-    this.record.error = detail;
-    this.append({ id: `e-${randomUUID()}`, kind: "assistant", text: `⚠️ ${clip(detail, 400)}` });
+    const safeDetail = redactKnownSecrets(detail);
+    this.record.error = safeDetail;
+    this.append({ id: `e-${randomUUID()}`, kind: "assistant", text: `⚠️ ${clip(safeDetail, 400)}` });
   }
 
   // ── permissions ──────────────────────────────────────────────────────────
@@ -1138,6 +1148,23 @@ class Chat {
     return this.park(requestId, options.signal, () => {
       if (this.approval?.requestId === requestId) this.approval = undefined;
     });
+  }
+
+  /// Runs the active workspace environment behind the same approval card as a
+  /// Bash call. The provider owns neither the values nor the child process.
+  async runEnvironmentCommand(input: RuntimeCommandInput): Promise<RuntimeCommandResult> {
+    if (this.record.permissionMode === "plan") throw new Error("runtime commands are unavailable in plan mode");
+    if (this.record.permissionMode === "default" || this.record.permissionMode === "acceptEdits") {
+      const command = [input.program, ...(input.args ?? [])].join(" ");
+      const result = await this.requestToolApproval("Bash", { command }, {
+        signal: new AbortController().signal,
+        title: "Run with the workspace environment?",
+        reason: "The command receives configured values, and exact matches are removed from its output.",
+        allowAlways: false,
+      });
+      if (result.behavior !== "allow") throw new Error("the runtime command was denied");
+    }
+    return runWithEnvironment(this.record.cwd, input);
   }
 
   private async codexApproval(request: CodexApprovalRequest): Promise<"accept" | "acceptForSession" | "decline"> {
@@ -1235,6 +1262,7 @@ class Chat {
   // ── feed bookkeeping ─────────────────────────────────────────────────────
 
   private append(entry: ConvEntry, options: { defer?: boolean } = {}): void {
+    entry = redactEntry(entry);
     this.record.entries.push(entry);
     this.byId.set(entry.id, entry);
     if (!this.deleted) saveEntry(this.record.id, entry);
@@ -1274,7 +1302,14 @@ class Chat {
   /// a streaming paragraph costs a handful of messages rather than hundreds.
   private flush(): void {
     if (this.dirtyEntries.size === 0) return;
-    const entries = [...this.dirtyEntries].map((id) => this.byId.get(id)).filter((e): e is ConvEntry => !!e);
+    const entries = [...this.dirtyEntries]
+      .map((id) => this.byId.get(id))
+      .filter((e): e is ConvEntry => !!e)
+      .map((entry) => {
+        const safe = redactEntry(entry);
+        Object.assign(entry, safe);
+        return entry;
+      });
     this.dirtyEntries.clear();
     if (entries.length === 0 || this.deleted) return;
     for (const entry of entries) saveEntry(this.record.id, entry);
@@ -1326,6 +1361,31 @@ function blockKind(type: unknown): ConvEntry["kind"] | undefined {
   if (type === "text") return "assistant";
   if (type === "thinking") return "thinking";
   return undefined;
+}
+
+function redactEntry(entry: ConvEntry): ConvEntry {
+  const text = (value: string | undefined) => value === undefined ? undefined : redactKnownSecrets(value);
+  return {
+    ...entry,
+    ...(entry.text !== undefined ? { text: text(entry.text) } : {}),
+    ...(entry.arg !== undefined ? { arg: text(entry.arg) } : {}),
+    ...(entry.output !== undefined ? { output: text(entry.output) } : {}),
+    ...(entry.diff ? { diff: entry.diff.map((line) => ({ ...line, text: redactKnownSecrets(line.text) })) } : {}),
+    ...(entry.questions ? {
+      questions: entry.questions.map((question) => ({
+        ...question,
+        question: redactKnownSecrets(question.question),
+        ...(question.answer !== undefined ? { answer: redactKnownSecrets(question.answer) } : {}),
+        ...(question.notes !== undefined ? { notes: redactKnownSecrets(question.notes) } : {}),
+        options: question.options.map((option) => ({
+          ...option,
+          label: redactKnownSecrets(option.label),
+          ...(option.description !== undefined ? { description: redactKnownSecrets(option.description) } : {}),
+          ...(option.preview !== undefined ? { preview: redactKnownSecrets(option.preview) } : {}),
+        })),
+      })),
+    } : {}),
+  };
 }
 
 function sessionAllowRules(tool: string): PermissionUpdate[] {
@@ -1462,6 +1522,17 @@ export function updateChat(
 
 export async function sendChatMessage(id: string, text: string): Promise<void> {
   await mustGet(id).send(text);
+}
+
+export async function runChatEnvironmentCommand(
+  id: string,
+  input: Record<string, unknown>,
+): Promise<RuntimeCommandResult> {
+  return mustGet(id).runEnvironmentCommand({
+    program: typeof input.program === "string" ? input.program : "",
+    args: Array.isArray(input.args) ? input.args.map(String) : undefined,
+    timeoutSeconds: typeof input.timeoutSeconds === "number" ? input.timeoutSeconds : undefined,
+  });
 }
 
 export async function interruptChat(id: string): Promise<void> {
