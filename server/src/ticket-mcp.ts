@@ -260,7 +260,7 @@ server.registerTool("start_thread", {
     workspace: z.string().optional().describe("Registered workspace name, id, path, or origin. Omit it to use this thread's folder."),
     agent: z.string().optional().describe("Agent handle. Omit it to use the workspace agent."),
     title: z.string().max(120).optional(),
-    provider: z.enum(["claude", "codex"]).optional(),
+    provider: z.enum(["claude", "codex", "cursor"]).optional(),
     model: z.string().optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

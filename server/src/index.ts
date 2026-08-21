@@ -366,7 +366,7 @@ const server = createServer(async (req, res) => {
       return json(res, 200, {
         providers: providers.map((entry) => ({
           ...entry,
-          available: status[entry.command as "claude" | "codex"]?.available === true,
+          available: status[entry.id]?.available === true,
         })),
       });
     }
@@ -1387,7 +1387,11 @@ const server = createServer(async (req, res) => {
       if (req.method === "POST" && parts[2] === "task") {
         const body = await readJson(req);
         const requested = agentKind(body.agent, "claude");
-        const agent: Exclude<AgentKind, "shell"> = requested === "codex" ? "codex" : "claude";
+        const agent: Exclude<AgentKind, "shell"> = requested === "codex"
+          ? "codex"
+          : requested === "cursor"
+            ? "cursor"
+            : "claude";
         try {
           const name = await createTaskSession(id, String(body.prompt ?? ""), agent);
           registry.update(name, { agent, state: "working" });

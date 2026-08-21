@@ -19,6 +19,7 @@ export interface ChatRow {
   updatedAt: number;
   claudeSessionId?: string;
   codexThreadId?: string;
+  cursorSessionId?: string;
   turns: number;
   costUsd?: number;
   context?: ContextUsage;
@@ -42,8 +43,8 @@ function writeChat(row: ChatRow): void {
   db.prepare(
     `insert into chats (
        id, title, cwd, provider, model, permission_mode, created_at, updated_at,
-       claude_session_id, codex_thread_id, turns, cost_usd, context_json, todos_json, error, agent_id
-     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       claude_session_id, codex_thread_id, cursor_session_id, turns, cost_usd, context_json, todos_json, error, agent_id
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      on conflict(id) do update set
        title = excluded.title,
        agent_id = excluded.agent_id,
@@ -54,6 +55,7 @@ function writeChat(row: ChatRow): void {
        updated_at = excluded.updated_at,
        claude_session_id = excluded.claude_session_id,
        codex_thread_id = excluded.codex_thread_id,
+       cursor_session_id = excluded.cursor_session_id,
        turns = excluded.turns,
        cost_usd = excluded.cost_usd,
        context_json = excluded.context_json,
@@ -70,6 +72,7 @@ function writeChat(row: ChatRow): void {
     row.updatedAt,
     row.claudeSessionId ?? null,
     row.codexThreadId ?? null,
+    row.cursorSessionId ?? null,
     row.turns,
     row.costUsd ?? null,
     row.context ? JSON.stringify(row.context) : null,
@@ -154,6 +157,7 @@ function toChatRow(row: Record<string, unknown>): ChatRow {
     updatedAt: Number(row.updated_at),
     ...(row.claude_session_id ? { claudeSessionId: String(row.claude_session_id) } : {}),
     ...(row.codex_thread_id ? { codexThreadId: String(row.codex_thread_id) } : {}),
+    ...(row.cursor_session_id ? { cursorSessionId: String(row.cursor_session_id) } : {}),
     turns: Number(row.turns ?? 0),
     ...(typeof row.cost_usd === "number" ? { costUsd: row.cost_usd } : {}),
     ...(row.context_json ? { context: parse<ContextUsage>(String(row.context_json)) } : {}),

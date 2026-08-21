@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 export const OFF = "off";
 export const REMY_DEFAULT = "default";
 
-/// Matching for a list of eight short names, rather than cmdk's fuzzy default.
+/// Matching provider model names, rather than cmdk's fuzzy default.
 ///
 /// Fuzzy scored "Claude Sonnet" above "Codex Sol" for "sol" — the l came out of
 /// Claude — and typing three letters of the model you want and highlighting a
@@ -134,9 +134,8 @@ export function ModelPicker({
       className="top-[12%] translate-y-0 sm:max-w-[520px]"
     >
       <CommandInput placeholder="Search providers and models" />
-      {/* Tall enough that every model of both providers is on screen at once:
-          the list is short and known, and scrolling to find Codex's last one
-          would be a scroll for nothing. */}
+      {/* A stable viewport for both short built-in catalogues and Cursor's live,
+          searchable model list. */}
       <CommandList className="max-h-[440px]">
         <CommandEmpty>No model by that name.</CommandEmpty>
         {allowDefault && (

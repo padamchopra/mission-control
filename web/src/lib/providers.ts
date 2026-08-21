@@ -53,6 +53,16 @@ export const PROVIDERS: Provider[] = [
       { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
     ],
   },
+  {
+    id: "cursor",
+    label: "Cursor",
+    command: "agent",
+    approvals: true,
+    models: [
+      { value: "", label: "Default", detail: "Whatever Cursor is set to." },
+      { value: "auto", label: "Auto", detail: "Cursor chooses the model." },
+    ],
+  },
 ];
 
 /// A provider and one of its models. What every picker in Remy reads and writes,

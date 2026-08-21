@@ -54,7 +54,7 @@ export interface Chat {
   title: string;
   cwd: string;
   state: ChatState;
-  /// Which agent this thread thinks with: `claude` or `codex`.
+  /// Which agent this thread thinks with.
   provider?: string;
   /// The named persona running this thread, when it has one.
   agentId?: string;
@@ -266,6 +266,7 @@ export interface Tooling {
   gh: ToolStatus;
   claude: ToolStatus;
   codex: ToolStatus;
+  cursor: ToolStatus;
 }
 
 /// A named persona a thread can run as. Mirrors `Agent` in `server/src/agents.ts`.

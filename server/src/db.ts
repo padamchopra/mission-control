@@ -39,6 +39,7 @@ function migrate(database: DatabaseSync): void {
       -- that ran on one is not resumable on the other.
       provider text not null default 'claude',
       codex_thread_id text,
+      cursor_session_id text,
       turns integer not null default 0,
       cost_usd real,
       context_json text,
@@ -271,6 +272,11 @@ function migrate(database: DatabaseSync): void {
   } catch {
     // Column already exists on databases created after this migration.
   }
+  try {
+    database.exec("alter table chats add column cursor_session_id text");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
   // A workspace can run on something other than this machine's default. Null in
   // both means it follows the machine, which is what every existing row does.
   try {
@@ -287,7 +293,7 @@ function migrate(database: DatabaseSync): void {
   // replaced them, and a table nothing reads is worth dropping rather than
   // carrying.
   database.exec("drop table if exists loops");
-  database.exec("pragma user_version = 4");
+  database.exec("pragma user_version = 5");
 }
 
 export function getKv<T>(key: string): T | undefined {
