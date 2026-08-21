@@ -365,6 +365,40 @@ test("a ticket can be yours as well as an agent's", () => {
   assert.equal(cleared.assigneeAgentId, undefined, "clearing leaves nobody on it");
 });
 
+test("a ticket can be the workspace's own, without an agent being written first", () => {
+  const mine = project("Workspaces");
+  const ticket = tickets.createTicket({
+    projectId: mine.id,
+    title: "Bump the dependencies",
+    assigneeAgentId: agents.WORKSPACE_AGENT,
+  });
+  assert.equal(ticket.assigneeAgentId, agents.WORKSPACE_AGENT);
+
+  // It is not a row, so nothing can rename or delete it — and what runs the
+  // turn is this machine's own default model.
+  assert.equal(agents.getAgent(agents.WORKSPACE_AGENT), undefined);
+  const stand_in = agents.assignedAgent(agents.WORKSPACE_AGENT);
+  assert.equal(stand_in?.handle, "workspace");
+  assert.equal(stand_in?.model, undefined, "an empty model is this machine's default");
+  assert.equal(stand_in?.instructions, "", "no persona in front of it");
+
+  assert.throws(
+    () => agents.createAgent({ name: "Impostor", handle: "workspace" }),
+    /workspace agent/,
+    "no agent may take the handle the workspace answers to",
+  );
+  // One derived from a name gets out of the way instead of failing.
+  assert.equal(agents.createAgent({ name: "Workspace" }).handle, "workspace-2");
+});
+
+test("a comment can name the workspace agent", () => {
+  const board = project("Naming");
+  const ticket = tickets.createTicket({ projectId: board.id, title: "Ask the workspace" });
+  tickets.commentOnTicket(ticket.id, "@workspace can you read the changelog?");
+  const comment = tickets.ticketActivity(ticket.id).at(-1);
+  assert.deepEqual(comment?.mentions, [{ handle: "workspace", id: "workspace" }]);
+});
+
 test("a comment records who it named, so renaming an agent renames the mention", () => {
   const board = project("Talkers");
   const ticket = tickets.createTicket({ projectId: board.id, title: "Scope me" });

@@ -363,58 +363,6 @@ struct APIClient {
         return try JSONDecoder().decode(WorkspacesResponse.self, from: data).workspaces
     }
 
-    func loops() async throws -> [MissionLoop] {
-        let data = try await request("GET", "loops")
-        return try JSONDecoder().decode(LoopsResponse.self, from: data).loops
-    }
-
-    @discardableResult
-    func createLoop(
-        name: String,
-        workspaceID: String,
-        prompt: String,
-        agent: AgentKind,
-        schedule: LoopSchedule
-    ) async throws -> MissionLoop {
-        let data = try await request(
-            "POST",
-            "loops",
-            body: loopPayload(name: name, workspaceID: workspaceID, prompt: prompt, agent: agent, schedule: schedule)
-        )
-        return try JSONDecoder().decode(LoopResponse.self, from: data).loop
-    }
-
-    @discardableResult
-    func updateLoop(
-        id: String,
-        name: String? = nil,
-        workspaceID: String? = nil,
-        prompt: String? = nil,
-        agent: AgentKind? = nil,
-        schedule: LoopSchedule? = nil,
-        enabled: Bool? = nil
-    ) async throws -> MissionLoop {
-        var body: [String: Any] = [:]
-        if let name { body["name"] = name }
-        if let workspaceID { body["workspaceId"] = workspaceID }
-        if let prompt { body["prompt"] = prompt }
-        if let agent { body["agent"] = agent.rawValue }
-        if let schedule { body["schedule"] = schedulePayload(schedule) }
-        if let enabled { body["enabled"] = enabled }
-        let data = try await request("PATCH", "loops/\(id)", body: body)
-        return try JSONDecoder().decode(LoopResponse.self, from: data).loop
-    }
-
-    func deleteLoop(id: String) async throws {
-        _ = try await request("DELETE", "loops/\(id)")
-    }
-
-    @discardableResult
-    func runLoop(id: String) async throws -> LoopRunResponse {
-        let data = try await request("POST", "loops/\(id)/run", timeout: 60)
-        return try JSONDecoder().decode(LoopRunResponse.self, from: data)
-    }
-
     func archives() async throws -> [ArchivedChat] {
         let data = try await request("GET", "archives")
         return try JSONDecoder().decode(ArchivesResponse.self, from: data).archives
@@ -573,31 +521,6 @@ struct APIClient {
             throw APIError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
         return data
-    }
-
-    private func loopPayload(
-        name: String,
-        workspaceID: String,
-        prompt: String,
-        agent: AgentKind,
-        schedule: LoopSchedule
-    ) -> [String: Any] {
-        [
-            "name": name,
-            "workspaceId": workspaceID,
-            "prompt": prompt,
-            "agent": agent.rawValue,
-            "schedule": schedulePayload(schedule),
-        ]
-    }
-
-    private func schedulePayload(_ schedule: LoopSchedule) -> [String: Any] {
-        var payload: [String: Any] = ["frequency": schedule.frequency.rawValue]
-        if let intervalHours = schedule.intervalHours { payload["intervalHours"] = intervalHours }
-        if let hour = schedule.hour { payload["hour"] = hour }
-        if let minute = schedule.minute { payload["minute"] = minute }
-        if let weekday = schedule.weekday { payload["weekday"] = weekday }
-        return payload
     }
 }
 

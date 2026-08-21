@@ -46,6 +46,29 @@ Skip `VITE_MC_FIXTURE=1`; that is fake data, not your real state.
 - **`qa`** — after a visual or interaction change, drive the running app before calling it done.
 - **`shadcn`** and **`migrate-radix-to-base`** — vendored from `shadcn/ui` and tracked in `skills-lock.json`. Do not hand-edit them.
 
+## Terminology
+
+The code and the person do not always use the same word. Where they differ, the
+code's word is the one in types, tables and routes; the person's word is the one
+in **every string anybody reads** — a label, a menu item, an empty state, an
+error, a toast, a comment on a ticket. Getting this wrong is the most repeated
+mistake in this repo, so check the table before naming anything.
+
+| The code says | A person reads | Because |
+|---|---|---|
+| `project` | **workspace** | A project is the repository, keyed on its origin remote so two machines land on the same one. A workspace is one machine's folder holding it. Nobody adds a project — they add a folder, so that is the only word the UI uses. |
+| `chat` | **thread** | A conversation with an agent. The API, the database and the code all still say chat. |
+| `server`, `peer` | **device** | Another machine you paired with. |
+| `keyPrefix` | **ticket slug** | The letters in front of a ticket key. |
+| `recurrence` | **recurring ticket** | It is a ticket, written again on its cadence — never a job, a schedule or a loop. |
+| `assigneeAgentId` of `you` / `workspace` | **You** / **Workspace agent** | The two assignees that are not agent rows. |
+
+Nothing a person reads says project, job, workflow, cron, daemon, projection,
+fold, board log, lamport or event. **Tasks** is the section, **Board** and
+**Recurring** are its two tabs, and a **ticket** is the unit of work. Machine is
+fine — the app says "this machine" — and so is worktree, which is a git word
+anyone using worktrees already has.
+
 ## Checks
 
 ```sh
@@ -66,12 +89,14 @@ A server module opens its database at import time, so a test that touches state 
 - **Config lives in the database** — the `kv` table in `~/.remy/remy.db`, read through `server/src/config.ts`. A new setting is a key on `Config`, a line in `publicSettings`, and a validated branch in `patchSettings`; the client reads and writes it at `/server/settings`. `~/.mission-control` is the legacy directory, honoured when `~/.remy` is absent.
 - **Where the window is lives in the URL**, as a hash route parsed by `web/src/lib/route.ts`. Electron loads the build from `file://`, where a path a server never sees cannot survive a reload, so the hash is what both surfaces agree on.
 - **Worktrees** Remy creates go in a `.remy` folder, inside the workspace or under the `worktreeRoot` setting, hidden by a rule in the repo's `.git/info/exclude` — per-clone and never committed, so no tracked `.gitignore` changes. Worktrees already checked out elsewhere are left where they are.
-- **A person reads "thread"**, not "chat". The API, the database, and the code still say chat.
+- **The words a person reads** are not always the words the code uses — see **Terminology** above, and check it before naming a label, an error or an empty state.
 - **A provider and a model are one choice.** `server/src/providers.ts` is the only list of what a thread may run on; `config.ts`, `agents.ts` and `chat.ts` validate against it, `GET /server/providers` serves it with what the machine actually has installed, and every picker in the window is `web/src/components/ModelPicker.tsx`. Moving to another provider takes the model to that provider's default rather than keeping one it would refuse.
 - **Claude is a session, Codex is a turn.** A Claude thread holds one process across many turns and can stop mid-turn to ask. `codex exec --experimental-json` takes a prompt on stdin, writes JSONL events, and exits — so a Codex thread is a process per turn, resumed by the thread id Codex hands back, and it holds nothing in between. There is nowhere for it to come back and ask, so Remy holds it to a sandbox instead: Ask stays read-only, Accept edits is `workspace-write`, Bypass is `danger-full-access`. Never quietly grant what a person would have been asked about.
 - **Pairing lives in the daemon**, in the `peers` table — not in any client, so one pairing serves the desktop app, the browser and the phone. A client reaches a paired machine through `/peers/:id/api/...` on its own daemon, which is the only side holding that machine's token. `GET /server/identity` is how a machine introduces itself; `tailscale serve` is the only way in, so the daemon's bind stays on `127.0.0.1`, and `PATCH /server/identity {exposed}` is the switch for it.
 - **Two machines pair by asking, not by carrying a token.** `tailnet.ts` lists your devices from `tailscale status --json` and probes each for Remy — an un-tokened `/health` answers **401**, which is the positive signal. `pairing.ts` then runs the ask: one side shows a six-digit code, a person on the other compares it and allows. `/pair/request` and `/pair/status` are **the only unauthenticated routes** in the daemon, because a machine that has never paired holds no token; they disclose nothing but an opaque request id, change nothing without human approval, are capped and single-use, and are reachable only over your own tailnet. Do not add a third.
 - **The board converges, it is not copied.** Peers exchange `board_log` events against a version vector (`versionVector`, `eventsSince`, `mergeRemote` in `board-log.ts`), then replay every `reprojectAll`. A merged event keeps the device and lamport it was written with — those two are its place in the order. One high-water mark per device, never a single cursor: a peer can merge a third machine's older event after you last pulled.
+- **A recurring ticket is a ticket**, not a scheduled prompt. `recurring.ts` folds the same log the board does and writes a real ticket into Todo on its cadence, assigned to whoever holds it. It is the second tab of Tasks rather than a section of its own, and both tabs carry the same project filter in the URL. The machine on the create event is the only one that mints them, and each run is a `ran` event — so two paired machines never write the same day twice, and a laptop that was shut writes one ticket rather than a week of them.
+- **The workspace agent is not a row.** `workspace` is an assignee like `you` is: it means the workspace's own default model with no persona in front of it, so work can be handed off before anybody has written an agent. `assignedAgent` in `agents.ts` is what turns either into something that can run a turn; no agent may take the handle.
 - **Notifications are addressed, not broadcast.** The machine that raises one decides where it goes: `notifySelf` for itself, a `notify` flag per peer. A forwarded notification is always shown by whoever receives it.
 - **Commit subjects** are a sentence in the imperative with no prefix or scope tag: "Store chats in SQLite instead of a file each". PRs land squashed with the `(#n)` suffix.
 - **Version** is `{major}.{minor}.{run}`, where the run number comes from CI. Do not bump `version` in `package.json` by hand.

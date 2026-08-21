@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { append, applyFields, deviceId, entityIds, eventsFor, type LogEvent } from "./board-log.js";
-import { getAgent, listAgents } from "./agents.js";
+import { WORKSPACE_AGENT, getAgent, listAgents } from "./agents.js";
 import { db, runTransaction } from "./db.js";
 import { getProject, nextTicketNumber, ticketKey, whenSlugChanges } from "./projects.js";
 
@@ -370,7 +370,7 @@ export interface Mention {
 const MENTION = /(?:^|[^\w@.])@([\w-]+)/g;
 
 export function parseMentions(body: string): Mention[] {
-  const known = new Map<string, string>([[YOU, YOU]]);
+  const known = new Map<string, string>([[YOU, YOU], [WORKSPACE_AGENT, WORKSPACE_AGENT]]);
   for (const agent of listAgents()) known.set(agent.handle, agent.id);
   const found = new Map<string, string>();
   for (const match of body.matchAll(MENTION)) {
@@ -422,7 +422,9 @@ function validate(input: Record<string, unknown>): Record<string, unknown> {
   if (input.priority !== undefined) patch.priority = Math.min(Math.max(Number(input.priority) || 0, 0), 4);
   if (input.assigneeAgentId !== undefined) {
     const id = text(input.assigneeAgentId, 64);
-    if (id && id !== YOU && !getAgent(id)) throw new Error("no such agent");
+    // `you` and `workspace` are not rows: one is the person at this daemon, the
+    // other the workspace's own default model.
+    if (id && id !== YOU && id !== WORKSPACE_AGENT && !getAgent(id)) throw new Error("no such agent");
     patch.assigneeAgentId = id ?? "";
   }
   if (input.parentId !== undefined) {
@@ -436,10 +438,13 @@ function validate(input: Record<string, unknown>): Record<string, unknown> {
   return patch;
 }
 
-export function createTicket(input: Record<string, unknown>): TicketView {
+/// Writes a ticket. `actor` is who the feed says wrote it, which is `you` for
+/// every ticket a client asks for and `remy` for the ones a recurrence mints —
+/// so it is a parameter rather than a field on the body a client sends.
+export function createTicket(input: Record<string, unknown>, actor = "you"): TicketView {
   const projectId = String(input.projectId ?? "");
   const project = getProject(projectId);
-  if (!project) throw new Error("pick a project for this ticket");
+  if (!project) throw new Error("pick a workspace for this ticket");
   const patch = validate(input);
   if (!patch.title) throw new Error("a ticket needs a title");
 
@@ -457,7 +462,7 @@ export function createTicket(input: Record<string, unknown>): TicketView {
     // A ticket runs where it was made unless somebody moves it. No machine ever
     // picks up a ticket that has not been pointed at it.
     deviceId,
-    actor: "you",
+    actor,
     ...patch,
   });
   const ticket = getTicketOrThrow(id);

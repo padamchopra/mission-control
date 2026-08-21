@@ -14,7 +14,7 @@ import { db, getKv, runTransaction, setKv } from "./db.js";
 /// device id breaks the tie the counter cannot. `at` is wall clock, and is only
 /// ever shown to a person.
 
-export type LogEntity = "project" | "agent" | "ticket";
+export type LogEntity = "project" | "agent" | "ticket" | "recurrence";
 
 export type LogKind =
   | "create"
@@ -24,6 +24,9 @@ export type LogKind =
   | "handoff"
   | "link"
   | "unlink"
+  /// A recurrence writing one of its tickets. On the log rather than in a row so
+  /// two machines cannot each believe they still owe today's ticket.
+  | "ran"
   | "tombstone";
 
 export interface LogEvent {
@@ -182,9 +185,9 @@ export function eventsSince(vector: Record<string, number>, limit = 500): LogEve
   return rows.map(toEvent);
 }
 
-const LOG_ENTITIES: LogEntity[] = ["project", "agent", "ticket"];
+const LOG_ENTITIES: LogEntity[] = ["project", "agent", "ticket", "recurrence"];
 const LOG_KINDS: LogKind[] = [
-  "create", "field", "status", "comment", "handoff", "link", "unlink", "tombstone",
+  "create", "field", "status", "comment", "handoff", "link", "unlink", "ran", "tombstone",
 ];
 
 /// An event off the wire, or nothing if it is not one. A peer is trusted with

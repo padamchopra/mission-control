@@ -1,4 +1,4 @@
-import type { Agent, Chat, Server, Ticket, TicketStatus } from "~/state/types";
+import type { Agent, Cadence, Chat, Server, Ticket, TicketStatus } from "~/state/types";
 
 /// The board's vocabulary, in one place because the columns, the card menu, the
 /// detail pane and the palette all have to agree on it.
@@ -17,8 +17,13 @@ export const TICKET_STATUSES: TicketStatus[] = [
 /// `server/src/tickets.ts`.
 export const YOU = "you";
 
-/// Everyone a ticket can name — the agents on this machine, and you. Remy has
-/// no accounts, so you are the one person there is, and an agent is the rest.
+/// The assignee that is not an agent: the workspace's own default model, with
+/// no instructions in front of it. Mirrors `WORKSPACE_AGENT` in
+/// `server/src/agents.ts`.
+export const WORKSPACE_AGENT = "workspace";
+
+/// Everyone a ticket can name — you, the workspace itself, and the agents on
+/// this machine. Remy has no accounts, so you are the one person there is.
 export interface Person {
   id: string;
   handle: string;
@@ -29,8 +34,59 @@ export interface Person {
 export function people(agents: Agent[]): Person[] {
   return [
     { id: YOU, handle: YOU, name: "You" },
+    { id: WORKSPACE_AGENT, handle: WORKSPACE_AGENT, name: "Workspace agent" },
     ...agents.map((agent) => ({ id: agent.id, handle: agent.handle, name: agent.name, agent })),
   ];
+}
+
+export const CADENCES: Cadence[] = ["daily", "weekdays", "weekly", "monthly"];
+
+export const CADENCE_LABEL: Record<Cadence, string> = {
+  daily: "Every day",
+  weekdays: "Every weekday",
+  weekly: "Every week",
+  monthly: "Every month",
+};
+
+export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/// A cadence as a sentence: what a person reads on the row rather than four
+/// fields they have to assemble themselves.
+export function cadenceSummary(recurrence: {
+  cadence: Cadence;
+  hour: number;
+  minute: number;
+  weekday?: number;
+  day?: number;
+}): string {
+  const time = clockTime(recurrence.hour, recurrence.minute);
+  if (recurrence.cadence === "daily") return `Every day at ${time}`;
+  if (recurrence.cadence === "weekdays") return `Every weekday at ${time}`;
+  if (recurrence.cadence === "weekly") {
+    return `Every ${WEEKDAYS[recurrence.weekday ?? 1]} at ${time}`;
+  }
+  return `Day ${recurrence.day ?? 1} of the month at ${time}`;
+}
+
+/// A time of day in whatever the machine's clock reads as — twelve hours or
+/// twenty-four. The date it is hung on is today's, and is never shown.
+export function clockTime(hour: number, minute: number): string {
+  const at = new Date();
+  at.setHours(hour, minute, 0, 0);
+  return at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/// The day the next ticket lands on. Only the day: the cadence beside it has
+/// already said the hour, and saying it twice reads as two different facts.
+export function whenNext(at: number): string {
+  const due = new Date(at);
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const days = Math.floor((due.getTime() - midnight.getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days < 7) return WEEKDAYS[due.getDay()];
+  return shortDate(at);
 }
 
 /// The machine a ticket runs on. `deviceId` is the durable answer and survives

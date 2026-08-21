@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { configDir } from "./paths.js";
 
 /// One file for everything Remy persists: config, settings, chats, workspaces,
-/// loops, archives, and the session registry.
+/// the board, archives, and the session registry.
 export const dbFile = join(configDir, "remy.db");
 
 const sqlite = await import("node:sqlite");
@@ -59,10 +59,6 @@ function migrate(database: DatabaseSync): void {
       path text not null,
       icon text,
       tint text
-    );
-    create table if not exists loops (
-      id text primary key,
-      json text not null
     );
     create table if not exists archives (
       id text primary key,
@@ -163,6 +159,29 @@ function migrate(database: DatabaseSync): void {
       primary key (ticket_id, device_id, chat_id)
     );
     create index if not exists ticket_threads_chat on ticket_threads(chat_id);
+    -- Work that comes back: a ticket this machine writes again every day, week
+    -- or month, already handed to whoever is meant to do it.
+    create table if not exists recurrences (
+      id text primary key,
+      project_id text not null,
+      title text not null,
+      body text not null default '',
+      assignee_agent_id text,
+      cadence text not null default 'weekly',
+      hour integer not null default 9,
+      minute integer not null default 0,
+      weekday integer,
+      day integer,
+      enabled integer not null default 1,
+      device_id text,
+      runs integer not null default 0,
+      last_run_at integer,
+      last_error text,
+      created_at integer not null,
+      updated_at integer not null,
+      deleted integer not null default 0
+    );
+    create index if not exists recurrences_project on recurrences(project_id);
     -- The other machines this one is paired with. The token is theirs, not
     -- ours: it is what this daemon presents when it calls them, which is why
     -- pairing lives here rather than in any one client.
@@ -208,7 +227,11 @@ function migrate(database: DatabaseSync): void {
   } catch {
     // Column already exists on databases created after this migration.
   }
-  database.exec("pragma user_version = 2");
+  // Loops were scheduled prompts with no ticket behind them. Recurring tickets
+  // replaced them, and a table nothing reads is worth dropping rather than
+  // carrying.
+  database.exec("drop table if exists loops");
+  database.exec("pragma user_version = 3");
 }
 
 export function getKv<T>(key: string): T | undefined {

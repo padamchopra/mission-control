@@ -40,7 +40,13 @@ Start a thread in a workspace, pick a model and how much the agent may do unaske
 
 <img src="docs/images/palette.png" alt="The command palette listing threads that need you and threads still working" width="100%" />
 
-The Board is for planning rather than chatting: tickets, agents with their own instructions, and a handoff from one to the next. Agents sign their commits, so `git log` says which one wrote what.
+**Tasks** is for planning rather than chatting: a board of tickets, agents with their own instructions, and a handoff from one to the next. Agents sign their commits, so `git log` says which one wrote what. A ticket can be yours, an agent's, or the workspace's own model — an assignee you get without writing an agent first.
+
+<img src="docs/images/tasks-board.png" alt="The Tasks board, tickets in columns with an assignee on each card" width="100%" />
+
+Its other tab is **Recurring**, for work that comes back: pick how often, pick who does it, and Remy writes the ticket onto the board every day, weekday, week or month.
+
+<img src="docs/images/tasks-recurring.png" alt="The Recurring tab listing four recurring tickets with their cadence and assignee" width="100%" />
 
 ## Add your other machines
 

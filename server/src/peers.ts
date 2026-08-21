@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { db } from "./db.js";
 import { reprojectAll as reprojectAgents } from "./agents.js";
 import { reprojectAll as reprojectProjects } from "./projects.js";
+import { reprojectAll as reprojectRecurrences } from "./recurring.js";
 import { reprojectAll as reprojectTickets } from "./tickets.js";
 import { serveTarget, tailnetHost, tailscale } from "./tailnet.js";
 
@@ -446,6 +447,7 @@ function reprojectBoard(): void {
   reprojectProjects();
   reprojectAgents();
   reprojectTickets();
+  reprojectRecurrences();
 }
 
 let syncTimer: ReturnType<typeof setInterval> | undefined;

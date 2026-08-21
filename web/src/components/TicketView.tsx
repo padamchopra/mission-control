@@ -65,6 +65,7 @@ import {
   DERIVED_STATUSES,
   STATUS_LABEL,
   TICKET_STATUSES,
+  WORKSPACE_AGENT,
   YOU,
   byRank,
   deviceForTicket,
@@ -151,7 +152,9 @@ export function TicketView({
     <main className="flex min-w-0 flex-1 flex-col">
       <PaneHeader
         crumbs={[
-          { label: "Board", onClick: onBack },
+          // Named for the section it returns to, which is what the sidebar
+          // calls it — the board is one of that section's two tabs.
+          { label: "Tasks", onClick: onBack },
           ...(parent ? [{ label: parent.key, onClick: () => onOpenTicket(parent.key) }] : []),
           { label: ticket.key },
         ]}
@@ -437,8 +440,9 @@ export function TicketView({
                     <AssigneeAvatar agents={agents} />
                     Nobody
                   </SelectItem>
-                  {/* You first: a ticket you keep is the common case, and an
-                      agent only starts on one that was handed to it. */}
+                  {/* You first, then the workspace itself: a ticket you keep is
+                      the common case, and an agent only starts on one that was
+                      handed to it. */}
                   {people(agents).map((person) => (
                     <SelectItem key={person.id} value={person.id}>
                       <AssigneeAvatar assignee={person.id} agents={agents} />
@@ -448,6 +452,11 @@ export function TicketView({
                 </SelectGroup>
               </SelectContent>
             </Select>
+            {ticket.assigneeAgentId === WORKSPACE_AGENT && (
+              <p className="text-[11px] text-muted-foreground">
+                This workspace's own default model, with no agent in front of it.
+              </p>
+            )}
           </Property>
 
           {ticket.branch && (
@@ -600,6 +609,9 @@ function ActivityFeed({
 function named(entry: TicketActivity, agents: Agent[], onOpenAgent: (handle: string) => void): Mention[] {
   return (entry.mentions ?? []).flatMap((mention) => {
     if (mention.id === YOU) return [{ handle: mention.handle, label: "You" }];
+    // The workspace agent has no pane of its own to open: it is the workspace's
+    // own model rather than a roster entry.
+    if (mention.id === WORKSPACE_AGENT) return [{ handle: mention.handle, label: "Workspace agent" }];
     const agent = agents.find((candidate) => candidate.id === mention.id);
     return agent
       ? [{ handle: mention.handle, label: agent.name, onOpen: () => onOpenAgent(agent.handle) }]
@@ -610,6 +622,7 @@ function named(entry: TicketActivity, agents: Agent[], onOpenAgent: (handle: str
 function actorName(actor: string, agents: Agent[]): string {
   if (actor === "you") return "You";
   if (actor === "remy") return "Remy";
+  if (actor === WORKSPACE_AGENT) return "Workspace agent";
   return agents.find((agent) => agent.id === actor)?.name ?? actor;
 }
 
@@ -737,7 +750,7 @@ function AttachThreadDialog({
 export function MissingTicket({ ticketKey, onBack }: { ticketKey: string; onBack: () => void }) {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PaneHeader crumbs={[{ label: "Board", onClick: onBack }, { label: ticketKey }]} />
+      <PaneHeader crumbs={[{ label: "Tasks", onClick: onBack }, { label: ticketKey }]} />
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">

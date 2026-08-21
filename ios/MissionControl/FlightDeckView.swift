@@ -122,14 +122,6 @@ private struct FlightDeckWorkspace: Identifiable, Hashable {
     var deviceCode: String { server.flightDeckCode }
 }
 
-private struct FlightDeckLoop: Identifiable, Hashable {
-    let server: Server
-    let loop: MissionLoop
-
-    var id: String { "\(server.id)|\(loop.id)" }
-    var deviceCode: String { server.flightDeckCode }
-}
-
 private struct FlightDeckPullRequest: Identifiable, Hashable {
     let server: Server
     let pullRequest: AuthoredPullRequest
@@ -163,7 +155,6 @@ private extension Server {
 private final class FlightDeckStore: ObservableObject {
     @Published private(set) var agents: [FlightDeckAgent] = []
     @Published private(set) var workspaces: [FlightDeckWorkspace] = []
-    @Published private(set) var loops: [FlightDeckLoop] = []
     @Published private(set) var pullRequests: [FlightDeckPullRequest] = []
     @Published private(set) var archives: [FlightDeckArchive] = []
     @Published private(set) var errors: [String: String] = [:]
@@ -178,7 +169,6 @@ private final class FlightDeckStore: ObservableObject {
         guard !servers.isEmpty else {
             agents = []
             workspaces = []
-            loops = []
             pullRequests = []
             archives = []
             errors = [:]
@@ -188,38 +178,33 @@ private final class FlightDeckStore: ObservableObject {
 
         loading = agents.isEmpty
         let fetches = servers.map { server in
-            Task { () -> (Server, [TmuxSession], [Workspace], [MissionLoop], [ArchivedChat], [AuthoredPullRequest], String?) in
+            Task { () -> (Server, [TmuxSession], [Workspace], [ArchivedChat], [AuthoredPullRequest], String?) in
                 guard let api = APIClient(urlString: server.url, token: server.token) else {
-                    return (server, [], [], [], [], [], "Invalid connection")
+                    return (server, [], [], [], [], "Invalid connection")
                 }
                 do {
                     async let sessionsCall = api.sessions()
                     async let workspacesCall = api.workspaces()
                     let sessions = try await sessionsCall
                     let workspaces = try await workspacesCall
-                    // Older servers remain usable during rollout; they simply
-                    // contribute no loops until updated.
-                    let loops = (try? await api.loops()) ?? []
                     let archives = (try? await api.archives()) ?? []
                     let pullRequests = (try? await api.authoredPullRequests(refresh: refreshPullRequests)) ?? []
-                    return (server, sessions, workspaces, loops, archives, pullRequests, nil)
+                    return (server, sessions, workspaces, archives, pullRequests, nil)
                 } catch {
-                    return (server, [], [], [], [], [], error.localizedDescription)
+                    return (server, [], [], [], [], error.localizedDescription)
                 }
             }
         }
 
         var nextAgents: [FlightDeckAgent] = []
         var nextWorkspaces: [FlightDeckWorkspace] = []
-        var nextLoops: [FlightDeckLoop] = []
         var nextArchives: [FlightDeckArchive] = []
         var nextPullRequests: [FlightDeckPullRequest] = []
         var nextErrors: [String: String] = [:]
         for fetch in fetches {
-            let (server, sessions, fetchedWorkspaces, fetchedLoops, fetchedArchives, fetchedPullRequests, error) = await fetch.value
+            let (server, sessions, fetchedWorkspaces, fetchedArchives, fetchedPullRequests, error) = await fetch.value
             nextAgents += sessions.map { FlightDeckAgent(server: server, session: $0) }
             nextWorkspaces += fetchedWorkspaces.map { FlightDeckWorkspace(server: server, workspace: $0) }
-            nextLoops += fetchedLoops.map { FlightDeckLoop(server: server, loop: $0) }
             nextArchives += fetchedArchives.map { FlightDeckArchive(server: server, archive: $0) }
             nextPullRequests += fetchedPullRequests.map { FlightDeckPullRequest(server: server, pullRequest: $0) }
             if let error { nextErrors[server.id] = error }
@@ -231,7 +216,6 @@ private final class FlightDeckStore: ObservableObject {
         workspaces = nextWorkspaces.sorted {
             $0.workspace.name.localizedCaseInsensitiveCompare($1.workspace.name) == .orderedAscending
         }
-        loops = nextLoops.sorted { $0.loop.nextRunAt < $1.loop.nextRunAt }
         pullRequests = Self.deduplicatedPullRequests(nextPullRequests)
         archives = nextArchives.sorted { $0.archive.archivedAt > $1.archive.archivedAt }
         errors = nextErrors
@@ -272,7 +256,6 @@ private enum FlightDeckSection: String, CaseIterable, Identifiable {
     case chats
     case workspaces
     case pullRequests
-    case loops
 
     var id: String { rawValue }
     var title: String {
@@ -282,7 +265,6 @@ private enum FlightDeckSection: String, CaseIterable, Identifiable {
         case .chats: return "Chats"
         case .workspaces: return "Workspaces"
         case .pullRequests: return "Pull requests"
-        case .loops: return "Loops"
         }
     }
     var code: String {
@@ -292,7 +274,6 @@ private enum FlightDeckSection: String, CaseIterable, Identifiable {
         case .chats: return "CH"
         case .workspaces: return "WS"
         case .pullRequests: return "PR"
-        case .loops: return "LP"
         }
     }
 }
@@ -355,7 +336,6 @@ struct FlightDeckView: View {
     @State private var scopeServerID: String?
     @State private var selectedAgentID: String?
     @State private var selectedWorkspaceID: String?
-    @State private var selectedLoopID: String?
     @State private var selectedPullRequestID: String?
     @State private var selectedChatID: String?
     @State private var selectedInboxItemID: String?
@@ -384,15 +364,6 @@ struct FlightDeckView: View {
 
     private var selectedWorkspace: FlightDeckWorkspace? {
         visibleWorkspaces.first { $0.id == selectedWorkspaceID } ?? visibleWorkspaces.first
-    }
-
-    private var visibleLoops: [FlightDeckLoop] {
-        guard let scopeServerID else { return deck.loops }
-        return deck.loops.filter { $0.server.id == scopeServerID }
-    }
-
-    private var selectedLoop: FlightDeckLoop? {
-        visibleLoops.first { $0.id == selectedLoopID } ?? visibleLoops.first
     }
 
     private var visiblePullRequests: [FlightDeckPullRequest] {
@@ -634,7 +605,6 @@ struct FlightDeckView: View {
         case .chats: return "bubble.left.and.bubble.right"
         case .workspaces: return "folder"
         case .pullRequests: return "arrow.triangle.pull"
-        case .loops: return "arrow.trianglehead.2.clockwise.rotate.90"
         }
     }
 
@@ -931,7 +901,7 @@ struct FlightDeckView: View {
         } label: {
             HStack(spacing: MCSpace.md) {
                 // A glyph rather than the two-letter code this used to show:
-                // "PR"/"LP"/"CC" needed learning, and a Mac sidebar reads as
+                // "PR"/"WS"/"CC" needed learning, and a Mac sidebar reads as
                 // icon-plus-label everywhere else in the system.
                 Image(systemName: Self.paletteIcon(for: destination))
                     .font(.system(size: 12, weight: .medium))
@@ -1049,8 +1019,6 @@ struct FlightDeckView: View {
                 workspacesView
             case .pullRequests:
                 pullRequestsView
-            case .loops:
-                loopsView
             }
         }
     }
@@ -1222,22 +1190,6 @@ struct FlightDeckView: View {
         )
     }
 
-    private var loopsView: some View {
-        FlightDeckLoopsView(
-            loops: visibleLoops,
-            workspaces: visibleWorkspaces,
-            selectedID: selectedLoop?.id,
-            onSelect: { selectedLoopID = $0.id },
-            onChanged: { await deck.refresh() },
-            onOpenSession: { server, session in
-                await deck.refresh()
-                if let agent = deck.agents.first(where: { $0.server.id == server.id && $0.session.name == session }) {
-                    select(agent)
-                }
-            }
-        )
-    }
-
     private var pullRequestsView: some View {
         FlightDeckPullRequestsView(
             pullRequests: visiblePullRequests,
@@ -1275,7 +1227,6 @@ struct FlightDeckView: View {
     private func normalizeSelection() {
         if selectedAgent == nil { selectedAgentID = visibleAgents.first?.id }
         if selectedWorkspace == nil { selectedWorkspaceID = visibleWorkspaces.first?.id }
-        if selectedLoop == nil { selectedLoopID = visibleLoops.first?.id }
         if selectedPullRequest == nil { selectedPullRequestID = visiblePullRequests.first?.id }
         if selectedArchive == nil { selectedArchiveID = visibleArchives.first?.id }
     }
@@ -3862,567 +3813,6 @@ private struct FlightDeckTelemetry: View {
             Spacer(minLength: 0)
         }
         .font(.flightSans(9))
-    }
-}
-
-private struct FlightDeckLoopsView: View {
-    let loops: [FlightDeckLoop]
-    let workspaces: [FlightDeckWorkspace]
-    let selectedID: String?
-    let onSelect: (FlightDeckLoop) -> Void
-    let onChanged: () async -> Void
-    let onOpenSession: (Server, String) async -> Void
-
-    @EnvironmentObject private var toasts: ToastCenter
-    @State private var editingLoop: FlightDeckLoop?
-    @State private var showNewLoop = false
-    @State private var pendingDelete: FlightDeckLoop?
-    @State private var running: Set<String> = []
-
-    private var selected: FlightDeckLoop? {
-        loops.first { $0.id == selectedID } ?? loops.first
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            FlightDeckPageHeader(
-                eyebrow: "Automation / Recurring missions",
-                title: "Loops",
-                subtitle: "Scheduled agent runs across every connected device"
-            ) {
-                Button("+ NEW LOOP") { showNewLoop = true }
-                    .buttonStyle(FlightDeckAccentButtonStyle())
-            }
-            HStack(spacing: 0) {
-                loopIndex.frame(width: FlightDeckLayout.indexWidth)
-                if let selected {
-                    loopDetail(selected)
-                } else {
-                    FlightDeckEmptyState(
-                        title: "No loops configured",
-                        detail: "Create a recurring mission, choose a workspace, then run it with Claude or Codex."
-                    )
-                }
-            }
-        }
-        .background(FlightDeckPalette.background)
-        .overlay {
-            if showNewLoop {
-                FlightDeckModalLayer(onDismiss: { showNewLoop = false }) {
-                    FlightDeckLoopEditor(
-                        workspaces: workspaces,
-                        existing: nil,
-                        onCancel: { showNewLoop = false }
-                    ) {
-                        showNewLoop = false
-                        await onChanged()
-                    }
-                }
-            } else if let loop = editingLoop {
-                FlightDeckModalLayer(onDismiss: { editingLoop = nil }) {
-                    FlightDeckLoopEditor(
-                        workspaces: workspaces.filter { $0.server.id == loop.server.id },
-                        existing: loop,
-                        onCancel: { editingLoop = nil }
-                    ) {
-                        editingLoop = nil
-                        await onChanged()
-                    }
-                }
-            } else if let loop = pendingDelete {
-                FlightDeckModalLayer(onDismiss: { pendingDelete = nil }) {
-                    FlightDeckDialogModal(
-                        eyebrow: "Loops / Destructive action",
-                        title: "Delete loop?",
-                        message: "Future runs stop immediately. Sessions already launched by this loop are not deleted."
-                    ) {
-                        EmptyView()
-                    } actions: {
-                        Button("Cancel") { pendingDelete = nil }
-                            .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                        Button("DELETE \(loop.loop.name)") {
-                            pendingDelete = nil
-                            Task { await delete(loop) }
-                        }
-                        .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.red))
-                    }
-                }
-            }
-        }
-    }
-
-    private var loopIndex: some View {
-        VStack(spacing: 0) {
-            HStack {
-                flightLabel("Active / \(loops.filter { $0.loop.enabled }.count)")
-                Spacer()
-                flightLabel("Next 24 hours")
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 38)
-            .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(loops) { loop in loopRow(loop) }
-                }
-            }
-        }
-        .background(FlightDeckPalette.surface)
-        .overlay(alignment: .trailing) { Rectangle().fill(FlightDeckPalette.border).frame(width: 1) }
-    }
-
-    private func loopRow(_ loop: FlightDeckLoop) -> some View {
-        let isSelected = selected?.id == loop.id
-        return Button { onSelect(loop) } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    Rectangle()
-                        .fill(loop.loop.enabled ? (loop.loop.lastError == nil ? FlightDeckPalette.green : FlightDeckPalette.red) : FlightDeckPalette.muted)
-                        .frame(width: 8, height: 8)
-                    Text(loop.loop.name)
-                        .font(.flightSans(15, weight: .semibold))
-                        .lineLimit(1)
-                    Spacer()
-                    Text(loopStatus(loop))
-                        .font(.flightSans(8))
-                        .foregroundStyle(loop.loop.lastError == nil ? FlightDeckPalette.green : FlightDeckPalette.red)
-                }
-                Text(loop.loop.schedule.summary)
-                    .font(.flightSans(11))
-                    .foregroundStyle(FlightDeckPalette.secondary)
-                HStack(spacing: 8) {
-                    Text(loop.deviceCode)
-                        .padding(.horizontal, 10)
-                        .frame(height: 18)
-                        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-                    Menu {
-                        agentButton(.codex, loop: loop)
-                        agentButton(.claude, loop: loop)
-                    } label: {
-                        Text("\(loop.loop.agent.displayName)  ⌄")
-                            .padding(.horizontal, 10)
-                            .frame(height: 22)
-                            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-                    }
-                    .menuStyle(.borderlessButton)
-                    Spacer()
-                    Text("Next \(relativeRunLabel(loop.loop.nextRunDate))")
-                        .foregroundStyle(FlightDeckPalette.muted)
-                }
-                .font(.flightSans(8))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(height: 90)
-            .foregroundStyle(isSelected ? FlightDeckPalette.text : FlightDeckPalette.secondary)
-        }
-        .flightDeckIndexRow(selected: isSelected)
-    }
-
-    private func loopDetail(_ selected: FlightDeckLoop) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 7) {
-                    flightLabel("Selected loop")
-                    Text(selected.loop.name)
-                        .font(.flightSans(24, weight: .bold))
-                }
-                Spacer()
-                VStack(alignment: .leading, spacing: 6) {
-                    flightLabel("Run with")
-                    Menu {
-                        agentButton(.codex, loop: selected)
-                        agentButton(.claude, loop: selected)
-                    } label: {
-                        HStack {
-                            Text(selected.loop.agent.displayName)
-                            Spacer()
-                            Text("⌄")
-                        }
-                        .font(.flightMono(10, weight: .semibold))
-                        .foregroundStyle(FlightDeckPalette.text)
-                        .padding(.horizontal, 12)
-                        .frame(width: 124, height: 32)
-                        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-                    }
-                    .menuStyle(.borderlessButton)
-                }
-            }
-            .frame(height: 58)
-            .overlay(alignment: .bottom) { Divider().overlay(FlightDeckPalette.border) }
-
-            HStack(spacing: 10) {
-                loopMetric("RUNS", "\(selected.loop.runs)", "\(selected.loop.successPercent)% SUCCESS")
-                loopMetric(
-                    "LAST RUN",
-                    selected.loop.lastDurationMs.map { durationLabel($0) } ?? "—",
-                    selected.loop.lastRunDate?.formatted(date: .abbreviated, time: .shortened) ?? "NOT RUN YET"
-                )
-                loopMetric(
-                    "NEXT RUN",
-                    selected.loop.nextRunDate.formatted(date: .omitted, time: .shortened),
-                    relativeRunLabel(selected.loop.nextRunDate),
-                    accent: FlightDeckPalette.amber
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                flightLabel("Mission")
-                Text(selected.loop.prompt)
-                    .font(.flightMono(12))
-                    .foregroundStyle(FlightDeckPalette.secondary)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, minHeight: 82, alignment: .topLeading)
-                    .background(FlightDeckPalette.surface)
-                    .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-            }
-
-            HStack(spacing: 8) {
-                Button(running.contains(selected.id) ? "RUNNING…" : "RUN NOW ↵") {
-                    Task { await run(selected) }
-                }
-                .buttonStyle(FlightDeckAccentButtonStyle())
-                .disabled(running.contains(selected.id))
-                Button("Edit loop") { editingLoop = selected }
-                    .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                Button(selected.loop.enabled ? "PAUSE" : "RESUME") {
-                    Task { await setEnabled(selected, !selected.loop.enabled) }
-                }
-                .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                Spacer()
-                Button("Delete") { pendingDelete = selected }
-                    .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.red))
-            }
-            if let error = selected.loop.lastError, !error.isEmpty {
-                Text(error)
-                    .font(.flightSans(9))
-                    .foregroundStyle(FlightDeckPalette.red)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 30)
-        .padding(.vertical, 16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func loopMetric(_ label: String, _ value: String, _ footer: String, accent: Color = FlightDeckPalette.green) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            flightLabel(label)
-            Text(value).font(.flightSans(26, weight: .bold)).lineLimit(1)
-            Text(footer).font(.flightSans(8)).foregroundStyle(accent).lineLimit(1)
-        }
-        .padding(12)
-        .frame(maxWidth: 170, minHeight: 104, alignment: .topLeading)
-        .background(FlightDeckPalette.surface)
-        .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-    }
-
-    @ViewBuilder
-    private func agentButton(_ agent: AgentKind, loop: FlightDeckLoop) -> some View {
-        Button {
-            Task { await setAgent(agent, for: loop) }
-        } label: {
-            Label(agent.displayName, systemImage: loop.loop.agent == agent ? "checkmark" : agent.systemImage)
-        }
-    }
-
-    private func setAgent(_ agent: AgentKind, for loop: FlightDeckLoop) async {
-        guard agent != .shell,
-              let api = APIClient(urlString: loop.server.url, token: loop.server.token) else { return }
-        do {
-            try await api.updateLoop(id: loop.loop.id, agent: agent)
-            await onChanged()
-        } catch {
-            toasts.show(.error, "Couldn't change loop agent")
-        }
-    }
-
-    private func setEnabled(_ loop: FlightDeckLoop, _ enabled: Bool) async {
-        guard let api = APIClient(urlString: loop.server.url, token: loop.server.token) else { return }
-        do {
-            try await api.updateLoop(id: loop.loop.id, enabled: enabled)
-            await onChanged()
-        } catch {
-            toasts.show(.error, "Couldn't update loop")
-        }
-    }
-
-    private func run(_ loop: FlightDeckLoop) async {
-        guard let api = APIClient(urlString: loop.server.url, token: loop.server.token) else { return }
-        running.insert(loop.id)
-        defer { running.remove(loop.id) }
-        do {
-            let result = try await api.runLoop(id: loop.loop.id)
-            await onChanged()
-            await onOpenSession(loop.server, result.session)
-            toasts.show(.success, "Started \(loop.loop.name)")
-        } catch {
-            toasts.show(.error, "Loop failed: \(error.localizedDescription)")
-            await onChanged()
-        }
-    }
-
-    private func delete(_ loop: FlightDeckLoop) async {
-        guard let api = APIClient(urlString: loop.server.url, token: loop.server.token) else { return }
-        do {
-            try await api.deleteLoop(id: loop.loop.id)
-            await onChanged()
-            toasts.show(.success, "Deleted \(loop.loop.name)")
-        } catch {
-            toasts.show(.error, "Couldn't delete loop")
-        }
-    }
-
-    private var deletePresented: Binding<Bool> {
-        Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })
-    }
-
-    private func loopStatus(_ loop: FlightDeckLoop) -> String {
-        if !loop.loop.enabled { return "PAUSED" }
-        if running.contains(loop.id) { return "RUNNING" }
-        return loop.loop.lastError == nil ? "HEALTHY" : "FAILED"
-    }
-
-    private func durationLabel(_ milliseconds: TimeInterval) -> String {
-        if milliseconds < 1_000 { return "<1s" }
-        if milliseconds < 60_000 { return "\(Int(milliseconds / 1_000))s" }
-        return "\(Int(milliseconds / 60_000))m"
-    }
-
-    private func relativeRunLabel(_ date: Date) -> String {
-        let seconds = max(date.timeIntervalSinceNow, 0)
-        if seconds < 60 { return "NOW" }
-        let minutes = Int((seconds / 60).rounded())
-        if minutes < 60 { return "IN \(minutes)M" }
-        let hours = Int((seconds / 3_600).rounded())
-        if hours < 24 { return "IN \(hours)H" }
-        let days = Int((seconds / 86_400).rounded())
-        return "IN \(days)D"
-    }
-}
-
-private struct FlightDeckLoopEditor: View {
-    let workspaces: [FlightDeckWorkspace]
-    let existing: FlightDeckLoop?
-    let onCancel: () -> Void
-    let onSaved: () async -> Void
-
-    @State private var name: String
-    @State private var workspaceID: String
-    @State private var agent: AgentKind
-    @State private var frequency: LoopFrequency
-    @State private var intervalHours: Int
-    @State private var runTime: Date
-    @State private var weekday: Int
-    @State private var prompt: String
-    @State private var saving = false
-    @State private var errorText: String?
-
-    init(
-        workspaces: [FlightDeckWorkspace],
-        existing: FlightDeckLoop?,
-        onCancel: @escaping () -> Void,
-        onSaved: @escaping () async -> Void
-    ) {
-        self.workspaces = workspaces
-        self.existing = existing
-        self.onCancel = onCancel
-        self.onSaved = onSaved
-        let schedule = existing?.loop.schedule
-        _name = State(initialValue: existing?.loop.name ?? "")
-        _workspaceID = State(initialValue: existing?.loop.workspaceId ?? workspaces.first?.workspace.id ?? "")
-        _agent = State(initialValue: existing?.loop.agent ?? .codex)
-        _frequency = State(initialValue: schedule?.frequency ?? .daily)
-        _intervalHours = State(initialValue: schedule?.intervalHours ?? 2)
-        _weekday = State(initialValue: schedule?.weekday ?? 1)
-        _prompt = State(initialValue: existing?.loop.prompt ?? "")
-        var components = DateComponents()
-        components.hour = schedule?.hour ?? 9
-        components.minute = schedule?.minute ?? 0
-        _runTime = State(initialValue: Calendar.current.date(from: components) ?? .now)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FlightDeckModalHeader(
-                eyebrow: "Loops / \(existing == nil ? "NEW MISSION" : "EDIT MISSION")",
-                title: existing == nil ? "Create a loop" : "Edit loop",
-                onCancel: onCancel
-            )
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    loopField("LOOP NAME") {
-                        TextField("Name", text: $name)
-                            .textFieldStyle(FlightDeckTextFieldStyle())
-                    }
-
-                    HStack(alignment: .top, spacing: 18) {
-                        loopField("Workspace") {
-                            flightPicker {
-                                Picker("Workspace", selection: $workspaceID) {
-                                    ForEach(workspaces) { workspace in
-                                        Text("\(workspace.workspace.name) · \(workspace.deviceCode)").tag(workspace.workspace.id)
-                                    }
-                                }
-                            }
-                        }
-                        loopField("RUN WITH") {
-                            HStack(spacing: 0) {
-                                agentButton(.codex)
-                                agentButton(.claude)
-                            }
-                        }
-                    }
-
-                    HStack(alignment: .top, spacing: 18) {
-                        loopField("FREQUENCY") {
-                            flightPicker {
-                                Picker("Frequency", selection: $frequency) {
-                                    ForEach(LoopFrequency.allCases) { item in
-                                        Text(item.displayName).tag(item)
-                                    }
-                                }
-                            }
-                        }
-                        loopField("SCHEDULE") {
-                            HStack(spacing: 12) {
-                                if frequency == .hourly {
-                                    Stepper(
-                                        "Every \(intervalHours) hour\(intervalHours == 1 ? "" : "s")",
-                                        value: $intervalHours,
-                                        in: 1...168
-                                    )
-                                    .font(.flightSans(10))
-                                } else {
-                                    if frequency == .weekly {
-                                        Picker("Day", selection: $weekday) {
-                                            ForEach(Array(Calendar.current.weekdaySymbols.enumerated()), id: \.offset) { index, day in
-                                                Text(day).tag(index)
-                                            }
-                                        }
-                                        .labelsHidden()
-                                    }
-                                    DatePicker("Time", selection: $runTime, displayedComponents: .hourAndMinute)
-                                        .labelsHidden()
-                                }
-                            }
-                            .tint(FlightDeckPalette.amber)
-                            .padding(.horizontal, 12)
-                            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                            .background(FlightDeckPalette.surface)
-                            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-                        }
-                    }
-
-                    loopField("MISSION PROMPT") {
-                        TextEditor(text: $prompt)
-                            .font(.flightMono(10))
-                            .foregroundStyle(FlightDeckPalette.text)
-                            .scrollContentBackground(.hidden)
-                            .padding(10)
-                            .frame(minHeight: 150)
-                            .background(FlightDeckPalette.surface)
-                            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-                    }
-
-                    if let errorText {
-                        Text(errorText)
-                            .font(.flightSans(10))
-                            .foregroundStyle(FlightDeckPalette.red)
-                    }
-                }
-                .padding(16)
-            }
-
-            HStack(spacing: 10) {
-                Spacer()
-                Button("Cancel", action: onCancel)
-                    .buttonStyle(FlightDeckOutlineButtonStyle(color: FlightDeckPalette.secondary))
-                Button(saving ? "SAVING…" : "SAVE LOOP") { Task { await save() } }
-                    .buttonStyle(FlightDeckAccentButtonStyle())
-                    .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty || workspaceID.isEmpty || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .padding(12)
-            .background(FlightDeckPalette.surface)
-            .overlay(alignment: .top) { Divider().overlay(FlightDeckPalette.border) }
-        }
-        .frame(width: 720, height: 700)
-        .preferredColorScheme(.dark)
-    }
-
-    private func loopField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title)
-                .font(.flightSans(8, weight: .bold))
-                .foregroundStyle(FlightDeckPalette.secondary)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func flightPicker<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .tint(FlightDeckPalette.amber)
-            .font(.flightSans(10))
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-            .background(FlightDeckPalette.surface)
-            .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-    }
-
-    private func agentButton(_ kind: AgentKind) -> some View {
-        Button { agent = kind } label: {
-            Text(kind.displayName)
-                .font(.flightSans(9, weight: .semibold))
-                .foregroundStyle(agent == kind ? FlightDeckPalette.onAccent : FlightDeckPalette.secondary)
-                .frame(maxWidth: .infinity)
-                .frame(height: 38)
-                .background(agent == kind ? FlightDeckPalette.amber : FlightDeckPalette.surface)
-                .overlay(RoundedRectangle(cornerRadius: MCRadius.control, style: .continuous).strokeBorder(FlightDeckPalette.border))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func save() async {
-        guard !saving,
-              let workspace = workspaces.first(where: { $0.workspace.id == workspaceID }),
-              let api = APIClient(urlString: workspace.server.url, token: workspace.server.token) else { return }
-        saving = true
-        defer { saving = false }
-        let time = Calendar.current.dateComponents([.hour, .minute], from: runTime)
-        let schedule = LoopSchedule(
-            frequency: frequency,
-            intervalHours: frequency == .hourly ? intervalHours : nil,
-            hour: frequency == .hourly ? nil : time.hour,
-            minute: frequency == .hourly ? nil : time.minute,
-            weekday: frequency == .weekly ? weekday : nil
-        )
-        do {
-            if let existing {
-                try await api.updateLoop(
-                    id: existing.loop.id,
-                    name: name,
-                    workspaceID: workspaceID,
-                    prompt: prompt,
-                    agent: agent,
-                    schedule: schedule
-                )
-            } else {
-                try await api.createLoop(
-                    name: name,
-                    workspaceID: workspaceID,
-                    prompt: prompt,
-                    agent: agent,
-                    schedule: schedule
-                )
-            }
-            await onSaved()
-        } catch {
-            errorText = error.localizedDescription
-        }
     }
 }
 

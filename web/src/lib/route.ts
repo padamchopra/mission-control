@@ -14,7 +14,7 @@ export type Route =
   | { name: "board"; scope?: string }
   | { name: "ticket"; key: string }
   | { name: "prs" }
-  | { name: "loops" }
+  | { name: "recurring"; scope?: string }
   | { name: "settings"; tab: SettingsTab; item?: string };
 
 export interface AppLocation {
@@ -31,11 +31,12 @@ const SETTINGS_TABS: SettingsTab[] = [
 ];
 
 /// The section a route belongs to, which is what the sidebar highlights.
-export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs" | "loops" | "board" {
+export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs" | "tasks" {
   if (route.name === "threads") return "chats";
   if (route.name === "settings") return "chats";
-  // A ticket sits inside the board the way a thread sits inside Threads.
-  if (route.name === "ticket") return "board";
+  // Tasks is one section with two tabs, and a ticket sits inside it the way a
+  // thread sits inside Threads.
+  if (route.name === "board" || route.name === "recurring" || route.name === "ticket") return "tasks";
   return route.name;
 }
 
@@ -51,9 +52,10 @@ export function parseLocation(hash: string): AppLocation {
   if (head === "inbox") return { route: { name: "inbox" } };
   if (head === "workspaces") return { route: { name: "workspaces", workspaceId: rest } };
   if (head === "pull-requests") return { route: { name: "prs" } };
-  if (head === "loops") return { route: { name: "loops" } };
-  // The board's segment is the key prefixes it is filtered to, comma joined —
-  // `#/board/REMY,ATLAS` — so a filtered view is a link you can send someone.
+  // Both halves of Tasks take the same segment: the key prefixes the view is
+  // filtered to, comma joined — `#/board/REMY,ATLAS` — so a filtered view is a
+  // link you can send someone, and switching tabs keeps the filter.
+  if (head === "recurring") return { route: { name: "recurring", scope: rest } };
   if (head === "board") return { route: { name: "board", scope: rest } };
   // Tickets are addressed by key rather than id, so a link someone pastes reads
   // as the thing it opens.
@@ -73,8 +75,8 @@ export function formatLocation({ route }: AppLocation): string {
       ? `/threads${route.threadId ? `/${encodeURIComponent(route.threadId)}` : ""}`
       : route.name === "workspaces"
         ? `/workspaces${route.workspaceId ? `/${encodeURIComponent(route.workspaceId)}` : ""}`
-        : route.name === "board"
-          ? `/board${route.scope ? `/${encodeURIComponent(route.scope)}` : ""}`
+        : route.name === "board" || route.name === "recurring"
+          ? `/${route.name}${route.scope ? `/${encodeURIComponent(route.scope)}` : ""}`
           : route.name === "ticket"
             ? `/tickets/${encodeURIComponent(route.key)}`
             : route.name === "settings"
