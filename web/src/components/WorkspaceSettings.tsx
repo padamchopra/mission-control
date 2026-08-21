@@ -67,9 +67,7 @@ function TicketSlugField({ workspace }: { workspace: Workspace }) {
 
   return (
     <Field orientation="horizontal" className="items-center">
-      <FieldContent>
-        <FieldLabel htmlFor="ticket-slug">Ticket slug</FieldLabel>
-      </FieldContent>
+      <FieldLabel htmlFor="ticket-slug">Ticket slug</FieldLabel>
       <Input
         id="ticket-slug"
         value={draft}
