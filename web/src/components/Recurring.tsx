@@ -276,7 +276,13 @@ function RecurrenceRow({
   return (
     <Item variant="outline">
       <ItemMedia>
-        <AssigneeAvatar assignee={recurrence.assigneeAgentId} agents={agents} size="md" />
+        <AssigneeAvatar
+          assignee={recurrence.assigneeAgentId}
+          agents={agents}
+          workspace={workspace}
+          workspaceName={project?.name}
+          size="md"
+        />
       </ItemMedia>
       <ItemContent>
         <ItemTitle>{recurrence.title}</ItemTitle>
@@ -378,6 +384,7 @@ function RecurrenceDialog({
   agents: Agent[];
 }) {
   const saveRecurrence = useStore((s) => s.saveRecurrence);
+  const workspaces = useStore((s) => s.workspaces);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [project, setProject] = useState("");
@@ -404,7 +411,10 @@ function RecurrenceDialog({
     );
   }, [open, recurrence, projectId, projects]);
 
-  const roster = useMemo(() => people(agents), [agents]);
+  const selectedProject = projects.find((entry) => entry.id === project);
+  const workspace = selectedProject ? localWorkspace(selectedProject, workspaces) : undefined;
+  const workspaceName = workspace?.name ?? selectedProject?.name;
+  const roster = useMemo(() => people(agents, workspaceName), [agents, workspaceName]);
   const [hour, minute] = useMemo(() => {
     const [rawHour, rawMinute] = time.split(":");
     return [Number(rawHour) || 0, Number(rawMinute) || 0];
@@ -487,12 +497,17 @@ function RecurrenceDialog({
                   <SelectItem value="none">
                     {/* An avatar slot of its own, so every name starts in the
                         same column. */}
-                    <AssigneeAvatar agents={agents} />
+                    <AssigneeAvatar agents={agents} workspace={workspace} workspaceName={workspaceName} />
                     Nobody
                   </SelectItem>
                   {roster.map((person) => (
                     <SelectItem key={person.id} value={person.id}>
-                      <AssigneeAvatar assignee={person.id} agents={agents} />
+                      <AssigneeAvatar
+                        assignee={person.id}
+                        agents={agents}
+                        workspace={workspace}
+                        workspaceName={workspaceName}
+                      />
                       {person.name}
                     </SelectItem>
                   ))}

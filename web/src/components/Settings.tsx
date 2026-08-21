@@ -930,8 +930,8 @@ function when(at: number): string {
   return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric" });
 }
 
-/// The roster lives in its own module; this only hands it the machine setting
-/// that decides what a new agent signs with.
+/// The roster lives in its own module; this hands it the machine defaults that
+/// inherited agents follow.
 function AgentsSettings({ item, onSelectItem }: { item?: string; onSelectItem: (item?: string) => void }) {
   const { settings, online, save } = useServerSettings();
   if (!online) {

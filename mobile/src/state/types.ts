@@ -186,7 +186,7 @@ export interface Agent {
   tint?: string;
   autoStart: boolean;
   handoffTo: string[];
-  gitIdentity: "off" | "author" | "full";
+  gitIdentity: "default" | "off" | "author" | "full";
   gitName?: string;
   gitEmail?: string;
   preset?: string;

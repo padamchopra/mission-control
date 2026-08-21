@@ -2,10 +2,11 @@ import { Folder } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { UserAvatar } from "@/components/UserAvatar";
+import { WorkspaceMark } from "@/components/WorkspaceIcon";
 import { STATUS_LABEL, STATUS_TEXT, WORKSPACE_AGENT, YOU } from "@/lib/tickets";
 import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
-import type { Agent, TicketStatus } from "@/state/types";
+import type { Agent, TicketStatus, Workspace } from "@/state/types";
 
 /// The small marks a card is read by.
 ///
@@ -159,11 +160,15 @@ export function SubTicketProgress({
 export function AssigneeAvatar({
   assignee,
   agents,
+  workspace,
+  workspaceName,
   size = "sm",
   className,
 }: {
   assignee?: string;
   agents: Agent[];
+  workspace?: Workspace;
+  workspaceName?: string;
   size?: "sm" | "md";
   className?: string;
 }) {
@@ -179,16 +184,21 @@ export function AssigneeAvatar({
   }
   // The workspace itself, which is not an agent and so has no colour of its own.
   if (assignee === WORKSPACE_AGENT) {
+    const name = workspace?.name ?? workspaceName ?? "Workspace agent";
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Avatar className={cn(size === "md" ? "size-6" : "size-5", className)} aria-label="Workspace agent">
-            <AvatarFallback className="bg-muted text-muted-foreground">
-              <Folder className={size === "md" ? "size-3.5" : "size-3"} />
+          <Avatar className={cn(size === "md" ? "size-6" : "size-5", className)} aria-label={name}>
+            <AvatarFallback className="bg-transparent p-0 text-muted-foreground">
+              {workspace ? (
+                <WorkspaceMark home={false} workspace={workspace} size="sm" />
+              ) : (
+                <Folder className={size === "md" ? "size-3.5" : "size-3"} />
+              )}
             </AvatarFallback>
           </Avatar>
         </TooltipTrigger>
-        <TooltipContent>Workspace agent</TooltipContent>
+        <TooltipContent>{name}</TooltipContent>
       </Tooltip>
     );
   }

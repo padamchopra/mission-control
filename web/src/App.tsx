@@ -207,6 +207,13 @@ export function App() {
         setPaletteOpen((open) => !open);
       }
       if (event.key === "Escape" && !paletteOpen) {
+        if (
+          event.defaultPrevented
+          || (event.target instanceof Element
+            && event.target.closest('[role="dialog"], [role="menu"], [role="listbox"]'))
+        ) {
+          return;
+        }
         if (workspaceSettingsId) {
           event.preventDefault();
           go({ name: "workspaces" });

@@ -30,9 +30,8 @@ export interface Config {
   /// The model a new thread starts with, in `defaultProvider`'s own naming.
   /// Empty leaves the choice to whatever that tool is configured with.
   defaultModel: string;
-  /// What a new thread — and a new agent — thinks with unless it says
-  /// otherwise. The pair is validated together: a provider only ever holds one
-  /// of its own models.
+  /// What a new thread and every inherited agent thinks with. The pair is
+  /// validated together: a provider only ever holds one of its own models.
   defaultProvider: ProviderId;
   /// The face on your messages: empty for the default, `preset:<id>` for one
   /// of the built-in ones, or a `data:` URL for a picture you chose.
@@ -48,10 +47,10 @@ export interface Config {
   /// How often Remy refreshes the repositories it knows about. `off` never
   /// does, which is the setting for anyone who wants git touched only by them.
   repoUpdate: RepoUpdateEvery;
-  /// What a new agent's commits are signed with by default. `off` inherits
-  /// this machine's git identity, `author` credits the agent while leaving you
-  /// as the committer, and `full` makes it both. Attribution only — a git
-  /// identity says who wrote a commit, never proves it.
+  /// What every inherited agent's commits are signed with. `off` inherits this
+  /// machine's git identity, `author` credits the agent while leaving you as
+  /// the committer, and `full` makes it both. Attribution only — a git identity
+  /// says who wrote a commit, never proves it.
   defaultGitIdentity: GitIdentity;
   /// Whether notifications raised on this machine are shown on this machine.
   /// Off routes them only to the paired devices that asked for them, which is

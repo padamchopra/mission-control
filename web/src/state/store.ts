@@ -153,6 +153,7 @@ interface State {
     body?: string;
     parentId?: string;
   }): Promise<Ticket>;
+  startTicket(id: string): Promise<{ id: string; serverId: string }>;
   updateTicket(id: string, patch: Record<string, unknown>): Promise<void>;
   moveTicket(id: string, status: TicketStatus, before?: string, after?: string): Promise<void>;
   commentOnTicket(id: string, body: string): Promise<void>;
@@ -765,6 +766,24 @@ export const useStore = create<State>((set, get) => ({
     });
     await get().loadBoard();
     return { ...body.ticket, serverId: server, threads: body.ticket.threads ?? [] } as Ticket;
+  },
+
+  async startTicket(id) {
+    const ticket = get().tickets.find((entry) => entry.id === id);
+    if (!ticket) throw new Error("That ticket is gone.");
+    const target = ticket.deviceId
+      ? get().boardDevices.find((entry) => entry.deviceId === ticket.deviceId)?.serverId
+      : ticket.serverId;
+    if (!target) throw new Error("That device isn't connected.");
+    const body = await transport.request<{ chat?: RawChat }>(
+      target,
+      `/tickets/${encodeURIComponent(id)}/start`,
+      { method: "POST", body: {} },
+    );
+    const chatId = body.chat?.id;
+    if (!chatId) throw new Error("Couldn't start that thread.");
+    await Promise.all([get().refresh(), get().loadBoard()]);
+    return { id: chatId, serverId: target };
   },
 
   async updateTicket(id, patch) {

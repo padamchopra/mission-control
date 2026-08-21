@@ -14,7 +14,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { agentCommand } from "./agent.js";
-import { getAgent, gitIdentityEnv, type Agent } from "./agents.js";
+import { getAgent, gitIdentityEnv, resolvedAgentModel, type Agent } from "./agents.js";
 import { deviceId } from "./board-log.js";
 import {
   codexEntry,
@@ -1314,13 +1314,14 @@ export function createChat(input: {
   // the caller asked for explicitly still wins over them.
   const agent = input.agentId ? getAgent(input.agentId) : undefined;
   if (input.agentId && !agent) throw new Error("no such agent");
-  const provider = providerId(input.provider ?? agent?.provider ?? config.defaultProvider);
+  const inherited = agent ? resolvedAgentModel(agent) : undefined;
+  const provider = providerId(input.provider ?? inherited?.provider ?? config.defaultProvider);
   // Fail here rather than on the first message, so a host without the tool says
   // so while the thread is still being created.
   agentCommand(provider);
   // A model belongs to the provider that answers to it, so one meant for the
   // other provider is dropped rather than passed to a CLI that would refuse it.
-  const model = providerModel(provider, input.model || agent?.model || "");
+  const model = providerModel(provider, input.model || inherited?.model || "");
   const record: ChatRecord = {
     id: randomUUID(),
     title: input.title?.trim() || "New chat",
