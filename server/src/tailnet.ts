@@ -11,75 +11,136 @@ const exec = promisify(execFile);
 /// every device you own and which of them are up, so Remy can offer you a list
 /// to pick from instead of asking you to carry a link between two machines.
 
-/// Candidate paths for the Tailscale CLI. The Mac App Store build keeps it
-/// inside the app bundle, where it is on nobody's PATH.
+/// Candidate paths for the Tailscale CLI. The GUI builds keep it inside the app
+/// bundle, where it is on nobody's PATH — and `/usr/local/bin/tailscale` is a
+/// two-line shell script pointing back into that bundle, so both spellings of
+/// the binary are worth trying on a case-sensitive disk.
 const TAILSCALE_PATHS = [
   "tailscale",
   "/usr/local/bin/tailscale",
   "/opt/homebrew/bin/tailscale",
+  "/Applications/Tailscale.app/Contents/MacOS/tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 ];
 
-/// Runs the Tailscale CLI, or answers undefined when it is not here or refused.
+/// The environment the CLI runs in.
+///
+/// The macOS app ships one binary that is both the app and the command, and it
+/// decides which it is being asked for by looking for a shell around it — `TERM`
+/// and `SHLVL` are each enough. Finding neither it opens the window instead, and
+/// when it cannot it prints "The Tailscale GUI failed to start" on stdout and
+/// exits **0**, so the caller is handed a sentence where it asked for JSON.
+///
+/// Remy's daemon has no shell around it: Electron starts it, or launchd does.
+/// What hid this is `/usr/local/bin/tailscale`, a `#!/bin/sh` shim into the
+/// bundle — `sh` sets `TERM=dumb` itself when nothing else has, so a machine
+/// with the shim worked and a machine without it did not. On an install that
+/// never writes the shim, the Mac App Store build among them, the bundle path is
+/// the only candidate left and every call came back as that sentence: Tailscale
+/// reported as absent on a machine running it, with the switch that puts it on
+/// the tailnet greyed out and blaming Tailscale for being off.
+const CLI_ENV = { ...process.env, TERM: process.env.TERM || "dumb" };
+
+/// Runs the Tailscale CLI, or answers undefined when no candidate could.
+///
+/// Every path gets its turn. One that is missing, refuses, or turns out not to
+/// be this CLI says nothing about the next one, so a single bad candidate is
+/// not allowed to stand in for "Tailscale is not on this machine".
 export async function tailscale(args: string[]): Promise<string | undefined> {
   for (const bin of TAILSCALE_PATHS) {
     try {
-      const { stdout } = await exec(bin, args, { timeout: 5_000, maxBuffer: 8 * 1024 * 1024 });
+      const { stdout } = await exec(bin, args, { timeout: 5_000, maxBuffer: 8 * 1024 * 1024, env: CLI_ENV });
       return stdout;
-    } catch (error) {
-      // A missing binary means try the next path; anything else means Tailscale
-      // is here and answered badly, which is not something another path fixes.
-      if ((error as { code?: string }).code === "ENOENT") continue;
-      return undefined;
+    } catch {
+      continue;
     }
   }
   return undefined;
 }
 
-interface StatusPeer {
+/// The CLI's answer, when it is the JSON that was asked for.
+///
+/// Anything else is a binary that ran and replied with something other than an
+/// answer — prose from the app trying to open a window, most of all — and that
+/// is not a status, so it is not treated as one.
+async function tailscaleJson<T>(args: string[]): Promise<T | undefined> {
+  const stdout = await tailscale(args);
+  if (!stdout) return undefined;
+  try {
+    const parsed = JSON.parse(stdout) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export interface StatusPeer {
   DNSName?: string;
+  HostName?: string;
   OS?: string;
   Online?: boolean;
   UserID?: number;
   TailscaleIPs?: string[];
 }
 
-interface Status {
+export interface Status {
+  /// `Running` once Tailscale is up and signed in. `Stopped`, `NeedsLogin` and
+  /// `NoState` are all installed-but-not-carrying-traffic.
+  BackendState?: string;
+  TailscaleIPs?: string[];
   Self?: StatusPeer;
   Peer?: Record<string, StatusPeer>;
 }
 
 async function status(): Promise<Status | undefined> {
-  const stdout = await tailscale(["status", "--json"]);
-  if (!stdout) return undefined;
-  try {
-    return JSON.parse(stdout) as Status;
-  } catch {
-    return undefined;
-  }
+  return tailscaleJson<Status>(["status", "--json"]);
+}
+
+/// Where Tailscale stands on this machine, which is three answers rather than
+/// one: it is not installed, it is installed and not running, or it is up and
+/// this machine has an address on the tailnet.
+export type TailnetState = "missing" | "stopped" | "running";
+
+export interface TailnetSelf {
+  state: TailnetState;
+  /// This machine's tailnet name, or its tailnet address on a tailnet with
+  /// MagicDNS turned off. Only ever set when the state is `running`.
+  host?: string;
+}
+
+/// This machine's own place on the tailnet, from a status Tailscale gave us.
+///
+/// Split out from the call so the shapes Tailscale answers with can be tested
+/// without a tailnet to answer them.
+export function selfFromStatus(parsed: Status | undefined): TailnetSelf {
+  if (!parsed) return { state: "missing" };
+  if (parsed.BackendState !== "Running") return { state: "stopped" };
+  // MagicDNS is what gives a machine a name; a tailnet without it still gives
+  // it an address, and an address is enough to be reached at.
+  const dns = parsed.Self?.DNSName?.replace(/\.$/, "");
+  const host = dns || parsed.Self?.TailscaleIPs?.[0] || parsed.TailscaleIPs?.[0];
+  return host ? { state: "running", host } : { state: "stopped" };
+}
+
+export async function tailnetSelf(): Promise<TailnetSelf> {
+  return selfFromStatus(await status());
 }
 
 /// This machine's name on the tailnet, without the trailing dot.
 export async function tailnetHost(): Promise<string | undefined> {
-  const dns = (await status())?.Self?.DNSName?.replace(/\.$/, "");
-  return dns || undefined;
+  return (await tailnetSelf()).host;
 }
 
 /// Whether `tailscale serve` is fronting this daemon, and on which listener.
 /// Serve is the only way in: the daemon itself binds loopback.
 export async function serveTarget(): Promise<{ https: boolean } | undefined> {
-  const stdout = await tailscale(["serve", "status", "--json"]);
-  if (!stdout) return undefined;
-  try {
-    const parsed = JSON.parse(stdout) as { Web?: Record<string, unknown> };
-    const hosts = Object.keys(parsed.Web ?? {});
-    if (hosts.length === 0) return undefined;
-    // A serve key is `host:port`. 443 is the HTTPS listener; anything else is
-    // tailnet HTTP, still WireGuard-encrypted but without TLS on top.
-    return { https: hosts.some((host) => host.endsWith(":443")) };
-  } catch {
-    return undefined;
-  }
+  const parsed = await tailscaleJson<{ Web?: Record<string, unknown> }>(["serve", "status", "--json"]);
+  if (!parsed) return undefined;
+  const hosts = Object.keys(parsed.Web ?? {});
+  if (hosts.length === 0) return undefined;
+  // A serve key is `host:port`. 443 is the HTTPS listener; anything else is
+  // tailnet HTTP, still WireGuard-encrypted but without TLS on top.
+  return { https: hosts.some((host) => host.endsWith(":443")) };
 }
 
 export interface TailnetDevice {
@@ -100,25 +161,31 @@ const DAEMON_PLATFORMS = new Set(["macos", "linux", "windows"]);
 /// Only devices belonging to the same tailnet user: a shared node or another
 /// person's machine on the same tailnet is not somewhere to go looking for your
 /// threads.
-export async function tailnetDevices(): Promise<TailnetDevice[]> {
-  const parsed = await status();
+export function devicesFromStatus(parsed: Status | undefined): TailnetDevice[] {
   const mine = parsed?.Self?.UserID;
   if (!parsed?.Peer || mine === undefined) return [];
 
   const devices: TailnetDevice[] = [];
   for (const peer of Object.values(parsed.Peer)) {
-    const host = peer.DNSName?.replace(/\.$/, "");
+    // Same as this machine's own address: a name when MagicDNS gives one, the
+    // tailnet address when it does not.
+    const dns = peer.DNSName?.replace(/\.$/, "");
+    const host = dns || peer.TailscaleIPs?.[0];
     if (!host || peer.UserID !== mine) continue;
     const os = (peer.OS ?? "").toLowerCase();
     if (!DAEMON_PLATFORMS.has(os)) continue;
     devices.push({
       host,
-      name: host.split(".")[0] ?? host,
+      name: (dns ? dns.split(".")[0] : peer.HostName) || host,
       os,
       online: peer.Online === true,
     });
   }
   return devices.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function tailnetDevices(): Promise<TailnetDevice[]> {
+  return devicesFromStatus(await status());
 }
 
 export interface Found extends TailnetDevice {

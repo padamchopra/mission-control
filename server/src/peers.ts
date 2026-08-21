@@ -6,7 +6,7 @@ import { reprojectAll as reprojectAgents } from "./agents.js";
 import { reprojectAll as reprojectProjects } from "./projects.js";
 import { reprojectAll as reprojectRecurrences } from "./recurring.js";
 import { reprojectAll as reprojectTickets } from "./tickets.js";
-import { serveTarget, tailnetHost, tailscale } from "./tailnet.js";
+import { serveTarget, tailnetSelf, tailscale, type TailnetState } from "./tailnet.js";
 
 /// The other machines this one is paired with.
 ///
@@ -222,13 +222,17 @@ export interface IdentityView {
   exposed: boolean;
   /// This machine's tailnet name, whether or not it is being served.
   tailnetHost?: string;
+  /// Why there is no name, when there is none: Tailscale is not installed here,
+  /// or it is installed and not running. A switch that cannot be turned on
+  /// should say which.
+  tailnet: TailnetState;
 }
 
 /// How this machine introduces itself. The token is in here because the caller
 /// already holds it — asking is how a person copies the link for another
 /// device, and the answer is only ever given to an authorised request.
 export async function identity(): Promise<IdentityView> {
-  const host = await tailnetHost();
+  const { state, host } = await tailnetSelf();
   const serve = host ? await serveTarget() : undefined;
   const url = host && serve ? (serve.https ? `https://${host}` : `http://${host}:${config.port}`) : "";
   return {
@@ -237,6 +241,7 @@ export async function identity(): Promise<IdentityView> {
     url,
     token: config.token,
     exposed: Boolean(url),
+    tailnet: state,
     ...(host ? { tailnetHost: host } : {}),
   };
 }
@@ -267,7 +272,8 @@ export async function setExposed(on: boolean): Promise<IdentityView> {
 
   const next = await identity();
   if (next.exposed !== on) {
-    if (!next.tailnetHost) throw new Error("Tailscale is not running on this machine.");
+    if (next.tailnet === "missing") throw new Error("Tailscale isn't installed on this machine.");
+    if (next.tailnet === "stopped") throw new Error("Tailscale isn't running on this machine.");
     throw new Error(
       on
         ? "Tailscale would not serve this machine. Check `tailscale serve status`."
