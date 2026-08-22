@@ -1,0 +1,52 @@
+---
+name: pr-author
+description: Create, update, or publish Remy pull requests with reviewer-visible evidence. Use for ANY pull request, including every PR in a stack.
+---
+
+# Authoring a pull request
+
+A PR is incomplete until its description contains at least one media artifact that shows the behavior it changes.
+
+`qa` owns proving the change against the running app and may use real state. PR evidence is a separate capture pass with safe state.
+
+## Evidence state
+
+- Exercise the same production code and the same realistic interaction sequence used in QA.
+- Capture from a temporary Remy state, such as a temporary `MC_CONFIG_DIR`, seeded through the app or its public API.
+- Replace only values that would expose personal or sensitive information: names, email addresses, device and host names, tailnet addresses, local paths, private repository names, thread content, tokens, secrets, and pairing codes or QR codes.
+- Keep non-sensitive behavior real. Do not mock the result under review, bypass the changed code, or edit a capture to manufacture success.
+- Use plausible Remy state rather than placeholder text that makes the flow look artificial.
+- Never publish a capture containing a credential, secret value, pairing link, QR code, notification, or unrelated private window.
+
+For a stacked change, capture the behavior introduced by that PR relative to its direct base and attach the artifact to that PR. Evidence on the top PR does not cover the PRs below it.
+
+## Screenshot or recording
+
+Use a screenshot when a reviewer can judge the change in one settled state: layout, copy, an empty or error state, a selected value, a static transcript, or a final result.
+
+Use a video recording when order or time matters: opening and selecting from a control, keyboard and focus behavior, a dialog flow, loading or streaming, animation, interruption, or a multi-screen task.
+
+Use both when the recording proves the interaction but a still image makes the final state or a before-and-after comparison easier to inspect.
+
+For a change without a UI surface, show its observable result. Use a screenshot for one concise terminal or API result and a short recording for a multi-step command flow. Run it against a temporary repository or sanitized test state.
+
+## Capture quality
+
+- Frame the smallest surface that still gives the reviewer context.
+- Keep text readable at GitHub's inline size.
+- Show the control label and resulting state; do not submit a context-free crop.
+- Keep the pointer away from the changed content in still images.
+- Inspect every image and play every recording before upload.
+- Keep artifacts in `/tmp/remy-pr-artifacts/<branch>/`; never commit them to the repository.
+
+## Publish
+
+Create the draft PR first. Preserve its existing description, add a short `## Evidence` caption that says what the artifact demonstrates, then upload the inspected files:
+
+```sh
+github https://github.com/padamchopra/remy/pull/123 /tmp/remy-pr-artifacts/branch/change.png
+```
+
+Use `--headed` only when the saved GitHub session requires sign-in. After upload, read the PR description back and confirm that the `user-attachments` media is present under the right caption.
+
+Do not substitute a written QA claim for media. If a safe, representative artifact cannot be produced, keep the PR in draft and report the concrete blocker.
