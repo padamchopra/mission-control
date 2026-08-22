@@ -30,6 +30,13 @@ interface WirePeer {
 interface Route {
   pairing: Pairing;
   peerId?: string;
+  cloud?: boolean;
+}
+
+interface CursorCloudStatus {
+  configured?: boolean;
+  visible?: boolean;
+  enabled?: boolean;
 }
 
 let pairings: Pairing[] = [];
@@ -203,8 +210,12 @@ export const transport: Transport = {
       try {
         const health = await fetchPath<{ ok?: boolean }>(pairing, "/health");
         let listed: { deviceId?: string; name?: string; icon?: string; tint?: string; peers?: WirePeer[] } = {};
+        let cursorCloud: CursorCloudStatus = {};
         try {
-          listed = await fetchPath(pairing, "/peers");
+          [listed, cursorCloud] = await Promise.all([
+            fetchPath<typeof listed>(pairing, "/peers"),
+            fetchPath<CursorCloudStatus>(pairing, "/cursor-cloud/status").catch(() => ({})),
+          ]);
         } catch {
           listed = {};
         }
@@ -222,6 +233,21 @@ export const transport: Transport = {
           seenUrls.add(peerOrigin);
           out.push(withAppearance(toPeer(peer)));
         }
+        if (cursorCloud.visible) {
+          const cloudId = `${id}:cursor-cloud`;
+          routes.set(cloudId, { pairing, cloud: true });
+          out.push({
+            id: cloudId,
+            name: pairings.length > 1 ? `${listed.name || name} · Cursor Cloud` : "Cursor Cloud",
+            url: "cursor://cloud",
+            code: "CLOUD",
+            online: true,
+            icon: "cloud",
+            cloud: true,
+            workspaceOnly: true,
+            cloudConnected: cursorCloud.configured === true && cursorCloud.enabled !== false,
+          });
+        }
       } catch {
         if (seenUrls.has(origin)) continue;
         routes.set(id, { pairing });
@@ -236,6 +262,7 @@ export const transport: Transport = {
   request<T>(serverId: string, path: string, init?: { method?: string; body?: unknown }) {
     const route = routes.get(serverId);
     if (!route) throw new Error("This phone is not paired with that Mac.");
+    if (route.cloud) return fetchPath<T>(route.pairing, `/cursor-cloud/api${path}`, init);
     if (route.peerId) {
       return fetchPath<T>(route.pairing, `/peers/${encodeURIComponent(route.peerId)}/api${path}`, init);
     }

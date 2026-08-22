@@ -30,6 +30,7 @@ interface RawChat {
   title: string;
   cwd: string;
   state?: ChatState;
+  provider?: string;
   model?: string;
   preview?: string;
   updatedAt?: number;
@@ -46,6 +47,7 @@ interface RawWorkspace {
   provider?: string | null;
   model?: string | null;
   worktrees?: GitWorktree[];
+  virtual?: boolean;
 }
 
 interface State {
@@ -204,7 +206,7 @@ export const useStore = create<State>((set, get) => ({
             workspaces = [];
           }
           return {
-            server: { ...server, online: true },
+            server: { ...server, online: server.cloud ? server.online : true },
             chats: (chats.chats ?? []).map((raw) => toChat(raw, server.id)),
             workspaces,
           };
@@ -626,6 +628,7 @@ function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
     model: raw.model,
     permissionMode: raw.permissionMode,
     state: raw.state ?? "idle",
+    provider: raw.provider,
     action: raw.action ?? undefined,
     entries: raw.entries ?? [],
     todos: raw.todos ?? [],
@@ -691,6 +694,7 @@ function toChat(raw: RawChat, serverId: string): Chat {
     title: raw.title,
     cwd: raw.cwd,
     state: raw.state ?? "idle",
+    provider: raw.provider,
     model: raw.model,
     preview: raw.preview,
     updatedAt: raw.updatedAt ?? 0,
@@ -710,6 +714,7 @@ function toWorkspace(raw: RawWorkspace, serverId: string): Workspace {
     provider: raw.provider ?? null,
     model: raw.model ?? null,
     worktrees: raw.worktrees ?? [],
+    virtual: raw.virtual === true,
   };
 }
 
@@ -743,4 +748,3 @@ function byAttention(a: Chat, b: Chat): number {
 type RawAgent = Omit<Agent, "serverId">;
 type RawProject = Omit<Project, "serverId" | "workspaceIds"> & { workspaceIds?: string[] };
 type RawTicket = Omit<Ticket, "serverId" | "threads"> & { threads?: Ticket["threads"] };
-

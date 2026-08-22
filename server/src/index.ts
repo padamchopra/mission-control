@@ -48,6 +48,20 @@ import {
 import { findProjectFiles, findSkills } from "./discovery.js";
 import { discoveredProviders } from "./provider-discovery.js";
 import { setProviderEnabled } from "./provider-settings.js";
+import {
+  archiveCursorCloudChat,
+  connectCursorCloud,
+  createCursorCloudChat,
+  cursorCloudStatus,
+  deleteCursorCloudChat,
+  disconnectCursorCloud,
+  getCursorCloudChat,
+  interruptCursorCloudChat,
+  listCursorCloudArchives,
+  listCursorCloudChats,
+  sendCursorCloudMessage,
+  updateCursorCloudChat,
+} from "./cursor-cloud.js";
 import { handleHookEvent } from "./events.js";
 import { attachNotifyStream, broadcast, deliverFromPeer, pushSession, pushSessionList } from "./notify.js";
 import { forgetPushDevice, pushStatus, registerPushDevice } from "./push.js";
@@ -392,6 +406,113 @@ const server = createServer(async (req, res) => {
       // Turning the schedule off has to stop the timer now, not at its next tick.
       syncRepoUpdateSchedule();
       return json(res, 200, { ...settings, preventSleepSupported: sleepSupported() });
+    }
+
+    if (url.pathname === "/cursor-cloud/status" && req.method === "GET") {
+      return json(res, 200, cursorCloudStatus());
+    }
+    if (url.pathname === "/cursor-cloud/connect" && req.method === "POST") {
+      const body = await readJson(req);
+      try {
+        const status = await connectCursorCloud(body.apiKey);
+        broadcast({ type: "peers" });
+        return json(res, 200, status);
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not connect Cursor Cloud" });
+      }
+    }
+    if (url.pathname === "/cursor-cloud/connect" && req.method === "DELETE") {
+      const status = disconnectCursorCloud();
+      broadcast({ type: "peers" });
+      return json(res, 200, status);
+    }
+
+    if (url.pathname === "/cursor-cloud/api/chats" && req.method === "GET") {
+      return json(res, 200, { chats: listCursorCloudChats() });
+    }
+    if (url.pathname === "/cursor-cloud/api/workspaces" && req.method === "GET") {
+      const workspaces = (await listWorkspaces()).flatMap((workspace) => {
+        const origin = workspace.origin?.startsWith("github.com/") ? `https://${workspace.origin}` : workspace.origin;
+        if (!origin || !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(origin)) return [];
+        return [{
+          ...workspace,
+          id: `cursor-cloud:${workspace.id}`,
+          provider: "cursor",
+          model: null,
+          worktrees: [],
+          virtual: true,
+        }];
+      });
+      return json(res, 200, { workspaces });
+    }
+    if (url.pathname === "/cursor-cloud/api/archives" && req.method === "GET") {
+      return json(res, 200, { archives: listCursorCloudArchives() });
+    }
+    if (url.pathname === "/cursor-cloud/api/chats" && req.method === "POST") {
+      const body = await readJson(req);
+      try {
+        const cwd = String(body.cwd ?? "").trim();
+        const workspaces = await listWorkspaces();
+        const workspace = workspaces.find((entry) =>
+          cwd === entry.path || entry.worktrees.some((worktree) => worktree.path === cwd));
+        if (!workspace?.origin) throw new Error("choose a workspace connected to GitHub");
+        const origin = workspace.origin.startsWith("github.com/")
+          ? `https://${workspace.origin}`
+          : workspace.origin;
+        if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(origin)) {
+          throw new Error("Cursor Cloud needs a GitHub workspace");
+        }
+        const startingRef = workspace.worktrees.find((worktree) => worktree.path === cwd)?.branch
+          ?? workspace.worktrees.find((worktree) => worktree.isMain)?.branch
+          ?? "main";
+        return json(res, 200, { chat: await createCursorCloudChat({
+          cwd,
+          origin,
+          startingRef,
+          title: typeof body.title === "string" ? body.title : undefined,
+          permissionMode: typeof body.permissionMode === "string" ? body.permissionMode : undefined,
+        }) });
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not start that Cursor Cloud thread" });
+      }
+    }
+    if (parts[0] === "cursor-cloud" && parts[1] === "api" && parts[2] === "chats" && parts[3]) {
+      const id = decodeURIComponent(parts[3]);
+      try {
+        if (req.method === "GET" && parts.length === 4) return json(res, 200, getCursorCloudChat(id));
+        if (req.method === "PATCH" && parts.length === 4) {
+          const body = await readJson(req);
+          return json(res, 200, { chat: await updateCursorCloudChat(id, body) });
+        }
+        if (req.method === "DELETE" && parts.length === 4) {
+          deleteCursorCloudChat(id);
+          return json(res, 204, undefined);
+        }
+        if (req.method === "POST" && parts[4] === "message") {
+          const body = await readJson(req);
+          await sendCursorCloudMessage(id, body.text);
+          return json(res, 202, { ok: true });
+        }
+        if (req.method === "POST" && parts[4] === "interrupt") {
+          await interruptCursorCloudChat(id);
+          return json(res, 200, { ok: true });
+        }
+        if (req.method === "POST" && parts[4] === "archive") {
+          await archiveCursorCloudChat(id);
+          return json(res, 200, { ok: true });
+        }
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not change that Cursor Cloud thread" });
+      }
+    }
+    if (parts[0] === "cursor-cloud" && parts[1] === "api" && parts[2] === "archives" && parts[3]
+      && req.method === "DELETE") {
+      try {
+        deleteCursorCloudChat(decodeURIComponent(parts[3]));
+        return json(res, 204, undefined);
+      } catch (error) {
+        return json(res, 404, { error: (error as Error).message || "no such archive" });
+      }
     }
 
     // Who this machine is, and the link another machine pairs with. The token

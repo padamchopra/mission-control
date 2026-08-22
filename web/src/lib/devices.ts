@@ -1,4 +1,5 @@
 import {
+  Cloud,
   House,
   Laptop,
   Monitor,
@@ -18,6 +19,7 @@ export const DEVICE_ICONS = {
   tablet: Tablet,
   server: Server,
   house: House,
+  cloud: Cloud,
 } as const;
 
 export type DeviceIconId = keyof typeof DEVICE_ICONS;

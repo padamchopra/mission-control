@@ -236,6 +236,32 @@ function migrate(database: DatabaseSync): void {
       updated_at integer not null,
       device_id text not null
     );
+    create table if not exists cursor_cloud_chats (
+      id text primary key,
+      title text not null,
+      cwd text not null,
+      origin text not null,
+      starting_ref text not null,
+      model text,
+      permission_mode text not null default 'default',
+      cursor_agent_id text,
+      cursor_run_id text,
+      state text not null default 'idle',
+      action text,
+      working_since integer,
+      created_at integer not null,
+      updated_at integer not null,
+      error text,
+      archived_at integer
+    );
+    create table if not exists cursor_cloud_entries (
+      chat_id text not null references cursor_cloud_chats(id) on delete cascade,
+      seq integer not null,
+      entry_id text not null,
+      json text not null,
+      primary key (chat_id, entry_id)
+    );
+    create index if not exists cursor_cloud_entries_order on cursor_cloud_entries(chat_id, seq);
   `);
   try {
     database.exec("alter table workspaces add column icon text");

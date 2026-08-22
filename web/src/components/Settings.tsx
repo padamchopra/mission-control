@@ -1,4 +1,4 @@
-import { Archive, Bot, Boxes, Check, Copy, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
+import { Archive, Bot, Boxes, Check, Cloud, Copy, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -1343,7 +1343,7 @@ function DevicesPane() {
   const [busy, setBusy] = useState(false);
   // Pairing lives in the daemon on this machine rather than in any one window,
   // so the desktop app, a browser and the phone all pair once and see one list.
-  const home = servers.find((server) => server.local) ?? servers[0];
+  const home = servers.find((server) => server.local) ?? servers.find((server) => !server.cloud);
   // Nothing can pair with a machine nothing can reach, so the list below says
   // so rather than offering buttons that cannot work.
   const homeReachable = useIdentity(home?.id)?.exposed === true;
@@ -1373,7 +1373,7 @@ function DevicesPane() {
 
   return (
     <div className="flex flex-col gap-6">
-      {servers.map((server) => (
+      {servers.filter((server) => !server.cloud).map((server) => (
         <DeviceCard
           key={server.id}
           server={server}
@@ -1388,9 +1388,131 @@ function DevicesPane() {
           }}
         />
       ))}
+      {home ? <CursorCloudCard homeId={home.id} /> : null}
       {home ? <PhonesField serverId={home.id} /> : null}
       <DiscoveredDevices homeId={home?.id} reachable={homeReachable} />
       <AddDevice onAdd={addServer} />
+    </div>
+  );
+}
+
+interface CursorCloudStatus {
+  configured: boolean;
+  visible: boolean;
+  enabled: boolean;
+  account?: string;
+  keyName?: string;
+}
+
+function CursorCloudCard({ homeId }: { homeId: string }) {
+  const refresh = useStore((s) => s.refresh);
+  const [status, setStatus] = useState<CursorCloudStatus>();
+  const [open, setOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setStatus(await transport.request<CursorCloudStatus>(homeId, "/cursor-cloud/status"));
+  }, [homeId]);
+
+  useEffect(() => {
+    void load().catch(() => {});
+  }, [load]);
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const next = await transport.request<CursorCloudStatus>(homeId, "/cursor-cloud/connect", {
+        method: "POST",
+        body: { apiKey },
+      });
+      setStatus(next);
+      setApiKey("");
+      setOpen(false);
+      await refresh();
+      toast.success("Cursor Cloud is connected.");
+    } catch (caught) {
+      toast.error("Couldn't connect Cursor Cloud", { description: apiError(caught) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    setBusy(true);
+    try {
+      const next = await transport.request<CursorCloudStatus>(homeId, "/cursor-cloud/connect", { method: "DELETE" });
+      setStatus(next);
+      await refresh();
+      toast.success("Cursor Cloud is disconnected.");
+    } catch (caught) {
+      toast.error("Couldn't disconnect Cursor Cloud", { description: apiError(caught) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const detail = status?.configured
+    ? status.enabled
+      ? [status.account, status.keyName].filter(Boolean).join(" · ") || "Ready for workspace threads."
+      : "Cursor is off in Providers."
+    : "Run workspace threads in Cursor Cloud.";
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-3">
+      <span className="flex size-8 items-center justify-center rounded-md bg-muted">
+        <Cloud className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">Cursor Cloud</span>
+        <span className="block truncate text-xs text-muted-foreground">{detail}</span>
+      </span>
+      {status?.configured ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" size="sm" disabled={busy}>Disconnect</Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Disconnect Cursor Cloud?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Saved transcripts stay in Remy, but you can't start or continue cloud threads.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void disconnect()}>Disconnect</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : (
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => setOpen(true)}>Connect</Button>
+      )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Connect Cursor Cloud</DialogTitle>
+            <DialogDescription>
+              Paste an API key from Cursor. Remy keeps it in this Mac's Keychain.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor="cursor-cloud-api-key">API key</FieldLabel>
+            <Input
+              id="cursor-cloud-api-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+            />
+            <FieldDescription>Workspace environment values are never sent to Cursor Cloud.</FieldDescription>
+          </Field>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button disabled={!apiKey.trim() || busy} onClick={() => void connect()}>Connect</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

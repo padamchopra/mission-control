@@ -16,6 +16,9 @@ export interface Server {
   peer?: boolean;
   notify?: boolean;
   lastSeen?: number;
+  cloud?: boolean;
+  workspaceOnly?: boolean;
+  cloudConnected?: boolean;
 }
 
 export interface PairRequest {
@@ -34,6 +37,7 @@ export interface Chat {
   title: string;
   cwd: string;
   state: ChatState;
+  provider?: string;
   model?: string;
   preview?: string;
   updatedAt: number;
@@ -66,6 +70,7 @@ export interface Workspace {
   provider?: string | null;
   model?: string | null;
   worktrees: GitWorktree[];
+  virtual?: boolean;
 }
 
 export interface PathSuggestion {
@@ -149,6 +154,7 @@ export interface ChatDetail {
   serverId: string;
   title: string;
   cwd: string;
+  provider?: string;
   model?: string;
   permissionMode?: string;
   state: ChatState;

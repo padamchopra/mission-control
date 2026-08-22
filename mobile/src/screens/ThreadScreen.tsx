@@ -13,7 +13,7 @@ import {
 import { ArrowUp, Box, Square, Wrench } from "lucide-react-native";
 import { color, radius, space, type } from "../theme";
 import { apiError } from "../lib/api-error";
-import { MODELS, PERMISSIONS, modelLabel, permissionOf } from "../lib/chat-options";
+import { CLOUD_MODES, cloudModeOf, MODELS, PERMISSIONS, modelLabel, permissionOf } from "../lib/chat-options";
 import { displayPath } from "../lib/path";
 import { workspaceForPath } from "../lib/projects";
 import { useStore } from "../state/store";
@@ -61,7 +61,10 @@ export function ThreadScreen({ id }: { id: string }) {
   const entries = open?.entries ?? [];
   const workspace = workspaces[workspaceForPath(chat.cwd, workspaces)];
   const server = servers.find((entry) => entry.id === chat.serverId);
-  const permission = permissionOf(open?.permissionMode);
+  const cloud = server?.cloud === true;
+  const permission = cloud ? cloudModeOf(open?.permissionMode) : permissionOf(open?.permissionMode);
+  const provider = open?.provider ?? chat.provider;
+  const agentName = cloud ? "Cursor Cloud" : provider === "codex" ? "Codex" : provider === "cursor" ? "Cursor" : "Claude";
 
   const submit = async () => {
     const trimmed = text.trim();
@@ -98,7 +101,7 @@ export function ThreadScreen({ id }: { id: string }) {
         ) : entries.length === 0 ? (
           <Text style={[type.body, { color: color.mutedForeground }]}>Send a message to get this thread going.</Text>
         ) : (
-          entries.map((entry) => <Entry key={entry.id} entry={entry} />)
+          entries.map((entry) => <Entry key={entry.id} entry={entry} agentName={agentName} />)
         )}
         {open?.approval ? (
           <ApprovalCard
@@ -130,19 +133,23 @@ export function ThreadScreen({ id }: { id: string }) {
       <View style={styles.composer}>
         {error ? <Text style={styles.threadError}>{error}</Text> : null}
         <View style={styles.toolbar}>
-          <ComposerMenu
-            icon={Box}
-            label={modelLabel(open?.model)}
-            value={open?.model ?? ""}
-            onChange={(value) => void setChatOptions({ model: value || null })}
-            options={MODELS}
-          />
+          {cloud ? (
+            <Text style={type.caption}>Cursor Cloud default</Text>
+          ) : (
+            <ComposerMenu
+              icon={Box}
+              label={modelLabel(open?.model)}
+              value={open?.model ?? ""}
+              onChange={(value) => void setChatOptions({ model: value || null })}
+              options={MODELS}
+            />
+          )}
           <ComposerMenu
             icon={permission.icon}
             label={permission.label}
             value={open?.permissionMode ?? "default"}
             onChange={(value) => void setChatOptions({ permissionMode: value })}
-            options={PERMISSIONS}
+            options={cloud ? CLOUD_MODES : PERMISSIONS}
           />
           {working ? (
             <Pressable onPress={() => void interrupt()} style={styles.stop}>
@@ -173,7 +180,7 @@ export function ThreadScreen({ id }: { id: string }) {
   );
 }
 
-function Entry({ entry }: { entry: ConvEntry }) {
+function Entry({ entry, agentName }: { entry: ConvEntry; agentName: string }) {
   if (entry.kind === "user") {
     return (
       <View style={styles.you}>
@@ -187,7 +194,7 @@ function Entry({ entry }: { entry: ConvEntry }) {
   if (entry.kind === "assistant") {
     return (
       <View style={styles.claude}>
-        <Text style={[styles.speaker, { color: color.claude }]}>Claude</Text>
+        <Text style={[styles.speaker, { color: color.claude }]}>{agentName}</Text>
         <Markdown text={entry.text ?? ""} />
       </View>
     );
