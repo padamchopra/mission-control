@@ -4,7 +4,7 @@ import { Caption } from "../parts/Caption";
 import { Chrome } from "../parts/Chrome";
 import { DeviceRow } from "../parts/DeviceRow";
 import { PrimaryButton } from "../parts/Buttons";
-import { MacWindow } from "../parts/MacWindow";
+import { DeviceWindow } from "../parts/DeviceWindow";
 import { PairDialog } from "../parts/PairDialog";
 import { RefreshCw } from "../parts/Icons";
 import { SeamLink } from "../parts/SeamLink";
@@ -13,7 +13,7 @@ import { Toast, TicketChip } from "../parts/Toast";
 import { PairedPanel, WaitingPanel } from "../parts/WaitingPanel";
 import { Sfx } from "../parts/Sfx";
 
-/// The payoff. `mac-mini` leaves the tailnet list because it is a device now,
+/// The payoff. `workbench` leaves the tailnet list because it is a device now,
 /// and the two boards start converging — which is a merge against a version
 /// vector, not a copy, so neither machine is the one that holds the truth.
 export const Paired: React.FC = () => {
@@ -24,9 +24,9 @@ export const Paired: React.FC = () => {
       <Backdrop />
       <Chrome step={4} />
 
-      <MacWindow
+      <DeviceWindow
         name="studio"
-        note="paired with mac-mini"
+        note="paired with workbench"
         device="laptop"
         linked
         style={{ position: "absolute", top: 176, left: 104, width: 780 }}
@@ -41,13 +41,13 @@ export const Paired: React.FC = () => {
             }}
           >
             <span
-              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#27272a" }}
+              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#f5f5f5" }}
             >
               On your tailnet
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <RefreshCw size={26} color="#71717b" />
-              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#71717b" }}>
+              <RefreshCw size={26} color="#818181" />
+              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#818181" }}>
                 Look again
               </span>
             </div>
@@ -56,7 +56,7 @@ export const Paired: React.FC = () => {
           <div style={{ marginTop: 18 }}>
             <div style={{ position: "relative", height: 192, marginBottom: 14 }}>
               <WaitingPanel
-                name="mac-mini"
+                name="workbench"
                 code="418 902"
                 style={{
                   position: "absolute",
@@ -69,7 +69,7 @@ export const Paired: React.FC = () => {
                 }}
               />
               <PairedPanel
-                name="mac-mini"
+                name="workbench"
                 style={{
                   position: "absolute",
                   inset: 0,
@@ -90,7 +90,7 @@ export const Paired: React.FC = () => {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <DeviceRow
-                name="mac-mini"
+                name="workbench"
                 note="Remy is running here."
                 device="monitor"
                 action={<PrimaryButton label="Pair" />}
@@ -109,9 +109,9 @@ export const Paired: React.FC = () => {
                 }}
               />
               <DeviceRow
-                name="macbook-air"
+                name="homelab"
                 note="Remy is running here."
-                device="laptop"
+                device="server"
                 action={<PrimaryButton label="Pair" />}
                 style={{
                   opacity: interpolate(frame, [18, 40], [0.5, 1], {
@@ -131,14 +131,14 @@ export const Paired: React.FC = () => {
               right: 0,
               bottom: 0,
               height: 72,
-              backgroundImage: "linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff)",
+              backgroundImage: "linear-gradient(180deg, rgba(17, 17, 17, 0), #111111)",
             }}
           />
         </div>
-      </MacWindow>
+      </DeviceWindow>
 
-      <MacWindow
-        name="mac-mini"
+      <DeviceWindow
+        name="workbench"
         note="paired with studio"
         device="monitor"
         linked
@@ -151,7 +151,7 @@ export const Paired: React.FC = () => {
             style={{
               position: "absolute",
               inset: -26,
-              backgroundColor: "rgba(252, 252, 252, 0.74)",
+              backgroundColor: "rgba(10, 10, 10, 0.72)",
               opacity: interpolate(frame, [2, 22], [1, 0], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
@@ -200,7 +200,7 @@ export const Paired: React.FC = () => {
             }}
           />
         </div>
-      </MacWindow>
+      </DeviceWindow>
 
       <div
         style={{

@@ -4,7 +4,7 @@ import { Caption } from "../parts/Caption";
 import { Chrome } from "../parts/Chrome";
 import { DeviceRow } from "../parts/DeviceRow";
 import { PrimaryButton } from "../parts/Buttons";
-import { MacWindow } from "../parts/MacWindow";
+import { DeviceWindow } from "../parts/DeviceWindow";
 import { RefreshCw } from "../parts/Icons";
 import { Sfx } from "../parts/Sfx";
 
@@ -19,7 +19,7 @@ export const Discovery: React.FC = () => {
       <Backdrop />
       <Chrome step={1} />
 
-      <MacWindow
+      <DeviceWindow
         name="studio"
         note="this machine"
         device="laptop"
@@ -55,7 +55,7 @@ export const Discovery: React.FC = () => {
                 fontFamily: "Inter, system-ui, sans-serif",
                 fontSize: 30,
                 fontWeight: 500,
-                color: "#27272a",
+                color: "#f5f5f5",
               }}
             >
               On your tailnet
@@ -71,9 +71,9 @@ export const Discovery: React.FC = () => {
                   }),
                 }}
               >
-                <RefreshCw size={26} color="#71717b" />
+                <RefreshCw size={26} color="#818181" />
               </div>
-              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#71717b" }}>
+              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#818181" }}>
                 Look again
               </span>
             </div>
@@ -89,7 +89,7 @@ export const Discovery: React.FC = () => {
             }}
           >
             <DeviceRow
-              name="mac-mini"
+              name="workbench"
               note="Remy is running here."
               device="monitor"
               action={<PrimaryButton label="Pair" />}
@@ -99,11 +99,11 @@ export const Discovery: React.FC = () => {
                     marginRight: 14,
                     padding: "7px 16px",
                     borderRadius: 999,
-                    border: "1.5px solid #d5e0fa",
-                    backgroundColor: "#eef3fe",
+                    border: "1.5px solid rgba(59, 130, 246, 0.35)",
+                    backgroundColor: "rgba(59, 130, 246, 0.2)",
                     fontFamily: "JetBrains Mono, Menlo, monospace",
                     fontSize: 24,
-                    color: "#1b4ed8",
+                    color: "#60a5fa",
                     opacity: interpolate(frame, [44, 56], [0, 1], {
                       extrapolateLeft: "clamp",
                       extrapolateRight: "clamp",
@@ -130,9 +130,9 @@ export const Discovery: React.FC = () => {
             />
 
             <DeviceRow
-              name="macbook-air"
+              name="homelab"
               note="Remy is running here."
-              device="laptop"
+              device="server"
               action={<PrimaryButton label="Pair" />}
               badge={
                 <span
@@ -140,11 +140,11 @@ export const Discovery: React.FC = () => {
                     marginRight: 14,
                     padding: "7px 16px",
                     borderRadius: 999,
-                    border: "1.5px solid #d5e0fa",
-                    backgroundColor: "#eef3fe",
+                    border: "1.5px solid rgba(59, 130, 246, 0.35)",
+                    backgroundColor: "rgba(59, 130, 246, 0.2)",
                     fontFamily: "JetBrains Mono, Menlo, monospace",
                     fontSize: 24,
-                    color: "#1b4ed8",
+                    color: "#60a5fa",
                     opacity: interpolate(frame, [62, 74], [0, 1], {
                       extrapolateLeft: "clamp",
                       extrapolateRight: "clamp",
@@ -197,7 +197,7 @@ export const Discovery: React.FC = () => {
                 right: -26,
                 height: 150,
                 backgroundImage:
-                  "linear-gradient(180deg, rgba(27, 78, 216, 0), rgba(27, 78, 216, 0.09), rgba(27, 78, 216, 0))",
+                  "linear-gradient(180deg, rgba(96, 165, 250, 0), rgba(96, 165, 250, 0.12), rgba(96, 165, 250, 0))",
                 translate: interpolate(frame, [10, 82], ["0px -160px", "0px 400px"], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
@@ -212,7 +212,7 @@ export const Discovery: React.FC = () => {
             />
           </div>
         </div>
-      </MacWindow>
+      </DeviceWindow>
 
       <Sfx sound="tick" at={27} />
       <Sfx sound="tick" at={45} />

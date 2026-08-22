@@ -5,6 +5,9 @@ import { PairCode } from "./PairCode";
 /// The prompt on the machine being asked, in the app's own words. The second
 /// sentence of the description is the whole security model, so it is the line
 /// the video is built around.
+///
+/// The surface is `--popover`, a step lighter than the card it sits over, which
+/// is how the real dialog separates itself without a scrim doing all the work.
 export const PairDialog: React.FC<{
   fromName: string;
   code: string;
@@ -15,9 +18,9 @@ export const PairDialog: React.FC<{
   <div
     style={{
       borderRadius: 22,
-      border: "1.5px solid #e4e4e7",
-      backgroundColor: "#ffffff",
-      boxShadow: "0 28px 60px -20px rgba(39, 39, 42, 0.28)",
+      border: "1.5px solid rgba(255, 255, 255, 0.1)",
+      backgroundColor: "#191919",
+      boxShadow: "0 28px 60px -18px rgba(10, 10, 10, 0.7)",
       padding: 26,
       display: "flex",
       flexDirection: "column",
@@ -25,13 +28,13 @@ export const PairDialog: React.FC<{
     }}
   >
     <div style={{ display: "flex", alignItems: "center", gap: 12, height: 44 }}>
-      <Laptop size={30} color="#71717b" />
+      <Laptop size={30} color="#818181" />
       <span
         style={{
           fontFamily: "Inter, system-ui, sans-serif",
           fontSize: 34,
           fontWeight: 600,
-          color: "#27272a",
+          color: "#f5f5f5",
           letterSpacing: "-0.01em",
         }}
       >
@@ -46,7 +49,7 @@ export const PairDialog: React.FC<{
         fontFamily: "Inter, system-ui, sans-serif",
         fontSize: 25,
         lineHeight: 1.4,
-        color: "#71717b",
+        color: "#818181",
       }}
     >
       Allow it and the two machines share their boards, and can send each other
@@ -61,11 +64,11 @@ export const PairDialog: React.FC<{
         alignItems: "center",
         justifyContent: "center",
         borderRadius: 16,
-        border: "1.5px solid #e4e4e7",
-        backgroundColor: "#fafafa",
+        border: "1.5px solid rgba(255, 255, 255, 0.08)",
+        backgroundColor: "rgba(255, 255, 255, 0.03)",
       }}
     >
-      <PairCode code={code} size={56} color="#27272a" />
+      <PairCode code={code} size={56} color="#f5f5f5" />
     </div>
 
     <div

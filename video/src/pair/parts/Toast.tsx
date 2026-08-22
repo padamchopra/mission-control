@@ -12,9 +12,9 @@ export const Toast: React.FC<{ text: string; style?: React.CSSProperties }> = ({
       gap: 14,
       padding: "16px 22px",
       borderRadius: 16,
-      border: "1.5px solid #e4e4e7",
-      backgroundColor: "#ffffff",
-      boxShadow: "0 16px 36px -14px rgba(39, 39, 42, 0.28)",
+      border: "1.5px solid rgba(255, 255, 255, 0.1)",
+      backgroundColor: "#191919",
+      boxShadow: "0 16px 36px -12px rgba(10, 10, 10, 0.7)",
       ...style,
     }}
   >
@@ -29,15 +29,23 @@ export const Toast: React.FC<{ text: string; style?: React.CSSProperties }> = ({
         backgroundColor: "#00bc7d",
       }}
     >
-      <Check size={22} color="#ffffff" />
+      <Check size={22} color="#0a0a0a" />
     </div>
-    <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, fontWeight: 500, color: "#27272a" }}>
+    <span
+      style={{
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: 28,
+        fontWeight: 500,
+        color: "#f5f5f5",
+      }}
+    >
       {text}
     </span>
   </div>
 );
 
-/// A ticket crossing the seam once the two boards are converging.
+/// A ticket crossing the seam once the two boards are converging. It travels
+/// over the light page rather than inside a window, so it is a light chip.
 export const TicketChip: React.FC<{ label: string; style?: React.CSSProperties }> = ({
   label,
   style,

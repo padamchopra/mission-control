@@ -9,8 +9,12 @@ import {
 } from "remotion";
 import { Backdrop } from "../parts/Backdrop";
 
-/// The claim, in the repo's own words: two machines pair by asking, not by
-/// carrying a token. Everything after this is the proof.
+/// The claim: your tailnet has already done the discovery, so adding a device is
+/// picking one and matching six digits. Everything after this is the proof.
+///
+/// Nothing here names a kind of computer. The daemon talks about machines and
+/// devices, `DEVICE_ICONS` carries a phone, a tablet, a server and a cloud, and
+/// the video should not be narrower than the thing it shows.
 export const Hook: React.FC = () => {
   const frame = useCurrentFrame();
 
@@ -86,7 +90,7 @@ export const Hook: React.FC = () => {
             }),
           }}
         >
-          Two Macs pair by asking,
+          Your devices already
         </Interactive.Div>
 
         <Interactive.Div
@@ -110,7 +114,7 @@ export const Hook: React.FC = () => {
             }),
           }}
         >
-          not by carrying a token.
+          know each other.
         </Interactive.Div>
 
         <Interactive.Div
@@ -133,7 +137,7 @@ export const Hook: React.FC = () => {
             }),
           }}
         >
-          Your tailnet finds them. Six digits confirm it.
+          Pick one off your tailnet and match six digits.
         </Interactive.Div>
       </AbsoluteFill>
     </AbsoluteFill>

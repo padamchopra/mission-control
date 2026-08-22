@@ -45,6 +45,37 @@ export const Monitor: React.FC<IconProps> = ({ size, color, strokeWidth = 2 }) =
   </svg>
 );
 
+export const Server: React.FC<IconProps> = ({ size, color, strokeWidth = 2 }) => (
+  <svg viewBox="0 0 24 24" fill="none" style={box(size)}>
+    <rect
+      x="2"
+      y="2"
+      width="20"
+      height="8"
+      rx="2"
+      stroke={color}
+      strokeWidth={strokeWidth}
+      strokeLinejoin="round"
+    />
+    <rect
+      x="2"
+      y="14"
+      width="20"
+      height="8"
+      rx="2"
+      stroke={color}
+      strokeWidth={strokeWidth}
+      strokeLinejoin="round"
+    />
+    <path
+      d="M6 6h.01M6 18h.01"
+      stroke={color}
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 export const HardDrive: React.FC<IconProps> = ({ size, color, strokeWidth = 2 }) => (
   <svg viewBox="0 0 24 24" fill="none" style={box(size)}>
     <path

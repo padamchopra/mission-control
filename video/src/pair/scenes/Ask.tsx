@@ -4,14 +4,14 @@ import { Caption } from "../parts/Caption";
 import { Chrome } from "../parts/Chrome";
 import { DeviceRow } from "../parts/DeviceRow";
 import { PrimaryButton } from "../parts/Buttons";
-import { MacWindow } from "../parts/MacWindow";
+import { DeviceWindow } from "../parts/DeviceWindow";
 import { Pointer, RefreshCw } from "../parts/Icons";
 import { SkeletonPane } from "../parts/SkeletonPane";
 import { WaitingPanel } from "../parts/WaitingPanel";
 import { Sfx } from "../parts/Sfx";
 
 /// Step two. The stage opens out to both machines, and Pair is pressed on this
-/// one. All that crosses the wire is a request id — the other Mac is told
+/// one. All that crosses the wire is a request id — the other device is told
 /// nothing else, and nothing is shared until somebody there says yes.
 export const Ask: React.FC = () => {
   const frame = useCurrentFrame();
@@ -21,7 +21,7 @@ export const Ask: React.FC = () => {
       <Backdrop />
       <Chrome step={2} />
 
-      <MacWindow
+      <DeviceWindow
         name="studio"
         note="this machine"
         device="laptop"
@@ -46,13 +46,13 @@ export const Ask: React.FC = () => {
             }}
           >
             <span
-              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#27272a" }}
+              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#f5f5f5" }}
             >
               On your tailnet
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <RefreshCw size={26} color="#71717b" />
-              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#71717b" }}>
+              <RefreshCw size={26} color="#818181" />
+              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#818181" }}>
                 Look again
               </span>
             </div>
@@ -60,7 +60,7 @@ export const Ask: React.FC = () => {
 
           <div style={{ marginTop: 18 }}>
             <WaitingPanel
-              name="mac-mini"
+              name="workbench"
               code="418 902"
               style={{
                 height: interpolate(frame, [78, 100], [0, 192], {
@@ -95,7 +95,7 @@ export const Ask: React.FC = () => {
               }}
             >
               <DeviceRow
-                name="mac-mini"
+                name="workbench"
                 note="Remy is running here."
                 device="monitor"
                 action={
@@ -110,9 +110,9 @@ export const Ask: React.FC = () => {
                 }
               />
               <DeviceRow
-                name="macbook-air"
+                name="homelab"
                 note="Remy is running here."
-                device="laptop"
+                device="server"
                 action={<PrimaryButton label="Pair" />}
               />
               <DeviceRow
@@ -131,14 +131,14 @@ export const Ask: React.FC = () => {
               right: 0,
               bottom: 0,
               height: 72,
-              backgroundImage: "linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff)",
+              backgroundImage: "linear-gradient(180deg, rgba(17, 17, 17, 0), #111111)",
             }}
           />
         </div>
-      </MacWindow>
+      </DeviceWindow>
 
-      <MacWindow
-        name="mac-mini"
+      <DeviceWindow
+        name="workbench"
         note="on your tailnet"
         device="monitor"
         style={{
@@ -153,7 +153,7 @@ export const Ask: React.FC = () => {
         }}
       >
         <SkeletonPane />
-      </MacWindow>
+      </DeviceWindow>
 
       <div
         style={{
@@ -163,7 +163,7 @@ export const Ask: React.FC = () => {
           width: 88,
           height: 88,
           borderRadius: 44,
-          border: "4px solid #1b4ed8",
+          border: "4px solid #60a5fa",
           opacity: interpolate(frame, [74, 82, 100], [0, 0.55, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",

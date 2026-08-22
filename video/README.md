@@ -6,8 +6,8 @@ here ships in the app — it renders MP4s to post.
 ## Add a device
 
 `PairDevice` is the 22-second explainer for adding a machine: your tailnet offers
-the list, you press Pair, and somebody at the other Mac compares six digits and
-allows it. Light theme, 1920×1080, 30fps — sized for a timeline embed.
+the list, you press Pair, and somebody at the other device compares six digits
+and allows it. 1920×1080, 30fps — sized for a timeline embed.
 
 ```sh
 cd video && npm i
@@ -29,14 +29,26 @@ The newest render is committed at `docs/video/remy-add-a-device.mp4`.
 
 Some rules the scenes are held to:
 
-- **The strings are the app's.** "Remy is running here.", "Waiting for mac-mini",
+- **The strings are the app's.** "Remy is running here.", "Waiting for workbench",
   the whole pair dialog — they are copied from `web/src/components/Settings.tsx`
   and `PairRequest.tsx`, not rewritten. A video that says something the window
   does not is a video that has to be re-shot when the window changes.
-- **The colours are the app's.** Remy's light-scheme tokens from
-  `web/src/index.css`, converted from oklch to the hex each style names — so
-  `#1b4ed8` is `--primary`, `#71717b` is `--muted-foreground`, and a frame here
-  matches a screenshot of the window.
+- **The windows are dark, the page is light.** Remy ships dark only: `.light`
+  exists in `web/src/index.css` but nothing ever adds the class, so a light mock
+  of the app is a screenshot of something nobody is running. The device windows
+  therefore use the dark tokens — `#111111` card, `#191919` popover, `#f5f5f5`
+  text, `#346bf1` primary — while the page they sit on, the headline, and the
+  captions stay light, which is what keeps the video readable on either kind of
+  timeline. Page furniture uses the light tokens for the same reason: `#1b4ed8`
+  has the contrast on white that `#346bf1` does not.
+- **Borders run hotter than the app's.** `--border` is white at 6%, which over
+  `#111111` all but vanishes at 1.5px once H.264 has been through it. The video
+  uses 7–10% so a card still has an edge. It is the one place the colours
+  deliberately depart from the tokens.
+- **No device type is named.** Not in the copy, not in the demo. The daemon says
+  machine and device, `DEVICE_ICONS` carries a phone, a tablet, a server and a
+  cloud, and the rows on screen are a monitor, a server and a drive on purpose —
+  the video should not read narrower than the product.
 - **The two-window stage never moves.** Scenes 3 to 5 place both windows at the
   same coordinates and keep every row the same height, so a crossfade between
   them reads as one continuous take instead of a cut. Retime a scene and you have

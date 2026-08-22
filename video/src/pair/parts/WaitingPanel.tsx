@@ -17,22 +17,28 @@ export const WaitingPanel: React.FC<{
       gap: 4,
       height: 192,
       borderRadius: 18,
-      border: "1.5px solid #e4e4e7",
-      backgroundColor: "#fafafa",
+      border: "1.5px solid rgba(255, 255, 255, 0.08)",
+      backgroundColor: "rgba(255, 255, 255, 0.03)",
       ...style,
     }}
   >
-    <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, color: "#27272a" }}>
+    <span
+      style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, color: "#f5f5f5" }}
+    >
       Waiting for {name}
     </span>
-    <PairCode code={code} size={56} color="#27272a" />
-    <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 25, color: "#71717b" }}>
+    <PairCode code={code} size={56} color="#f5f5f5" />
+    <span
+      style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 25, color: "#818181" }}
+    >
       Allow it on {name} if it shows this code.
     </span>
   </div>
 );
 
-/// The same slot once somebody there pressed Allow.
+/// The same slot once somebody there pressed Allow. `--success` is one of the few
+/// tokens that carries the same value on both schemes, so the green is untouched;
+/// only the well behind it changes.
 export const PairedPanel: React.FC<{
   name: string;
   style?: React.CSSProperties;
@@ -46,8 +52,8 @@ export const PairedPanel: React.FC<{
       gap: 12,
       height: 192,
       borderRadius: 18,
-      border: "1.5px solid #b6e8d3",
-      backgroundColor: "#f0fbf6",
+      border: "1.5px solid rgba(0, 188, 125, 0.32)",
+      backgroundColor: "rgba(0, 188, 125, 0.1)",
       ...style,
     }}
   >
@@ -62,9 +68,16 @@ export const PairedPanel: React.FC<{
         backgroundColor: "#00bc7d",
       }}
     >
-      <Check size={34} color="#ffffff" />
+      <Check size={34} color="#0a0a0a" />
     </div>
-    <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 34, fontWeight: 500, color: "#007a55" }}>
+    <span
+      style={{
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: 34,
+        fontWeight: 500,
+        color: "#00d492",
+      }}
+    >
       Paired {name}.
     </span>
   </div>

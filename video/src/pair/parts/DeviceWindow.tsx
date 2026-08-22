@@ -1,8 +1,17 @@
 import { Laptop, Monitor } from "./Icons";
 
-/// One machine, as a window. Two of them side by side is the whole point of the
-/// video: pairing is a conversation between two Macs, not a setting on one.
-export const MacWindow: React.FC<{
+/// One device, as a window. Two of them side by side is the whole point of the
+/// video: pairing is a conversation between two machines, not a setting on one.
+///
+/// The window is dark because Remy is. `.light` exists in `web/src/index.css`
+/// but nothing adds the class, so a light mock would be a screenshot of an app
+/// nobody is running. The label above the window sits on the page rather than
+/// in the app, so it stays in the page's light palette.
+///
+/// One deliberate departure: the app's `--border` is white at 6%, which over
+/// `#111111` is nearly invisible at 1.5px on a 1080p frame. The borders here run
+/// a little hotter so the card still has an edge after H.264 gets to it.
+export const DeviceWindow: React.FC<{
   name: string;
   note: string;
   device: "laptop" | "monitor";
@@ -60,10 +69,10 @@ export const MacWindow: React.FC<{
     <div
       style={{
         borderRadius: 26,
-        border: "1.5px solid #e4e4e7",
-        backgroundColor: "#ffffff",
+        border: "1.5px solid rgba(255, 255, 255, 0.1)",
+        backgroundColor: "#111111",
         boxShadow:
-          "0 34px 70px -28px rgba(39, 39, 42, 0.22), 0 3px 10px rgba(39, 39, 42, 0.05)",
+          "0 34px 70px -26px rgba(10, 10, 10, 0.45), 0 3px 12px rgba(10, 10, 10, 0.25)",
         overflow: "hidden",
       }}
     >
@@ -74,8 +83,8 @@ export const MacWindow: React.FC<{
           gap: 10,
           height: 56,
           paddingLeft: 22,
-          borderBottom: "1.5px solid #e4e4e7",
-          backgroundColor: "#fafafa",
+          borderBottom: "1.5px solid rgba(255, 255, 255, 0.07)",
+          backgroundColor: "#191919",
         }}
       >
         <div style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: "#ff5f57" }} />

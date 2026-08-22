@@ -4,7 +4,7 @@ import { Caption } from "../parts/Caption";
 import { Chrome } from "../parts/Chrome";
 import { DeviceRow } from "../parts/DeviceRow";
 import { PrimaryButton } from "../parts/Buttons";
-import { MacWindow } from "../parts/MacWindow";
+import { DeviceWindow } from "../parts/DeviceWindow";
 import { PairDialog } from "../parts/PairDialog";
 import { Pointer, RefreshCw } from "../parts/Icons";
 import { SeamLink } from "../parts/SeamLink";
@@ -13,7 +13,7 @@ import { WaitingPanel } from "../parts/WaitingPanel";
 import { Sfx } from "../parts/Sfx";
 
 /// Step three, and the only step that matters. Somebody standing at the other
-/// Mac reads six digits, sees the same six digits here, and presses Allow.
+/// device reads six digits, sees the same six digits here, and presses Allow.
 /// Refuse to compare them and pairing simply does not happen.
 export const Allow: React.FC = () => {
   const frame = useCurrentFrame();
@@ -23,7 +23,7 @@ export const Allow: React.FC = () => {
       <Backdrop />
       <Chrome step={3} />
 
-      <MacWindow
+      <DeviceWindow
         name="studio"
         note="this machine"
         device="laptop"
@@ -39,33 +39,33 @@ export const Allow: React.FC = () => {
             }}
           >
             <span
-              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#27272a" }}
+              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#f5f5f5" }}
             >
               On your tailnet
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <RefreshCw size={26} color="#71717b" />
-              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#71717b" }}>
+              <RefreshCw size={26} color="#818181" />
+              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#818181" }}>
                 Look again
               </span>
             </div>
           </div>
 
           <div style={{ marginTop: 18 }}>
-            <WaitingPanel name="mac-mini" code="418 902" style={{ marginBottom: 14 }} />
+            <WaitingPanel name="workbench" code="418 902" style={{ marginBottom: 14 }} />
             <div
               style={{ display: "flex", flexDirection: "column", gap: 12, opacity: 0.5 }}
             >
               <DeviceRow
-                name="mac-mini"
+                name="workbench"
                 note="Remy is running here."
                 device="monitor"
                 action={<PrimaryButton label="Pair" />}
               />
               <DeviceRow
-                name="macbook-air"
+                name="homelab"
                 note="Remy is running here."
-                device="laptop"
+                device="server"
                 action={<PrimaryButton label="Pair" />}
               />
             </div>
@@ -78,14 +78,14 @@ export const Allow: React.FC = () => {
               right: 0,
               bottom: 0,
               height: 72,
-              backgroundImage: "linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff)",
+              backgroundImage: "linear-gradient(180deg, rgba(17, 17, 17, 0), #111111)",
             }}
           />
         </div>
-      </MacWindow>
+      </DeviceWindow>
 
-      <MacWindow
-        name="mac-mini"
+      <DeviceWindow
+        name="workbench"
         note="on your tailnet"
         device="monitor"
         style={{ position: "absolute", top: 176, left: 1036, width: 780 }}
@@ -97,7 +97,7 @@ export const Allow: React.FC = () => {
             style={{
               position: "absolute",
               inset: -26,
-              backgroundColor: "rgba(252, 252, 252, 0.74)",
+              backgroundColor: "rgba(10, 10, 10, 0.72)",
               opacity: interpolate(frame, [4, 22], [0, 1], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
@@ -136,7 +136,7 @@ export const Allow: React.FC = () => {
             />
           </div>
         </div>
-      </MacWindow>
+      </DeviceWindow>
 
       <SeamLink
         tone="asking"
@@ -165,7 +165,7 @@ export const Allow: React.FC = () => {
           width: 370,
           height: 72,
           borderRadius: 18,
-          border: "3px solid #1b4ed8",
+          border: "3px solid #60a5fa",
           opacity: interpolate(frame, [46, 58], [0, 0.75], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
@@ -188,7 +188,7 @@ export const Allow: React.FC = () => {
           width: 370,
           height: 72,
           borderRadius: 18,
-          border: "3px solid #1b4ed8",
+          border: "3px solid #60a5fa",
           opacity: interpolate(frame, [46, 58], [0, 0.75], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
@@ -211,7 +211,7 @@ export const Allow: React.FC = () => {
           width: 88,
           height: 88,
           borderRadius: 44,
-          border: "4px solid #1b4ed8",
+          border: "4px solid #60a5fa",
           opacity: interpolate(frame, [104, 112, 130], [0, 0.55, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",

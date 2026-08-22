@@ -10,7 +10,7 @@ import { Paired } from "./scenes/Paired";
 import { EndCard } from "./scenes/EndCard";
 
 /// Adding a device to Remy, start to finish: your tailnet offers the list, you
-/// press Pair, and somebody at the other Mac compares six digits and allows it.
+/// press Pair, and somebody at the other device compares six digits and allows it.
 ///
 /// Every string here is the app's own. The two-window stage keeps its geometry
 /// fixed across the middle four scenes, so a crossfade reads as one continuous
