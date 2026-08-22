@@ -23,6 +23,11 @@ export interface Server {
   notify?: boolean;
   /// When that machine last answered.
   lastSeen?: number;
+  /// A hosted runtime presented beside physical devices.
+  cloud?: boolean;
+  /// Cloud runtimes need a repository rather than a home directory.
+  workspaceOnly?: boolean;
+  cloudConnected?: boolean;
 }
 
 /// A machine asking to pair with this one. It is waiting on a person here, so
@@ -92,6 +97,8 @@ export interface Workspace {
   provider?: string | null;
   model?: string | null;
   worktrees: GitWorktree[];
+  /// A device projection used for routing, hidden from the workspace list.
+  virtual?: boolean;
 }
 
 export interface PathSuggestion {

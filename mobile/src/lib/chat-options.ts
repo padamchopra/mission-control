@@ -15,6 +15,11 @@ export const PERMISSIONS = [
   { value: "bypassPermissions", label: "Bypass", icon: ShieldOff },
 ] as const;
 
+export const CLOUD_MODES = [
+  { value: "default", label: "Agent", icon: Sparkles },
+  { value: "plan", label: "Plan", icon: ListTodo },
+] as const;
+
 export type PermissionValue = (typeof PERMISSIONS)[number]["value"];
 
 export function modelLabel(model?: string): string {
@@ -23,4 +28,8 @@ export function modelLabel(model?: string): string {
 
 export function permissionOf(value?: string): { label: string; icon: LucideIcon; value: PermissionValue } {
   return PERMISSIONS.find((entry) => entry.value === value) ?? PERMISSIONS[0];
+}
+
+export function cloudModeOf(value?: string): { label: string; icon: LucideIcon; value: PermissionValue } {
+  return CLOUD_MODES.find((entry) => entry.value === value) ?? CLOUD_MODES[0];
 }

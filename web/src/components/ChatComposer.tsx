@@ -32,7 +32,7 @@ import { ComposerMenu } from "@/components/ComposerMenu";
 import { ModelPickerButton, useProvider } from "@/components/ModelPicker";
 import { PaneHeader } from "@/components/PaneHeader";
 import { WorkspaceMark } from "@/components/WorkspaceIcon";
-import { PERMISSIONS, permissionOf, type PermissionValue } from "@/lib/chat-options";
+import { CLOUD_MODES, cloudModeOf, PERMISSIONS, permissionOf, type PermissionValue } from "@/lib/chat-options";
 import { apiError } from "@/lib/api-error";
 import { deviceIcon } from "@/lib/devices";
 import { devicesForWorkspace } from "@/lib/projects";
@@ -97,10 +97,13 @@ export function ChatComposer({
 
   const workspace = workspaces.find((entry) => entry.id === target);
   const home = target === HOME || !workspace;
-  const workspaceServers = workspace ? devicesForWorkspace(workspace, workspaces, servers) : [];
+  const workspaceServers = workspace
+    ? devicesForWorkspace(workspace, workspaces, servers).filter((entry) => !entry.cloud || entry.cloudConnected)
+    : [];
   const server = home
     ? servers.find((entry) => entry.id === serverId) ?? preferredServer(servers)
     : servers.find((entry) => entry.id === workspace.serverId) ?? preferredServer(servers);
+  const cloud = server?.cloud === true;
   const git = Boolean(!home && workspace && workspace.worktrees.length > 0);
   const mainBranch = (!home && workspace
     ? workspace.worktrees.find((entry) => entry.isMain)?.branch
@@ -112,7 +115,7 @@ export function ChatComposer({
   const provider = useProvider(choice.provider);
   const asks = provider?.approvals !== false;
   const providerName = provider?.label ?? "This provider";
-  const permission = permissionOf(permissionMode);
+  const permission = cloud ? cloudModeOf(permissionMode) : permissionOf(permissionMode);
   const PermissionIcon = permission.icon;
   const permissionLabel = permission.label;
   const checkoutLabel = CHECKOUTS.find((entry) => entry.value === checkout)?.label ?? "Main checkout";
@@ -122,6 +125,10 @@ export function ChatComposer({
   // The workspace's own choice if it has one, this machine's otherwise, until
   // you pick something — and then yours for as long as the composer is open.
   useEffect(() => {
+    if (cloud) {
+      setChoice({ provider: "cursor", model: "" });
+      return;
+    }
     if (modelPicked) return;
     setChoice(
       workspace?.provider
@@ -134,6 +141,7 @@ export function ChatComposer({
     settings?.defaultProvider,
     settings?.defaultModel,
     modelPicked,
+    cloud,
   ]);
 
   // A permission mode is the machine's alone: what a thread may do is not a
@@ -283,14 +291,18 @@ export function ChatComposer({
                 }}
               />
               <InputGroupAddon align="block-end">
-                <ModelPickerButton
-                  variant="composer"
-                  value={choice}
-                  onPick={(next) => {
-                    setModelPicked(true);
-                    setChoice(next);
-                  }}
-                />
+                {cloud ? (
+                  <InputGroupText>Cursor Cloud default</InputGroupText>
+                ) : (
+                  <ModelPickerButton
+                    variant="composer"
+                    value={choice}
+                    onPick={(next) => {
+                      setModelPicked(true);
+                      setChoice(next);
+                    }}
+                  />
+                )}
                 <ComposerMenu
                   icon={PermissionIcon}
                   label={permissionLabel}
@@ -299,7 +311,7 @@ export function ChatComposer({
                     setPermissionPicked(true);
                     setPermissionMode(value as PermissionValue);
                   }}
-                  options={PERMISSIONS}
+                  options={cloud ? CLOUD_MODES : PERMISSIONS}
                   title={asks ? undefined : `${providerName} answers and exits, so it never stops to ask.`}
                 />
                 <InputGroupButton
@@ -314,13 +326,13 @@ export function ChatComposer({
                 </InputGroupButton>
               </InputGroupAddon>
               <InputGroupAddon align="block-end" className="border-t">
-                {(home ? servers : workspaceServers).length > 1 ? (
+                {(home ? servers.filter((entry) => !entry.workspaceOnly) : workspaceServers).length > 1 ? (
                   <ComposerMenu
                     icon={DeviceIcon}
                     label={server?.name ?? "This machine"}
                     value={server?.id ?? ""}
                     onChange={pickDevice}
-                    options={(home ? servers : workspaceServers).map((entry) => ({
+                    options={(home ? servers.filter((entry) => !entry.workspaceOnly) : workspaceServers).map((entry) => ({
                       value: entry.id,
                       label: entry.name,
                       icon: deviceIcon(entry.icon),
@@ -474,9 +486,9 @@ function WorkspaceMenu({
   const selected = home ? deviceValue(serverId) : workspace?.id;
   return (
     <DropdownMenuContent align="start" side="bottom" sideOffset={6}>
-      {workspaces.length > 0 && (
+      {workspaces.some((entry) => !entry.virtual) && (
         <DropdownMenuGroup>
-          {workspaces.map((entry) => (
+          {workspaces.filter((entry) => !entry.virtual).map((entry) => (
             <DropdownMenuItem key={entry.id} onSelect={() => onPick(entry.id)}>
               <WorkspaceMark home={false} workspace={entry} size="sm" />
               {entry.name}
@@ -485,9 +497,9 @@ function WorkspaceMenu({
           ))}
         </DropdownMenuGroup>
       )}
-      {workspaces.length > 0 && servers.length > 0 && <DropdownMenuSeparator />}
+      {workspaces.some((entry) => !entry.virtual) && servers.some((entry) => !entry.workspaceOnly) && <DropdownMenuSeparator />}
       <DropdownMenuGroup>
-        {servers.map((entry) => {
+        {servers.filter((entry) => !entry.workspaceOnly).map((entry) => {
           const Icon = deviceIcon(entry.icon);
           const value = deviceValue(entry.id);
           return (

@@ -58,7 +58,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiError } from "@/lib/api-error";
-import { PERMISSIONS, permissionOf } from "@/lib/chat-options";
+import { CLOUD_MODES, cloudModeOf, PERMISSIONS, permissionOf } from "@/lib/chat-options";
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { workspaceForPath } from "@/lib/projects";
@@ -120,6 +120,7 @@ export function ChatView({
   // machine instead.
   const workspace = workspaces[workspaceForPath(chat.cwd, workspaces)];
   const server = servers.find((entry) => entry.id === chat.serverId);
+  const cloud = server?.cloud === true;
   const DeviceIcon = deviceIcon(server?.icon);
   // The checkout this thread runs in, which is what names its branch. A thread
   // started in a subdirectory still belongs to the deepest checkout above it,
@@ -156,7 +157,7 @@ export function ChatView({
     }
   };
 
-  const permission = permissionOf(open?.permissionMode);
+  const permission = cloud ? cloudModeOf(open?.permissionMode) : permissionOf(open?.permissionMode);
   const provider = useProvider(open?.provider ?? chat.provider ?? "claude");
   const asks = provider?.approvals !== false;
 
@@ -301,18 +302,22 @@ export function ChatView({
             {/* One row, not two: the settings and the send button are the same
                 strip of chrome. */}
             <InputGroupAddon align="block-end" className="gap-1">
-              <ModelPickerButton
-                variant="composer"
-                value={{ provider: provider?.id ?? "claude", model: open?.model ?? "" }}
-                disabled={!open || working}
-                title={working ? "The model changes once this turn is done." : undefined}
-                onPick={(next) =>
-                  void setOption(
-                    { provider: next.provider, model: next.model || null },
-                    next.provider === open?.provider ? "model" : "provider",
-                  )
-                }
-              />
+              {cloud ? (
+                <InputGroupText>Cursor Cloud default</InputGroupText>
+              ) : (
+                <ModelPickerButton
+                  variant="composer"
+                  value={{ provider: provider?.id ?? "claude", model: open?.model ?? "" }}
+                  disabled={!open || working}
+                  title={working ? "The model changes once this turn is done." : undefined}
+                  onPick={(next) =>
+                    void setOption(
+                      { provider: next.provider, model: next.model || null },
+                      next.provider === open?.provider ? "model" : "provider",
+                    )
+                  }
+                />
+              )}
               <ComposerMenu
                 icon={permission.icon}
                 label={permission.label}
@@ -326,7 +331,7 @@ export function ChatView({
                       : `${provider?.label ?? "This provider"} can't stop to ask, so Ask keeps it read-only.`
                 }
                 onChange={(value) => void setOption({ permissionMode: value }, "permission mode")}
-                options={PERMISSIONS}
+                options={cloud ? CLOUD_MODES : PERMISSIONS}
               />
 
               <div className="ml-auto flex min-w-0 items-center gap-1">

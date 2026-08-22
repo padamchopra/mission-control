@@ -66,6 +66,7 @@ interface RawWorkspace {
   provider?: string | null;
   model?: string | null;
   worktrees?: GitWorktree[];
+  virtual?: boolean;
 }
 
 interface State {
@@ -316,7 +317,7 @@ export const useStore = create<State>((set, get) => ({
             workspaces = [];
           }
           return {
-            server: { ...server, online: true },
+            server: { ...server, online: server.cloud ? server.online : true },
             chats: (chats.chats ?? []).map((raw) => toChat(raw, server.id)),
             workspaces,
           };
@@ -1148,6 +1149,7 @@ function toWorkspace(raw: RawWorkspace, serverId: string): Workspace {
     provider: raw.provider ?? null,
     model: raw.model ?? null,
     worktrees: raw.worktrees ?? [],
+    virtual: raw.virtual === true,
   };
 }
 

@@ -45,6 +45,26 @@ interface WirePeer {
   lastSeen?: number;
 }
 
+interface CursorCloudStatus {
+  configured?: boolean;
+  visible?: boolean;
+  enabled?: boolean;
+}
+
+function toCursorCloudServer(status: CursorCloudStatus): Server {
+  return {
+    id: "cursor-cloud",
+    name: "Cursor Cloud",
+    url: "cursor://cloud",
+    code: "CLOUD",
+    online: true,
+    icon: "cloud",
+    cloud: true,
+    workspaceOnly: true,
+    cloudConnected: status.configured === true && status.enabled !== false,
+  };
+}
+
 function toPeerServer(peer: WirePeer): Server {
   const appearance = loadAppearance()[peer.id];
   const name = appearance?.name || peer.name;
@@ -77,6 +97,7 @@ function toPeerServer(peer: WirePeer): Server {
 function withPeers(base: LocalTransport): Transport {
   let localId: string | undefined;
   let peerIds = new Set<string>();
+  let hasCursorCloud = false;
 
   const localOf = (servers: Server[]) => servers.find((server) => server.local)?.id ?? servers[0]?.id;
 
@@ -103,13 +124,18 @@ function withPeers(base: LocalTransport): Transport {
         configured?: { name?: boolean; icon?: boolean; tint?: boolean };
         peers?: WirePeer[];
       } = {};
+      let cursorCloud: CursorCloudStatus = {};
       try {
-        answer = await base.request(localId, "/peers");
+        [answer, cursorCloud] = await Promise.all([
+          base.request<typeof answer>(localId, "/peers"),
+          base.request<CursorCloudStatus>(localId, "/cursor-cloud/status").catch(() => ({})),
+        ]);
       } catch {
         // A daemon from before pairing landed has no /peers, which simply means
         // this machine is the only one.
       }
       const listed = answer.peers ?? [];
+      hasCursorCloud = cursorCloud.visible === true;
       peerIds = new Set(listed.map((peer) => peer.id));
       const ownIdentity = own.map((server) => {
         if (server.id !== localId) return server;
@@ -128,10 +154,13 @@ function withPeers(base: LocalTransport): Transport {
       // must not appear a second time under its daemon-side id.
       const already = new Set(own.map((server) => server.url));
       const peers = listed.filter((peer) => !already.has(peer.url)).map(toPeerServer);
-      return [...ownIdentity, ...peers];
+      return [...ownIdentity, ...peers, ...(hasCursorCloud ? [toCursorCloudServer(cursorCloud)] : [])];
     },
 
     request<T>(serverId: string, path: string, init?: { method?: string; body?: unknown }) {
+      if (serverId === "cursor-cloud" && hasCursorCloud && localId) {
+        return base.request<T>(localId, `/cursor-cloud/api${path}`, init);
+      }
       if (!peerIds.has(serverId) || !localId) return base.request<T>(serverId, path, init);
       return base.request<T>(localId, `/peers/${encodeURIComponent(serverId)}/api${path}`, init);
     },
@@ -141,11 +170,13 @@ function withPeers(base: LocalTransport): Transport {
     },
 
     async removeServer(id) {
+      if (id === "cursor-cloud") throw new Error("Disconnect Cursor Cloud in its device settings.");
       if (!peerIds.has(id)) return base.removeServer(id);
       await base.request(await home(), `/peers/${encodeURIComponent(id)}`, { method: "DELETE" });
     },
 
     async updateServer(id, patch) {
+      if (id === "cursor-cloud") return;
       // How a device looks is this window's business; what it is called is the
       // daemon's, so a rename reaches the other windows too.
       saveAppearance(id, patch);

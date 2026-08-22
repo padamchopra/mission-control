@@ -12,7 +12,7 @@ import {
 import { ArrowUp, Box, ChevronDown, Folder, FolderGit2, GitBranch } from "lucide-react-native";
 import { color, radius, space } from "../theme";
 import { apiError, chatIdFrom } from "../lib/api-error";
-import { MODELS, PERMISSIONS, modelLabel, permissionOf, type PermissionValue } from "../lib/chat-options";
+import { CLOUD_MODES, cloudModeOf, MODELS, PERMISSIONS, modelLabel, permissionOf, type PermissionValue } from "../lib/chat-options";
 import { deviceIcon } from "../lib/devices";
 import { useStore } from "../state/store";
 import type { GitBranch as Branch, Server, Workspace } from "../state/types";
@@ -106,9 +106,19 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
 
   const workspace = target && target !== HOME ? workspaces.find((entry) => entry.id === target) : undefined;
   const home = !workspace;
+  const workspaceServers = workspace
+    ? servers.filter((entry) => {
+        if (entry.cloud && !entry.cloudConnected) return false;
+        return workspaces.some((candidate) =>
+          candidate.serverId === entry.id
+          && (candidate.id === workspace.id || Boolean(workspace.origin && candidate.origin === workspace.origin)),
+        );
+      })
+    : [];
   const server = home
     ? servers.find((entry) => entry.id === serverId) ?? preferredServer(servers)
     : servers.find((entry) => entry.id === workspace.serverId) ?? preferredServer(servers);
+  const cloud = server?.cloud === true;
   const git = Boolean(!home && workspace && workspace.worktrees.length > 0);
   const mainBranch =
     (!home && workspace
@@ -117,7 +127,7 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
   const place = home ? (server?.name ?? "~") : workspace.name;
   const DeviceIcon = deviceIcon(server?.icon);
   const canSend = Boolean(text.trim() && server && !busy);
-  const permission = permissionOf(permissionMode);
+  const permission = cloud ? cloudModeOf(permissionMode) : permissionOf(permissionMode);
   const PermissionIcon = permission.icon;
   const checkoutLabel = CHECKOUTS.find((entry) => entry.value === checkout)?.label ?? "Main checkout";
   const CheckoutIcon = checkout === "worktree" ? FolderGit2 : Folder;
@@ -126,9 +136,13 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
   // The workspace's own model if it has one, the Mac's otherwise. The provider
   // is left to the Mac either way: it knows which workspace this folder is.
   useEffect(() => {
+    if (cloud) {
+      setModel("");
+      return;
+    }
     if (modelPicked) return;
     setModel((workspace?.provider ? workspace.model : settings?.defaultModel) ?? "");
-  }, [workspace?.provider, workspace?.model, settings?.defaultModel, modelPicked]);
+  }, [workspace?.provider, workspace?.model, settings?.defaultModel, modelPicked, cloud]);
 
   useEffect(() => {
     if (permissionPicked) return;
@@ -233,16 +247,20 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
             scrollEnabled={false}
           />
           <View style={styles.toolbar}>
-            <ComposerMenu
-              icon={Box}
-              label={modelLabel(model)}
-              value={model}
-              onChange={(value) => {
-                setModelPicked(true);
-                setModel(value);
-              }}
-              options={MODELS}
-            />
+            {cloud ? (
+              <Text style={styles.cloudModel}>Cursor Cloud default</Text>
+            ) : (
+              <ComposerMenu
+                icon={Box}
+                label={modelLabel(model)}
+                value={model}
+                onChange={(value) => {
+                  setModelPicked(true);
+                  setModel(value);
+                }}
+                options={MODELS}
+              />
+            )}
             <ComposerMenu
               icon={PermissionIcon}
               label={permission.label}
@@ -251,7 +269,7 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
                 setPermissionPicked(true);
                 setPermissionMode(value as PermissionValue);
               }}
-              options={PERMISSIONS}
+              options={cloud ? CLOUD_MODES : PERMISSIONS}
             />
             <Pressable
               onPress={() => void submit()}
@@ -269,7 +287,7 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
               value={server?.id ?? ""}
               onChange={pickDevice}
               style={styles.device}
-              options={servers.map((entry) => ({
+              options={(home ? servers.filter((entry) => !entry.workspaceOnly) : workspaceServers).map((entry) => ({
                 value: entry.id,
                 label: entry.name,
                 icon: deviceIcon(entry.icon),
@@ -294,7 +312,7 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
       </ScrollView>
 
       <Popover open={pickingPlace} onClose={() => setPickingPlace(false)}>
-        {workspaces.map((entry) => (
+        {workspaces.filter((entry) => !entry.virtual).map((entry) => (
           <MenuItem
             key={`${entry.serverId}:${entry.id}`}
             leading={<WorkspaceMark home={false} workspace={entry} size="sm" />}
@@ -306,8 +324,8 @@ export function ComposeScreen({ onCreated }: { onCreated: (id: string) => void }
             }}
           />
         ))}
-        {workspaces.length > 0 && servers.length > 0 ? <MenuSeparator /> : null}
-        {servers.map((entry) => {
+        {workspaces.some((entry) => !entry.virtual) && servers.some((entry) => !entry.workspaceOnly) ? <MenuSeparator /> : null}
+        {servers.filter((entry) => !entry.workspaceOnly).map((entry) => {
           const Icon = deviceIcon(entry.icon);
           const value = deviceValue(entry.id);
           return (
@@ -471,6 +489,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingBottom: 6,
     gap: 2,
+  },
+  cloudModel: {
+    color: color.mutedForeground,
+    fontSize: 13,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   send: {
     marginLeft: "auto",
