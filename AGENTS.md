@@ -43,6 +43,8 @@ Skip `VITE_MC_FIXTURE=1`; that is fake data, not your real state.
 
 `.agents/skills` holds the conventions reviews are held to.
 
+`.claude/skills` is a symlink to this directory so Claude and other agents discover the same skills. Add each skill only under `.agents/skills`; do not add per-skill Claude links.
+
 - **`ui`** — layout and keyboard. Every control comes from a shadcn primitive; a custom `div` is the last resort.
 - **`content`** — every user-facing string. Second person, present tense, one short sentence.
 - **`qa`** — after a visual or interaction change, drive the running app before calling it done.
