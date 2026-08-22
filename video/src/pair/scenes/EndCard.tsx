@@ -8,9 +8,13 @@ import {
   useCurrentFrame,
 } from "remotion";
 import { Backdrop } from "../parts/Backdrop";
+import { GitHub } from "../parts/Icons";
 
-/// Where to go next, and the one claim worth repeating: none of this went
-/// anywhere but your own machines.
+/// Two lines: who this is, and where it lives. Nothing else.
+///
+/// There was a tagline here explaining what Remy is. Fifteen seconds of the app
+/// doing the thing has already said it, and an end card that has to be read is
+/// an end card nobody reads.
 export const EndCard: React.FC = () => {
   const frame = useCurrentFrame();
 
@@ -33,7 +37,7 @@ export const EndCard: React.FC = () => {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 30,
+            gap: 32,
             opacity: interpolate(frame, [0, 12], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
@@ -49,12 +53,12 @@ export const EndCard: React.FC = () => {
         >
           <Img
             src={staticFile("remy-mark.png")}
-            style={{ width: 132, height: 132, borderRadius: 34 }}
+            style={{ width: 140, height: 140, borderRadius: 36 }}
           />
           <span
             style={{
               fontFamily: "Inter, system-ui, sans-serif",
-              fontSize: 96,
+              fontSize: 104,
               fontWeight: 600,
               color: "#27272a",
               letterSpacing: "-0.03em",
@@ -65,57 +69,35 @@ export const EndCard: React.FC = () => {
         </Interactive.Div>
 
         <Interactive.Div
-          name="Tagline"
-          style={{
-            marginTop: 44,
-            fontFamily: "Inter, system-ui, sans-serif",
-            fontSize: 48,
-            fontWeight: 400,
-            color: "#71717b",
-            textAlign: "center",
-            lineHeight: 1.3,
-            opacity: interpolate(frame, [8, 22], [0, 1], {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-              easing: Easing.bezier(0.16, 1, 0.3, 1),
-            }),
-            translate: interpolate(frame, [8, 26], ["0px 20px", "0px 0px"], {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-              easing: Easing.bezier(0.16, 1, 0.3, 1),
-            }),
-          }}
-        >
-          A remote for Claude Code, Codex, and Cursor
-          <br />
-          on the machines that already hold your repos.
-        </Interactive.Div>
-
-        <Interactive.Div
           name="Repo"
           style={{
-            marginTop: 52,
-            padding: "18px 34px",
-            borderRadius: 999,
-            border: "1.5px solid #e4e4e7",
-            backgroundColor: "#ffffff",
-            boxShadow: "0 12px 30px -14px rgba(39, 39, 42, 0.2)",
-            fontFamily: "JetBrains Mono, Menlo, monospace",
-            fontSize: 40,
-            color: "#1b4ed8",
-            opacity: interpolate(frame, [18, 32], [0, 1], {
+            marginTop: 64,
+            display: "flex",
+            alignItems: "center",
+            gap: 20,
+            opacity: interpolate(frame, [10, 24], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            translate: interpolate(frame, [18, 36], ["0px 20px", "0px 0px"], {
+            translate: interpolate(frame, [10, 28], ["0px 20px", "0px 0px"], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
           }}
         >
-          github.com/padamchopra/remy
+          <GitHub size={64} color="#27272a" />
+          <span
+            style={{
+              fontFamily: "JetBrains Mono, Menlo, monospace",
+              fontSize: 54,
+              fontWeight: 500,
+              color: "#27272a",
+            }}
+          >
+            padamchopra/remy
+          </span>
         </Interactive.Div>
       </AbsoluteFill>
     </AbsoluteFill>

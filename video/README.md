@@ -32,6 +32,10 @@ videos have been corrected into, and every one of them cost a re-render.
   than the panel, or the corners read as mismatched. Panels are 16–18, so the code
   ring is 12. Anything drawn at two places in the frame goes in one component
   (`CodeHighlight`) so the two cannot drift apart.
+- **The end card is a logo and a handle.** Remy mark and wordmark, then the GitHub
+  mark and `padamchopra/remy`. No tagline and no spelled-out URL: fifteen seconds
+  of the app doing the thing has already said what it is, and an end card that has
+  to be read is one nobody reads.
 - **The strings are the app's.** "Remy is running here.", "Waiting for
   workbench", the whole pair dialog — copied from `web/src/components/Settings.tsx`
   and `PairRequest.tsx`, not rewritten. A video that says something the window
