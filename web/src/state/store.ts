@@ -55,6 +55,8 @@ interface RawChat {
   preview?: string;
   updatedAt?: number;
   workingSince?: number | null;
+  dm?: boolean;
+  unread?: boolean;
 }
 
 interface RawWorkspace {
@@ -73,6 +75,9 @@ interface RawWorkspace {
 interface State {
   servers: Server[];
   chats: Chat[];
+  /// The inbox: one conversation per agent, across every paired machine. Held
+  /// apart from `chats` because they are two lists a person reads differently.
+  dms: Chat[];
   workspaces: Workspace[];
   /// The chat the main pane has open. Held here rather than in the component so
   /// a push can patch it without the view refetching.
@@ -183,6 +188,11 @@ interface State {
   runRecurrence(id: string): Promise<Ticket>;
   saveAgent(id: string | undefined, patch: Record<string, unknown>): Promise<Agent>;
   deleteAgent(id: string): Promise<void>;
+  /// Opens an agent's conversation, making it if this is the first time. The
+  /// machine holding the agent is the one that holds the conversation.
+  openDm(agent: Agent): Promise<Chat>;
+  /// Clears an inbox conversation's unread mark.
+  readChat(id: string): Promise<void>;
   /// Renames a project, or the slug its tickets are keyed by. Changing the slug
   /// re-keys every ticket it has, so the whole board is read back after.
   saveProject(id: string, patch: { name?: string; keyPrefix?: string }): Promise<Project>;
@@ -195,6 +205,7 @@ const POLL_DISCONNECTED_MS = 4_000;
 export const useStore = create<State>((set, get) => ({
   servers: useFixture ? fixtureServers : [],
   chats: useFixture ? fixtureChats : [],
+  dms: [],
   workspaces: useFixture ? fixtureWorkspaces : [],
   agents: [],
   projects: [],
@@ -291,7 +302,7 @@ export const useStore = create<State>((set, get) => ({
 
     const servers = await transport.servers();
     if (servers.length === 0) {
-      set({ servers: [], chats: [], workspaces: [], loading: false, error: undefined });
+      set({ servers: [], chats: [], dms: [], workspaces: [], loading: false, error: undefined });
       return;
     }
 
@@ -302,6 +313,7 @@ export const useStore = create<State>((set, get) => ({
     set((current) => ({
       servers,
       chats: current.chats.filter((chat) => known.has(chat.serverId)),
+      dms: current.dms.filter((chat) => known.has(chat.serverId)),
       workspaces: current.workspaces.filter((workspace) => known.has(workspace.serverId)),
     }));
 
@@ -314,11 +326,11 @@ export const useStore = create<State>((set, get) => ({
       servers.map(async (server) => {
         try {
           const [chats, workspaces] = await Promise.all([
-            transport.request<{ chats?: RawChat[] }>(server.id, "/chats").catch((error: unknown) => {
+            transport.request<{ chats?: RawChat[]; dms?: RawChat[] }>(server.id, "/chats").catch((error: unknown) => {
               // An older server has no /chats; that is not an error worth showing.
               const message = error instanceof Error ? error.message : String(error);
               if (!/\b404\b/.test(message)) throw error;
-              return { chats: [] };
+              return { chats: [] } as { chats?: RawChat[]; dms?: RawChat[] };
             }),
             transport
               .request<{ workspaces?: RawWorkspace[] }>(server.id, "/workspaces")
@@ -335,6 +347,12 @@ export const useStore = create<State>((set, get) => ({
               ...current.chats.filter((chat) => chat.serverId !== server.id),
               ...(chats.chats ?? []).map((raw) => toChat(raw, server.id)),
             ].sort(byAttention),
+            // The inbox comes back in the same answer, so it lands with the
+            // threads rather than costing a second round trip.
+            dms: [
+              ...current.dms.filter((chat) => chat.serverId !== server.id),
+              ...(chats.dms ?? []).map((raw) => toChat(raw, server.id)),
+            ],
             workspaces: [
               ...current.workspaces.filter((workspace) => workspace.serverId !== server.id),
               ...workspaces.map((raw) => toWorkspace(raw, server.id)),
@@ -346,6 +364,7 @@ export const useStore = create<State>((set, get) => ({
             servers: current.servers.map((entry) =>
               entry.id === server.id ? { ...entry, online: false } : entry),
             chats: current.chats.filter((chat) => chat.serverId !== server.id),
+            dms: current.dms.filter((chat) => chat.serverId !== server.id),
             workspaces: current.workspaces.filter((workspace) => workspace.serverId !== server.id),
           }));
         }
@@ -655,7 +674,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openChat(id) {
-    const chat = get().chats.find((entry) => entry.id === id);
+    // Both lists: an inbox conversation opens the same way a thread does.
+    const chat = get().chats.find((entry) => entry.id === id)
+      ?? get().dms.find((entry) => entry.id === id);
     if (!chat) return;
     // Keep whatever is already on screen for this chat, so reopening it does
     // not blank the feed while the fetch is in flight.
@@ -1030,6 +1051,34 @@ export const useStore = create<State>((set, get) => ({
     void get().loadBoard().catch(() => {});
   },
 
+  async openDm(agent) {
+    const existing = get().dms.find((chat) => chat.agentId === agent.id && chat.serverId === agent.serverId);
+    if (existing) return existing;
+    const body = await transport.request<{ chat: RawChat }>(
+      agent.serverId,
+      `/agents/${encodeURIComponent(agent.id)}/dm`,
+      { method: "POST" },
+    );
+    const chat = toChat(body.chat, agent.serverId);
+    set((current) => ({ dms: [chat, ...current.dms.filter((entry) => entry.id !== chat.id)] }));
+    return chat;
+  },
+
+  async readChat(id) {
+    const chat = get().dms.find((entry) => entry.id === id);
+    if (!chat?.unread) return;
+    // Cleared here first: the row should stop being bold the moment you open
+    // it, not when the machine gets back to us.
+    set((current) => ({
+      dms: current.dms.map((entry) => (entry.id === id ? { ...entry, unread: false } : entry)),
+    }));
+    await transport.request(chat.serverId, `/chats/${encodeURIComponent(id)}/read`, { method: "POST" })
+      .catch(() => {
+        // A mark that did not save comes back on the next refresh, which is a
+        // smaller wrong than a toast about a bold row.
+      });
+  },
+
   async saveProject(id, patch) {
     const project = get().projects.find((entry) => entry.id === id);
     if (!project) throw new Error("That workspace isn't on the board.");
@@ -1085,6 +1134,7 @@ export const useStore = create<State>((set, get) => ({
 interface ChatFrame {
   type?: string;
   chatId?: string;
+  unread?: boolean;
   entries?: ConvEntry[];
   removed?: string[];
   state?: ChatState;
@@ -1134,26 +1184,30 @@ function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
   };
 }
 
+function patchRow(chat: Chat, frame: ChatFrame): Chat {
+  if (chat.id !== frame.chatId) return chat;
+  return {
+    ...chat,
+    state: frame.state ?? chat.state,
+    title: frame.title ?? chat.title,
+    updatedAt: frame.updatedAt ?? chat.updatedAt,
+    workingSince:
+      frame.workingSince === undefined ? chat.workingSince : (frame.workingSince ?? undefined),
+    ...(frame.unread === undefined ? {} : { unread: frame.unread }),
+  };
+}
+
 function applyChatFrame(current: State, frame: ChatFrame): Partial<State> {
   // The row in the list is patched in place rather than re-sorted: a chat that
   // is streaming would otherwise walk up and down the sidebar on every frame.
-  const chats = current.chats.map((chat) =>
-    chat.id === frame.chatId
-      ? {
-          ...chat,
-          state: frame.state ?? chat.state,
-          title: frame.title ?? chat.title,
-          updatedAt: frame.updatedAt ?? chat.updatedAt,
-          workingSince:
-            frame.workingSince === undefined ? chat.workingSince : (frame.workingSince ?? undefined),
-        }
-      : chat,
-  );
+  // A frame does not say which list its conversation is in, so both are asked.
+  const chats = current.chats.map((chat) => patchRow(chat, frame));
+  const dms = current.dms.map((chat) => patchRow(chat, frame));
   const detail =
     current.detail && current.detail.id === frame.chatId
       ? mergeDetail(current.detail, frame)
       : current.detail;
-  return { chats, detail };
+  return { chats, dms, detail };
 }
 
 function mergeDetail(detail: ChatDetail, frame: ChatFrame): ChatDetail {
@@ -1200,6 +1254,8 @@ function toChat(raw: RawChat, serverId: string): Chat {
     preview: raw.preview,
     updatedAt: raw.updatedAt ?? 0,
     workingSince: raw.workingSince ?? undefined,
+    ...(raw.dm ? { dm: true } : {}),
+    ...(raw.unread ? { unread: true } : {}),
   };
 }
 

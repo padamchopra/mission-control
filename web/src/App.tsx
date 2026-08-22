@@ -13,7 +13,6 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Card } from "@/components/ui/card";
 import {
   Empty,
@@ -24,12 +23,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import {
-  Message,
-  MessageContent,
-  MessageFooter,
-  MessageHeader,
-} from "@/components/ui/message";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -45,11 +38,13 @@ import { Board, NewTicketDialog } from "@/components/Board";
 import { Recurring } from "@/components/Recurring";
 import { MissingTicket, TicketView } from "@/components/TicketView";
 import { SettingsPane, type SettingsTab } from "@/components/Settings";
+import { Inbox as InboxPane } from "@/components/Inbox";
 import { WorkspaceSettings } from "@/components/WorkspaceSettings";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useAppLocation } from "@/hooks/use-location";
 import { useRelease } from "@/hooks/use-release";
 import { deviceIcon } from "@/lib/devices";
+import { apiError } from "@/lib/api-error";
 import { displayPath } from "@/lib/path";
 import { notificationsEnabled } from "@/lib/notify";
 import { devicesForWorkspace, isProjectIconFile } from "@/lib/projects";
@@ -58,7 +53,6 @@ import { WorkspaceIcon } from "@/components/WorkspaceIcon";
 import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
-import type { ChatState } from "@/state/types";
 import remyMark from "@/assets/remy-mark.png";
 
 type Section = "inbox" | "chats" | "workspaces" | "tasks" | "prs";
@@ -79,30 +73,11 @@ const SECTIONS: { id: Section; label: string; icon: typeof Inbox }[] = [
   { id: "prs", label: "Pull requests", icon: GitPullRequest },
 ];
 
-const STATE_TONE: Record<ChatState, "warning" | "info" | "secondary" | "destructive"> = {
-  needs_input: "warning",
-  working: "info",
-  idle: "secondary",
-  error: "destructive",
-};
-
-const STATE_LABEL: Record<ChatState, string> = {
-  needs_input: "Needs you",
-  working: "Working",
-  idle: "Idle",
-  error: "Error",
-};
-
+// Inbox draws its own: what is missing there is an agent, not a thread.
 const EMPTY: Record<
-  Section,
+  Exclude<Section, "inbox">,
   { title: string; detail: string; action: "none" | "chat" | "workspace"; icon: typeof Inbox }
 > = {
-  inbox: {
-    title: "Inbox is clear",
-    detail: "Nothing is waiting on you.",
-    action: "none",
-    icon: Inbox,
-  },
   chats: {
     title: "No threads yet",
     detail: "Start one in a workspace on this machine.",
@@ -140,13 +115,13 @@ export function App() {
   const section = sectionOf(route) as Section;
   const view = route.name === "settings" ? "settings" : "app";
   const settingsTab: SettingsTab = route.name === "settings" ? route.tab : "general";
-  const settingsItem = route.name === "settings" ? route.item : undefined;
   const selected = route.name === "threads" ? (route.threadId ?? null) : null;
   const workspaceSettingsId = route.name === "workspaces" ? (route.workspaceId ?? null) : null;
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
   const [addTicketOpen, setAddTicketOpen] = useState(false);
+  const [creatingAgent, setCreatingAgent] = useState(false);
 
   const go = (next: Route, replace = false) => navigate({ route: next }, replace);
 
@@ -165,6 +140,10 @@ export function App() {
   const loadSettings = useStore((s) => s.loadSettings);
   const tickets = useStore((s) => s.tickets);
   const projects = useStore((s) => s.projects);
+  const agents = useStore((s) => s.agents);
+  const boardLoading = useStore((s) => s.boardLoading);
+  const dms = useStore((s) => s.dms);
+  const saveAgent = useStore((s) => s.saveAgent);
   const loadBoard = useStore((s) => s.loadBoard);
   const release = useRelease();
 
@@ -197,11 +176,46 @@ export function App() {
   // Every device at once: that a thread runs somewhere else is what the row's
   // device mark says, not something to filter the list down to.
   const scoped = allChats;
-  const chats = useMemo(
-    () => (section === "inbox" ? scoped.filter((chat) => chat.state === "needs_input") : scoped),
-    [scoped, section],
-  );
+  const chats = scoped;
   const workspaces = allWorkspaces;
+
+  // Remy leads the roster; the rest keep the order they were written in. It
+  // answers for the app, so it is the one you land on with nothing else said.
+  const roster = useMemo(
+    () => [...agents].sort((a, b) => Number(b.builtIn ?? false) - Number(a.builtIn ?? false)),
+    [agents],
+  );
+  const inboxHandle = route.name === "inbox" ? route.agent : undefined;
+  // A named handle is the one you get, or nothing. Falling back to the first
+  // agent would race the roster: opening an agent the moment it is made would
+  // bounce back to whoever happens to lead the list.
+  const inboxAgent = inboxHandle
+    ? roster.find((entry) => entry.handle === inboxHandle)
+    : roster[0];
+  const inboxDm = inboxAgent
+    ? dms.find((chat) => chat.agentId === inboxAgent.id && chat.serverId === inboxAgent.serverId)
+    : undefined;
+  // Only what the roster actually lists. The board is read from the machines
+  // this window holds a daemon of and converges from there, so a paired
+  // machine's own copy of a conversation arrives in `dms` with nothing in the
+  // list to open — counting it would be a badge you cannot clear.
+  const unread = dms.filter((chat) =>
+    chat.unread && roster.some((agent) => agent.id === chat.agentId && agent.serverId === chat.serverId),
+  ).length;
+
+  const newAgent = async () => {
+    setCreatingAgent(true);
+    try {
+      // Made straight away rather than behind a form: its settings are the
+      // form, and the machine makes the handle unique.
+      const made = await saveAgent(undefined, { name: "New agent" });
+      go({ name: "inbox", agent: made.handle });
+    } catch (caught) {
+      toast.error("Couldn't create that agent", { description: apiError(caught) });
+    } finally {
+      setCreatingAgent(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -247,9 +261,25 @@ export function App() {
 
   const openChat = (id: string) => go({ name: "threads", threadId: id });
 
+  /// Where a conversation opens, whichever list it is in. A notification only
+  /// carries an id, and an inbox conversation opened as a thread would land on
+  /// a route that cannot find it.
+  const openConversation = (id: string) => {
+    const dm = dms.find((chat) => chat.id === id);
+    const agent = dm && roster.find((entry) => entry.id === dm.agentId);
+    if (agent) go({ name: "inbox", agent: agent.handle });
+    else openChat(id);
+  };
+
   // Banners come from the same socket the feed does, so a thread that needs you
   // says so whether or not this window is the one in front.
-  useNotifications({ enabled: notificationsEnabled(), openThreadId: selected, onOpen: openChat });
+  useNotifications({
+    enabled: notificationsEnabled(),
+    // What is already on screen, so a banner is not raised for it: a thread, or
+    // the conversation the inbox has open.
+    openThreadId: selected ?? (route.name === "inbox" ? inboxDm?.id ?? null : null),
+    onOpen: openConversation,
+  });
 
   // Opening with no hash writes the one it resolved to, so the address bar
   // says where you are from the first paint.
@@ -258,6 +288,14 @@ export function App() {
     // Once, on mount: afterwards the hash is whatever navigation made it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Landing on the inbox with nothing named writes the one it opened, so a
+  // reload comes back to it. A handle that names nothing is left alone: the
+  // pane says so, rather than the URL quietly becoming a different agent.
+  useEffect(() => {
+    if (route.name !== "inbox" || route.agent || !roster[0]) return;
+    go({ name: "inbox", agent: roster[0].handle }, true);
+  }, [route.name, route.name === "inbox" ? route.agent : undefined, roster[0]?.handle]);
 
   // A thread can be deleted from another window, or the URL can name one that
   // never existed. Fall back to the composer rather than showing an empty pane.
@@ -319,6 +357,7 @@ export function App() {
           scoped={scoped}
           workspaces={allWorkspaces}
           needsYou={needsYou}
+          unread={unread}
           sections={SECTIONS}
           onSection={(id) => go(routeForSection(id as Section))}
           onSelectChat={openChat}
@@ -330,14 +369,7 @@ export function App() {
         />
 
         {view === "settings" ? (
-          <SettingsPane
-            tab={settingsTab}
-            item={settingsItem}
-            // Replaced rather than pushed: picking down a list is not a place
-            // the back button should have to walk through one row at a time.
-            onSelectItem={(item) => go({ name: "settings", tab: settingsTab, ...(item ? { item } : {}) }, true)}
-            release={release}
-          />
+          <SettingsPane tab={settingsTab} release={release} />
         ) : route.name === "board" ? (
           <Board
             scope={route.scope}
@@ -364,11 +396,25 @@ export function App() {
               onOpenTicket={(key) => go({ name: "ticket", key })}
               onOpenThread={openChat}
               onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
-              onOpenAgent={(handle) => go({ name: "settings", tab: "agents", item: handle })}
+              onOpenAgent={(handle) => go({ name: "inbox", agent: handle })}
             />
           ) : (
             <MissingTicket ticketKey={route.key} onBack={() => go({ name: "board" })} />
           )
+        ) : route.name === "inbox" ? (
+          <InboxPane
+            agents={roster}
+            {...(inboxAgent ? { selected: inboxAgent } : {})}
+            {...(!inboxAgent && inboxHandle ? { missing: inboxHandle } : {})}
+            loading={boardLoading && roster.length === 0}
+            onSelectAgent={(handle) => go({ name: "inbox", agent: handle })}
+            onNewAgent={() => void newAgent()}
+            creatingAgent={creatingAgent}
+            onOpenTicket={(key) => go({ name: "ticket", key })}
+            onOpenThread={openChat}
+            onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
+            onDeleted={() => go({ name: "inbox" }, true)}
+          />
         ) : openWorkspace ? (
           <WorkspaceSettings workspace={openWorkspace} onBack={() => go({ name: "workspaces" })} />
         ) : (
@@ -378,6 +424,8 @@ export function App() {
                 key={active.id}
                 chat={active}
                 onOpenTicket={(key) => go({ name: "ticket", key })}
+                onOpenThread={openChat}
+                onOpenWorkspace={(workspaceId) => go({ name: "workspaces", workspaceId })}
                 headerEnd={<NewChatButton />}
               />
             ) : section === "chats" && canCompose ? (
@@ -391,7 +439,7 @@ export function App() {
             ) : (
               <>
             <PaneHeader crumbs={[{ label: SECTIONS.find((s) => s.id === section)?.label ?? "" }]}>
-              {(section === "inbox" || section === "chats") && chatCounts}
+              {section === "chats" && chatCounts}
               {section === "workspaces" && (
                 <Button size="sm" onClick={() => setAddWorkspaceOpen(true)}>
                   <Plus />
@@ -400,65 +448,10 @@ export function App() {
               )}
             </PaneHeader>
 
-            {section === "inbox" ? (
-              chats.length === 0 ? (
-                <EmptyState
-                  section={section}
-                  loading={loading}
-                  error={error}
-                  hasServers={servers.length > 0}
-                  onAddConnection={() => openSettings("devices")}
-                  onAddWorkspace={() => setAddWorkspaceOpen(true)}
-                />
-              ) : (
-                <ScrollArea className="min-h-0 flex-1">
-                  <div className="flex flex-col gap-3 p-4">
-                    {chats.map((chat) => (
-                      <Message
-                        key={chat.id}
-                        className={cn(
-                          "cursor-pointer rounded-xl border px-3 py-3",
-                          active?.id === chat.id ? "border-primary/40" : "hover:bg-accent",
-                        )}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openChat(chat.id)}
-                        onKeyDown={(event) => {
-                          if (event.key !== "Enter" && event.key !== " ") return;
-                          event.preventDefault();
-                          openChat(chat.id);
-                        }}
-                      >
-                        <MessageContent className="gap-1.5">
-                          <MessageHeader className="gap-2 px-0 text-foreground">
-                            <StateDot state={chat.state} />
-                            <span className="truncate font-medium">{chat.title}</span>
-                            {chat.state !== "idle" && (
-                              <Badge variant={STATE_TONE[chat.state]}>
-                                {chat.state === "working" ? (
-                                  <span className="shimmer">{STATE_LABEL[chat.state]}</span>
-                                ) : (
-                                  STATE_LABEL[chat.state]
-                                )}
-                              </Badge>
-                            )}
-                          </MessageHeader>
-                          {chat.preview && (
-                            <Bubble variant="muted" className="max-w-full">
-                              <BubbleContent className="line-clamp-2">{chat.preview}</BubbleContent>
-                            </Bubble>
-                          )}
-                          <MessageFooter className="px-0 font-mono">{displayPath(chat.cwd)}</MessageFooter>
-                        </MessageContent>
-                      </Message>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )
-            ) : section === "workspaces" ? (
+            {section === "workspaces" ? (
               workspaces.length === 0 ? (
                 <EmptyState
-                  section={section}
+                  section={section as Exclude<Section, "inbox">}
                   loading={loading}
                   error={error}
                   hasServers={servers.length > 0}
@@ -483,7 +476,8 @@ export function App() {
                             go({ name: "workspaces", workspaceId: workspace.id });
                           }
                         }}
-                        className="cursor-pointer gap-0 py-0 shadow-none hover:bg-accent"
+                        data-link
+                        className="gap-0 py-0 shadow-none hover:bg-accent"
                       >
                         <div className="flex items-center gap-3 px-3.5 py-2.5">
                           <span
@@ -544,7 +538,7 @@ export function App() {
               )
             ) : (
               <EmptyState
-                section={section}
+                section={section as Exclude<Section, "inbox">}
                 loading={loading}
                 error={error}
                 hasServers={servers.length > 0}
@@ -600,20 +594,6 @@ function NewChatButton() {
   );
 }
 
-function StateDot({ state }: { state: ChatState }) {
-  return (
-    <span
-      className={cn(
-        "size-1.5 shrink-0 rounded-full",
-        state === "needs_input" && "bg-warning",
-        state === "working" && "bg-info",
-        state === "error" && "bg-destructive",
-        state === "idle" && "bg-muted-foreground/60",
-      )}
-    />
-  );
-}
-
 function EmptyState({
   section,
   loading,
@@ -622,7 +602,7 @@ function EmptyState({
   onAddConnection,
   onAddWorkspace,
 }: {
-  section: Section;
+  section: Exclude<Section, "inbox">;
   loading: boolean;
   error?: string;
   hasServers: boolean;

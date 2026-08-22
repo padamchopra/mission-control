@@ -315,6 +315,18 @@ function migrate(database: DatabaseSync): void {
   } catch {
     // Column already exists on databases created after this migration.
   }
+  // A thread that is an agent's inbox conversation rather than work in a
+  // repository. Zero in every existing row, which is what they all are.
+  try {
+    database.exec("alter table chats add column dm integer not null default 0");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
+  try {
+    database.exec("alter table chats add column read_at integer");
+  } catch {
+    // Column already exists on databases created after this migration.
+  }
   // Loops were scheduled prompts with no ticket behind them. Recurring tickets
   // replaced them, and a table nothing reads is worth dropping rather than
   // carrying.

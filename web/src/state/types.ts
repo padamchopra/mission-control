@@ -69,6 +69,11 @@ export interface Chat {
   /// When the current run of work began. Absent once the chat settles, so a
   /// row only shows a clock while there is something to time.
   workingSince?: number;
+  /// True when this is an agent's inbox conversation rather than work in a
+  /// repository. These live in Inbox and never in the thread list.
+  dm?: boolean;
+  /// The agent has said something since you last opened this.
+  unread?: boolean;
 }
 
 export interface GitWorktree {
@@ -130,6 +135,19 @@ export interface ConvEntry {
   adds?: number;
   dels?: number;
   questions?: ConvQuestion[];
+  /// What a Remy tool made on this call, drawn as a card under the tool row.
+  artifacts?: ConvArtifact[];
+}
+
+/// Something a Remy tool made — a ticket, a thread, a workspace — with enough
+/// on it to draw a card and open the thing it names.
+export interface ConvArtifact {
+  kind: "ticket" | "thread" | "workspace";
+  /// A ticket is addressed by key, a thread and a workspace by id.
+  key?: string;
+  id?: string;
+  title: string;
+  detail?: string;
 }
 
 export interface ConvDiffLine {
@@ -297,6 +315,9 @@ export interface Agent {
   gitName?: string;
   gitEmail?: string;
   preset?: string;
+  /// Remy's own agent. Its name, role and instructions come from the copy of
+  /// Remy that is running, and it cannot be deleted.
+  builtIn?: boolean;
 }
 
 /// A repository, as the board knows it — what a ticket belongs to, rather than

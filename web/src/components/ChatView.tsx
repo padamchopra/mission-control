@@ -2,12 +2,17 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
+  ArrowUpRight,
+  Bot,
   Check,
   ChevronDown,
   CircleAlert,
   Copy,
+  Folder,
   GitBranch,
+  MessagesSquare,
   Square,
+  SquareKanban,
   Ticket as TicketIcon,
   Wrench,
 } from "lucide-react";
@@ -18,6 +23,14 @@ import { Button } from "@/components/ui/button";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Card } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import {
   InputGroup,
   InputGroupAddon,
@@ -62,9 +75,10 @@ import { CLOUD_MODES, cloudModeOf, PERMISSIONS, permissionOf } from "@/lib/chat-
 import { deviceIcon } from "@/lib/devices";
 import { displayPath } from "@/lib/path";
 import { workspaceForPath } from "@/lib/projects";
+import { tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
-import type { Chat, ChatApproval, ChatQuestionRequest, ConvDiffLine, ConvEntry } from "@/state/types";
+import type { Chat, ChatApproval, ChatQuestionRequest, ConvArtifact, ConvDiffLine, ConvEntry } from "@/state/types";
 
 /// One open chat: its feed, whatever it is waiting on, and the box to answer in.
 ///
@@ -74,10 +88,26 @@ export function ChatView({
   chat,
   headerEnd,
   onOpenTicket,
+  onOpenThread,
+  onOpenWorkspace,
+  crumbs,
+  persona,
 }: {
   chat: Chat;
   headerEnd?: ReactNode;
   onOpenTicket?: (key: string) => void;
+  /// Where a card in the feed goes when a Remy tool made a thread or registered
+  /// a workspace. Without these the card is still drawn; it just does not open.
+  onOpenThread?: (id: string) => void;
+  onOpenWorkspace?: (workspaceId: string) => void;
+  /// Replaces the workspace-and-title trail. An inbox conversation is placed by
+  /// who you are talking to, not by the folder it happens to run in.
+  crumbs?: { label: ReactNode }[];
+  /// Who is answering, when that is somebody rather than a provider. In the
+  /// inbox you are talking to an agent, so the feed says its name and wears its
+  /// mark; which model is behind it is on the composer, where it is a setting.
+  /// It also has no work of its own, so it carries no ticket.
+  persona?: { name: string; tint?: string };
 }) {
   const detail = useStore((s) => s.detail);
   const loading = useStore((s) => s.detailLoading);
@@ -183,7 +213,7 @@ export function ChatView({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PaneHeader
-        crumbs={[
+        crumbs={crumbs ?? [
           {
             label: (
               <Tooltip>
@@ -202,7 +232,7 @@ export function ChatView({
         ]}
       >
         <StateBadge state={state} action={open?.action} />
-        {onOpenTicket && <ThreadTicket chatId={chat.id} onOpenTicket={onOpenTicket} />}
+        {onOpenTicket && !persona && <ThreadTicket chatId={chat.id} onOpenTicket={onOpenTicket} />}
         {headerEnd}
       </PaneHeader>
 
@@ -219,7 +249,9 @@ export function ChatView({
                   <Wrench />
                 </EmptyMedia>
                 <EmptyTitle>Nothing here yet</EmptyTitle>
-                <EmptyDescription>Send a message to get this thread going.</EmptyDescription>
+                <EmptyDescription>
+                  {persona ? `Ask ${persona.name} for what you need.` : "Send a message to get this thread going."}
+                </EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -228,8 +260,12 @@ export function ChatView({
                 key={entry.id}
                 entry={entry}
                 provider={provider?.id ?? "claude"}
-                name={provider?.label ?? "Claude"}
+                name={persona?.name ?? provider?.label ?? "Claude"}
+                persona={persona}
                 lead={index === 0 || speaker(entries[index - 1]) !== speaker(entry)}
+                onOpenTicket={onOpenTicket}
+                onOpenThread={onOpenThread}
+                onOpenWorkspace={onOpenWorkspace}
               />
             ))
           )}
@@ -286,7 +322,7 @@ export function ChatView({
             <InputGroupTextarea
               ref={textareaRef}
               aria-label="Message"
-              placeholder="Reply, or ask for the next change."
+              placeholder={persona ? `Message ${persona.name}.` : "Reply, or ask for the next change."}
               value={text}
               // Two lines at rest, growing with what you write. The reply box
               // sits under the thread it belongs to, so idle height is space
@@ -436,11 +472,19 @@ function Entry({
   lead,
   provider,
   name,
+  persona,
+  onOpenTicket,
+  onOpenThread,
+  onOpenWorkspace,
 }: {
   entry: ConvEntry;
   lead: boolean;
   provider: string;
   name: string;
+  persona?: { name: string; tint?: string };
+  onOpenTicket?: (key: string) => void;
+  onOpenThread?: (id: string) => void;
+  onOpenWorkspace?: (workspaceId: string) => void;
 }) {
   if (entry.kind === "user") {
     return (
@@ -469,7 +513,7 @@ function Entry({
   if (entry.kind === "assistant") {
     return (
       <Message>
-        <AgentAvatar provider={provider} lead={lead} />
+        <AgentAvatar provider={provider} persona={persona} lead={lead} />
         <MessageContent>
           {/* The provider, not the model: which Claude or which Codex answered
               is a setting of the thread, and it is on the toolbar. */}
@@ -487,7 +531,7 @@ function Entry({
   if (entry.kind === "thinking") {
     return (
       <Message>
-        <AgentAvatar provider={provider} lead={lead} />
+        <AgentAvatar provider={provider} persona={persona} lead={lead} />
         <MessageContent>
           {lead && <MessageHeader>{name}</MessageHeader>}
           <Bubble variant="ghost">
@@ -503,24 +547,111 @@ function Entry({
   // Tool work is the agent's too, so it lines up under the same avatar column
   // rather than starting at the edge of the feed.
   return (
-    <div className="pl-10">
+    <div className="flex flex-col gap-1.5 pl-10">
       <ToolEntry entry={entry} />
+      {entry.artifacts?.map((artifact, index) => (
+        <ArtifactCard
+          key={`${artifact.kind}:${artifact.key ?? artifact.id ?? index}`}
+          artifact={artifact}
+          onOpen={
+            artifact.kind === "ticket" && artifact.key && onOpenTicket
+              ? () => onOpenTicket(artifact.key!)
+              : artifact.kind === "thread" && artifact.id && onOpenThread
+                ? () => onOpenThread(artifact.id!)
+                : artifact.kind === "workspace" && artifact.id && onOpenWorkspace
+                  ? () => onOpenWorkspace(artifact.id!)
+                  : undefined
+          }
+        />
+      ))}
     </div>
+  );
+}
+
+const ARTIFACT_ICON = {
+  ticket: SquareKanban,
+  thread: MessagesSquare,
+  workspace: Folder,
+} as const;
+
+/// What a Remy tool just made, as a thing rather than a sentence.
+///
+/// A tool result is a line of prose the reader has to parse; a ticket is
+/// something you open. The card carries what it is and what it is called, and
+/// it opens the thing itself where this feed knows how to.
+function ArtifactCard({
+  artifact,
+  onOpen,
+}: {
+  artifact: ConvArtifact;
+  onOpen?: () => void;
+}) {
+  const Icon = ARTIFACT_ICON[artifact.kind];
+  const body = (
+    <>
+      <ItemMedia variant="icon" className="size-7">
+        <Icon className="size-3.5" />
+      </ItemMedia>
+      <ItemContent className="gap-0.5">
+        <ItemTitle className="truncate">{artifact.title}</ItemTitle>
+        <ItemDescription className="flex items-center gap-1.5 truncate">
+          {artifact.key && <span className="font-mono">{artifact.key}</span>}
+          {artifact.detail}
+        </ItemDescription>
+      </ItemContent>
+      {onOpen && (
+        <ItemActions>
+          <ArrowUpRight className="size-4 text-muted-foreground" />
+        </ItemActions>
+      )}
+    </>
+  );
+
+  if (!onOpen) {
+    return <Item variant="outline" size="sm">{body}</Item>;
+  }
+
+  return (
+    <Item
+      asChild
+      variant="outline"
+      size="sm"
+      className="w-full text-left hover:bg-accent"
+    >
+      <button type="button" data-link onClick={onOpen}>{body}</button>
+    </Item>
   );
 }
 
 /// `MessageAvatar` is the slot; `Avatar` is what goes in it, which is what
 /// gives the mark its circle and keeps it from stretching.
-function AgentAvatar({ provider, lead }: { provider: string; lead: boolean }) {
+function AgentAvatar({
+  provider,
+  persona,
+  lead,
+}: {
+  provider: string;
+  persona?: { name: string; tint?: string };
+  lead: boolean;
+}) {
   const claude = provider === "claude";
+  const colors = persona ? tintOf(persona.tint) : undefined;
   return (
     <MessageAvatar className={cn("bg-transparent", !lead && "invisible")}>
       <Avatar>
-        {/* Each provider's own disc: the mark sits on a wash of its own colour,
-            the way the workspace marks do. */}
-        <AvatarFallback className={claude ? "bg-claude/15" : "bg-foreground/10"}>
-          <ProviderMark provider={provider} className="size-4" />
-        </AvatarFallback>
+        {/* An agent wears the mark it wears in the inbox, so a run of messages
+            is recognised rather than read. Everywhere else it is the provider's
+            own disc: its mark on a wash of its own colour, the way the
+            workspace marks do. */}
+        {colors ? (
+          <AvatarFallback className={cn(colors.well, colors.fg)}>
+            <Bot className="size-4" />
+          </AvatarFallback>
+        ) : (
+          <AvatarFallback className={claude ? "bg-claude/15" : "bg-foreground/10"}>
+            <ProviderMark provider={provider} className="size-4" />
+          </AvatarFallback>
+        )}
       </Avatar>
     </MessageAvatar>
   );
@@ -832,7 +963,7 @@ function ThreadTicket({ chatId, onOpenTicket }: { chatId: string; onOpenTicket: 
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline" size="sm" className="font-mono" onClick={() => onOpenTicket(onTicket.key)}>
+          <Button variant="outline" size="sm" data-link className="font-mono" onClick={() => onOpenTicket(onTicket.key)}>
             <TicketIcon />
             {onTicket.key}
           </Button>

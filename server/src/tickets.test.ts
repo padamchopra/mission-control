@@ -498,13 +498,15 @@ test("the built-in agents seed once and stay editable", () => {
   const pm = agents.agentByHandle("pm");
   const qa = agents.agentByHandle("qa");
   assert.equal(pm?.handoffTo[0], "builder");
-  assert.equal(pm?.permissionMode, "plan");
   assert.equal(qa?.handoffTo[0], "builder");
-  assert.equal(qa?.permissionMode, "acceptEdits");
 
   const builder = agents.agentByHandle("builder");
   assert.ok(builder, "builder should be seeded");
-  assert.equal(builder.permissionMode, "acceptEdits");
+  // An agent runs while you are not watching, so there are two modes it can be
+  // in and `auto` is where every one of them starts.
+  assert.equal(pm?.permissionMode, "auto");
+  assert.equal(qa?.permissionMode, "auto");
+  assert.equal(builder.permissionMode, "auto");
   assert.equal(builder.gitIdentity, "default");
   const edited = agents.updateAgent(builder.id, { role: "Changed by hand" });
   assert.equal(edited.role, "Changed by hand");

@@ -8,14 +8,17 @@ import type { SettingsTab } from "@/components/Settings";
 /// desktop window agree without either needing a rewrite rule.
 
 export type Route =
-  | { name: "inbox" }
+  // Inbox is a list of agents and the conversation with one, so which agent is
+  // open is part of where the window is. Addressed by handle, which is what
+  // somebody types and what a mention already says.
+  | { name: "inbox"; agent?: string }
   | { name: "threads"; threadId?: string }
   | { name: "workspaces"; workspaceId?: string }
   | { name: "board"; scope?: string }
   | { name: "ticket"; key: string }
   | { name: "prs" }
   | { name: "recurring"; scope?: string }
-  | { name: "settings"; tab: SettingsTab; item?: string };
+  | { name: "settings"; tab: SettingsTab };
 
 export interface AppLocation {
   route: Route;
@@ -25,7 +28,6 @@ const SETTINGS_TABS: SettingsTab[] = [
   "general",
   "version-control",
   "providers",
-  "agents",
   "devices",
   "archive",
 ];
@@ -43,13 +45,10 @@ export function sectionOf(route: Route): "inbox" | "chats" | "workspaces" | "prs
 export function parseLocation(hash: string): AppLocation {
   const raw = hash.replace(/^#/, "");
   const [path] = raw.split("?");
-  const [head, tail, extra] = path.replace(/^\/+/, "").split("/");
+  const [head, tail] = path.replace(/^\/+/, "").split("/");
   const rest = tail ? decodeURIComponent(tail) : undefined;
-  // A third segment only means something to a settings tab that is a list and
-  // a detail — Agents, so far.
-  const item = extra ? decodeURIComponent(extra) : undefined;
 
-  if (head === "inbox") return { route: { name: "inbox" } };
+  if (head === "inbox") return { route: { name: "inbox", ...(rest ? { agent: rest } : {}) } };
   if (head === "workspaces") return { route: { name: "workspaces", workspaceId: rest } };
   if (head === "pull-requests") return { route: { name: "prs" } };
   // Both halves of Tasks take the same segment: the key prefixes the view is
@@ -62,7 +61,7 @@ export function parseLocation(hash: string): AppLocation {
   if (head === "tickets" && rest) return { route: { name: "ticket", key: rest } };
   if (head === "settings") {
     const tab = SETTINGS_TABS.includes(rest as SettingsTab) ? (rest as SettingsTab) : "general";
-    return { route: { name: "settings", tab, ...(item ? { item } : {}) } };
+    return { route: { name: "settings", tab } };
   }
   // Threads are the front door, so anything unrecognised lands there rather
   // than on a blank screen.
@@ -80,9 +79,9 @@ export function formatLocation({ route }: AppLocation): string {
           : route.name === "ticket"
             ? `/tickets/${encodeURIComponent(route.key)}`
             : route.name === "settings"
-              ? `/settings/${route.tab}${route.item ? `/${encodeURIComponent(route.item)}` : ""}`
+              ? `/settings/${route.tab}`
               : route.name === "prs"
                 ? "/pull-requests"
-                : `/${route.name}`;
+                : `/inbox${route.agent ? `/${encodeURIComponent(route.agent)}` : ""}`;
   return `#${path}`;
 }

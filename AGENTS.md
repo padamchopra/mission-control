@@ -63,13 +63,14 @@ mistake in this repo, so check the table before naming anything.
 |---|---|---|
 | `project` | **workspace** | A project is the repository, keyed on its origin remote so two machines land on the same one. A workspace is one machine's folder holding it. Nobody adds a project — they add a folder, so that is the only word the UI uses. |
 | `chat` | **thread** | A conversation with an agent. The API, the database and the code all still say chat. |
+| a `chat` with `dm` | **the conversation with an agent** | One per agent, in Inbox. Code still says chat; nothing a person reads says DM. |
 | `server`, `peer` | **device** | Another machine you paired with. |
 | `keyPrefix` | **ticket slug** | The letters in front of a ticket key. |
 | `recurrence` | **recurring ticket** | It is a ticket, written again on its cadence — never a job, a schedule or a loop. |
 | `assigneeAgentId` of `you` / `workspace` | **You** / **Workspace agent** | The two assignees that are not agent rows. |
 
 Nothing a person reads says project, job, workflow, cron, daemon, projection,
-fold, board log, lamport or event. **Tasks** is the section, **Board** and
+fold, board log, lamport, event or DM. **Tasks** is the section, **Board** and
 **Recurring** are its two tabs, and a **ticket** is the unit of work. Machine is
 fine — the app says "this machine" — and so is worktree, which is a git word
 anyone using worktrees already has.
@@ -97,6 +98,51 @@ A server module opens its database at import time, so a test that touches state 
 - **Worktrees** Remy creates go in a `.remy` folder, inside the workspace or under the `worktreeRoot` setting, hidden by a rule in the repo's `.git/info/exclude` — per-clone and never committed, so no tracked `.gitignore` changes. Worktrees already checked out elsewhere are left where they are.
 - **The words a person reads** are not always the words the code uses — see **Terminology** above, and check it before naming a label, an error or an empty state.
 - **A provider and a model are one choice.** `server/src/providers.ts` is the only list of what a thread may run on; `config.ts`, `agents.ts` and `chat.ts` validate against it, `GET /server/providers` serves it with what the machine actually has installed, and every picker in the window is `web/src/components/ModelPicker.tsx`. Moving to another provider takes the model to that provider's default rather than keeping one it would refuse.
+- **Threads are the product; nothing displaces them.** The sidebar's thread
+  list is on screen in every section, and a thread is always one click away.
+  A new section brings its own lists into the main pane — never by taking the
+  sidebar over, and never behind a step that hides what is running. Anything
+  that would make a thread harder to reach is the wrong shape, however good the
+  new thing is.
+- **Inbox is the agents.** Every agent has one conversation with you, made the
+  first time you open it (`dmChatFor`), listed by `listDms` and never by
+  `listChats` — a thread is work in a repository, and this is not. It opens in
+  your home folder: work that needs a repository open in front of it is a thread
+  the agent starts. The roster is a list inside the Inbox pane, for the reason
+  above. Everything about an agent lives there too rather than in Settings,
+  because an agent is somebody you talk to. A conversation belongs to its agent:
+  deleting the agent deletes it, and `listDms` hides one whose agent is gone
+  before the row is cleared. Picking a model for an agent picks it for its
+  conversation (`syncAgentDm`) — a thread keeps the provider it was started on,
+  but an inbox conversation *is* the agent.
+- **An agent has two permission modes**, `auto` and `bypassPermissions`, and
+  `PERMISSION_MODES` in `agents.ts` is the whole list. A thread you are sitting
+  in front of can stop and ask; an agent works while you are not watching, so a
+  mode that asks for every edit is a mode nobody can use. `auto` reaches the
+  Claude SDK as `acceptEdits` — the SDK has no `auto`, and passing it through
+  silently means asking for everything.
+- **Remy has an agent of its own.** `remy-agent`, seeded by `seedRemyAgent`, and
+  the only agent with `builtIn`. Its name, handle, role and instructions come
+  from `remy-agent.ts` and are re-synced on every boot, so an upgrade can teach
+  it something new; `updateAgent` refuses those fields from a client and
+  `deleteAgent` refuses it altogether. What it thinks with is a choice, made in
+  its settings in the inbox, and it follows the machine default until it is
+  made.
+- **Remy says one thing to a new install.** `announcements.ts` is an append-only
+  list; a machine that has never run it is greeted and every other entry is
+  marked said, so installing after ten releases is one message rather than ten.
+  Every release after that lands one message when it lands. Never edit or remove
+  a delivered entry's id — delivery is remembered by it.
+- **A Remy tool says what it made.** `ok(text, artifact)` appends a
+  `<remy-artifact>` marker that `takeArtifacts` lifts back off in
+  `applyToolOutput`, so the feed draws a ticket, a thread or a workspace as a
+  card that opens it. The marker rides inside the tool's own text because a
+  transcript is the one thing all three providers write down the same way; add
+  it on both `ticket-tools.ts` and `ticket-mcp.ts`, never on one.
+- **A control that goes somewhere gets the hand.** `data-link` (with `a[href]`
+  and `role="link"`) is what `index.css` gives `cursor: pointer`; a button that
+  acts on what is already in front of you keeps the arrow. Mark navigation with
+  the attribute rather than a `cursor-pointer` class.
 - **The `remy` MCP is the agent's control surface.** Claude gets the in-process server in `server/src/ticket-tools.ts`; Codex and Cursor get the STDIO server in `server/src/ticket-mcp.ts`. Every tool exists on both paths. A normal thread may orchestrate only the operations allowlisted by `isRemyToolRoute`; add each new capability to the smallest explicit route and method set, derive its thread, device and actor from the capability where relevant, and test both an allowed route and a neighbouring forbidden one. STDIO providers receive the HMAC capability from `remyToolToken` through inherited environment variable names, never `config.token` or another daemon-wide credential. "Work on REMY-1" is resolved and linked before the model sees the prompt; a key that does not exist in Remy's board is not invented.
 - **Every provider keeps a live conversation.** A Claude thread holds one SDK query process across turns; a Codex thread holds one `codex app-server` JSON-RPC connection; a Cursor thread holds one `agent acp` connection through the official Agent Client Protocol SDK. They can stop mid-turn for approvals and questions, stream tool progress, interrupt the active turn, and resume their own provider transcript after a restart. Cursor models come from `agent --list-models`, and its current default comes from `agent about`; do not replace ACP with the older headless JSON stream. Never quietly grant what a person would have been asked about.
 - **Workspace environments belong to the repository, not one clone.** Values are encrypted at rest per machine and sync only through the signed daemon-to-daemon environment channel. Management APIs return names and configured state, never values, and agent capabilities cannot call them. Providers do not inherit workspace values; `remy.run_with_environment` starts a separate command with the active environment and redacts exact values before its result reaches the provider or Remy's transcript. Do not add a value-listing tool or put these values in provider arguments, prompts, logs, diffs, commits, or commit messages. Exact redaction cannot recognise encoded or transformed forms, so keep that limitation visible anywhere the guarantee is described.

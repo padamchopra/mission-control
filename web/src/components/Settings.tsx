@@ -1,4 +1,4 @@
-import { Archive, Bot, Boxes, Check, Cloud, Copy, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
+import { Archive, Boxes, Check, Cloud, Copy, Folder, GitBranch, Github, ImagePlus, Laptop, Monitor, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import remyMark from "@/assets/remy-mark.png";
 import { Badge } from "@/components/ui/badge";
@@ -80,13 +80,13 @@ import {
   setNotificationsEnabled,
   type NotifyPermission,
 } from "@/lib/notify";
-import { AgentsPane } from "@/components/AgentSettings";
+import { IDENTITIES } from "@/components/AgentSettings";
 import { useAppUpdate, type AppUpdatePhase } from "@/hooks/use-app-update";
 import { useStore } from "@/state/store";
 import type { Chat, Server, TailnetDevice, ToolStatus } from "@/state/types";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-export type SettingsTab = "general" | "version-control" | "providers" | "agents" | "devices" | "archive";
+export type SettingsTab = "general" | "version-control" | "providers" | "devices" | "archive";
 
 export const SETTINGS_SECTIONS: {
   id: SettingsTab;
@@ -96,21 +96,15 @@ export const SETTINGS_SECTIONS: {
   { id: "general", label: "General", icon: Monitor },
   { id: "version-control", label: "Version control", icon: GitBranch },
   { id: "providers", label: "Providers", icon: Boxes },
-  { id: "agents", label: "Agents", icon: Bot },
   { id: "devices", label: "Devices", icon: Laptop },
   { id: "archive", label: "Archived threads", icon: Archive },
 ];
 
 export function SettingsPane({
   tab,
-  item,
-  onSelectItem,
   release,
 }: {
   tab: SettingsTab;
-  /// The row a list-and-detail tab has open, from the URL.
-  item?: string;
-  onSelectItem: (item?: string) => void;
   release: {
     current: string;
     latest?: RemyRelease;
@@ -123,15 +117,6 @@ export function SettingsPane({
   };
 }) {
   const section = SETTINGS_SECTIONS.find((entry) => entry.id === tab)!;
-
-  if (tab === "agents") {
-    return (
-      <main className="flex min-w-0 flex-1 flex-col">
-        <PaneHeader crumbs={[{ label: "Settings" }, { label: section.label }]} />
-        <AgentsSettings item={item} onSelectItem={onSelectItem} />
-      </main>
-    );
-  }
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -716,6 +701,34 @@ function VersionControlPane() {
     <div className="flex flex-col gap-5">
       <Field orientation="horizontal" className="items-center">
         <FieldContent>
+          <FieldLabel htmlFor="default-git-identity">Commit attribution</FieldLabel>
+          <FieldDescription className="text-xs">
+            Agents set to Remy default follow this choice.
+          </FieldDescription>
+        </FieldContent>
+        <Select
+          value={settings.defaultGitIdentity ?? "author"}
+          onValueChange={(value) =>
+            void save({ defaultGitIdentity: value as "off" | "author" }, "who agent commits credit")
+          }
+        >
+          <SelectTrigger id="default-git-identity" size="sm" className="w-44 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {IDENTITIES.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field orientation="horizontal" className="items-center">
+        <FieldContent>
           <FieldLabel htmlFor="default-checkout">New threads open in</FieldLabel>
           <FieldDescription className="text-xs">Only applies to a workspace with worktrees.</FieldDescription>
         </FieldContent>
@@ -1005,42 +1018,6 @@ function when(at: number): string {
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric" });
-}
-
-/// The roster lives in its own module; this hands it the machine defaults that
-/// inherited agents follow.
-function AgentsSettings({ item, onSelectItem }: { item?: string; onSelectItem: (item?: string) => void }) {
-  const { settings, online, save } = useServerSettings();
-  if (!online) {
-    return (
-      <div className="flex flex-1 flex-col px-5 py-6">
-        <Unreachable />
-      </div>
-    );
-  }
-  if (!settings) {
-    return (
-      <p className="shimmer px-5 py-6 text-sm text-muted-foreground">Reading this machine's agents…</p>
-    );
-  }
-  return (
-    <AgentsPane
-      selected={item}
-      onSelect={onSelectItem}
-      defaultGitIdentity={settings.defaultGitIdentity ?? "author"}
-      defaultProvider={settings.defaultProvider ?? "claude"}
-      defaultModel={settings.defaultModel ?? ""}
-      onSaveDefault={(choice) =>
-        void save(
-          { defaultProvider: choice.provider, defaultModel: choice.model },
-          "what new threads think with",
-        )
-      }
-      onSaveDefaultIdentity={(value) =>
-        void save({ defaultGitIdentity: value as "off" | "author" }, "who agent commits credit")
-      }
-    />
-  );
 }
 
 /// What this machine has installed to run a thread on.

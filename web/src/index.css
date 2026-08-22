@@ -197,6 +197,17 @@ html.electron {
     overflow: hidden;
   }
 
+  /* Anything that takes you somewhere else gets the hand. A button that acts on
+     what is already in front of you keeps the arrow, which is what Tailwind's
+     reset gives it — the difference is the point. Remy builds most of its
+     navigation out of buttons and rows rather than anchors, so `data-link`
+     marks those; a real link and anything standing in for one come along. */
+  a[href],
+  [role="link"],
+  [data-link] {
+    cursor: pointer;
+  }
+
   ::selection {
     background: color-mix(in srgb, var(--primary) 40%, transparent);
   }

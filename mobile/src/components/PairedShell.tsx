@@ -31,8 +31,12 @@ export function PairedShell({
 }) {
   const insets = useSafeAreaInsets();
   const chats = useStore((s) => s.chats);
+  const dms = useStore((s) => s.dms);
+  const agents = useStore((s) => s.agents);
   const tickets = useStore((s) => s.tickets);
   const loading = useStore((s) => s.loading);
+  const openDm = useStore((s) => s.openDm);
+  const readChat = useStore((s) => s.readChat);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const sidebarProgress = useRef(new Animated.Value(0)).current;
@@ -42,9 +46,25 @@ export function PairedShell({
   const [ticketKey, setTicketKey] = useState<string>();
   const [composingTicket, setComposingTicket] = useState(false);
   const [workspaceId, setWorkspaceId] = useState<string>();
+  const [inboxAgentId, setInboxAgentId] = useState<string>();
 
   const thread = threadId ? chats.find((chat) => chat.id === threadId) : undefined;
   const ticket = ticketKey ? tickets.find((entry) => entry.key === ticketKey) : undefined;
+  const inboxAgent = inboxAgentId ? agents.find((agent) => agent.id === inboxAgentId) : undefined;
+  const inboxDm = inboxAgent ? dms.find((chat) => chat.agentId === inboxAgent.id) : undefined;
+
+  // The conversation is made the first time you open the agent, and reading it
+  // is opening it.
+  useEffect(() => {
+    if (!inboxAgent) return;
+    void openDm(inboxAgent).catch(() => {
+      // The screen says so; a toast on top of it would say it twice.
+    });
+  }, [inboxAgent?.id, inboxAgent?.serverId, openDm]);
+
+  useEffect(() => {
+    if (inboxDm?.unread) void readChat(inboxDm.id);
+  }, [inboxDm?.id, inboxDm?.unread, readChat]);
 
   useEffect(() => {
     if (!threadId || loading) return;
@@ -52,13 +72,24 @@ export function PairedShell({
     setThreadId(undefined);
   }, [threadId, loading, chats]);
 
+  /// Where a conversation opens, whichever list it is in. A notification only
+  /// carries an id, and an inbox conversation opened as a thread would land on
+  /// a screen that cannot find it.
   const openThread = (id: string) => {
-    setSection("threads");
-    setThreadId(id);
+    const dm = dms.find((chat) => chat.id === id);
     setTicketKey(undefined);
     setComposingTicket(false);
     setWorkspaceId(undefined);
     setSidebarOpen(false);
+    if (dm?.agentId) {
+      setSection("inbox");
+      setThreadId(undefined);
+      setInboxAgentId(dm.agentId);
+      return;
+    }
+    setSection("threads");
+    setThreadId(id);
+    setInboxAgentId(undefined);
   };
 
   openThreadRef.current = openThread;
@@ -69,6 +100,7 @@ export function PairedShell({
     setTicketKey(undefined);
     setComposingTicket(false);
     setWorkspaceId(undefined);
+    setInboxAgentId(undefined);
     setSidebarOpen(false);
   };
 
@@ -78,6 +110,7 @@ export function PairedShell({
     setComposingTicket(false);
     setWorkspaceId(undefined);
     setThreadId(undefined);
+    setInboxAgentId(undefined);
     setSidebarOpen(false);
   };
 
@@ -103,6 +136,7 @@ export function PairedShell({
     : workspaceId ? "Workspace"
     : section === "threads" && thread ? thread.title
     : section === "threads" ? "New thread"
+    : section === "inbox" && inboxAgent ? inboxAgent.name
     : section === "inbox" ? "Inbox"
     : section === "board" ? "Board"
     : section === "workspaces" ? "Workspaces"
@@ -141,8 +175,10 @@ export function PairedShell({
       </View>
 
       <View style={styles.body}>
-        {section === "inbox" ? (
-          <InboxScreen onOpen={openThread} />
+        {section === "inbox" && inboxDm ? (
+          <ThreadScreen key={inboxDm.id} id={inboxDm.id} />
+        ) : section === "inbox" ? (
+          <InboxScreen onOpen={setInboxAgentId} />
         ) : section === "board" && composingTicket ? (
           <NewTicketScreen
             onCreated={(key) => {

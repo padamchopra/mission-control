@@ -48,7 +48,7 @@ export function PaneHeader({
                 <BreadcrumbItem className="min-w-0">
                   {crumb.onClick ? (
                     <BreadcrumbLink asChild>
-                      <Button type="button" variant="ghost" size="sm" className="h-auto px-1" onClick={crumb.onClick}>
+                      <Button type="button" data-link variant="ghost" size="sm" className="h-auto px-1" onClick={crumb.onClick}>
                         {crumb.label}
                       </Button>
                     </BreadcrumbLink>

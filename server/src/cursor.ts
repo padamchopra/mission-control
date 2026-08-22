@@ -14,6 +14,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 import type { ChatPermissionMode } from "./chat.js";
 import { buildDiff, clip, describeTool, MAX_OUTPUT, type ConvEntry, type ConvTodo } from "./transcript.js";
+import { takeArtifacts } from "./remy-artifacts.js";
 
 export interface CursorMcpServer {
   command: string;
@@ -501,6 +502,7 @@ export function cursorEntry(call: CursorToolCall, turn = ""): ConvEntry {
   const diff = buildDiff(name, input);
   const finished = call.status === "completed" || call.status === "failed";
   const output = finished ? toolOutput(call) : undefined;
+  const result = output ? takeArtifacts(output) : undefined;
   return {
     id: `${turn}${call.toolCallId}`,
     kind: "tool",
@@ -510,7 +512,8 @@ export function cursorEntry(call: CursorToolCall, turn = ""): ConvEntry {
     ...(described.file || location ? { file: described.file ?? location } : {}),
     ...(diff.length ? { diff } : {}),
     ...(finished ? { status: call.status === "failed" ? "error" : "ok" } : {}),
-    ...(output ? { output: clip(output, MAX_OUTPUT) } : {}),
+    ...(result?.text ? { output: clip(result.text, MAX_OUTPUT) } : {}),
+    ...(result?.artifacts.length ? { artifacts: result.artifacts } : {}),
   };
 }
 

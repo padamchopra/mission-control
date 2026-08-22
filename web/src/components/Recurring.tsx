@@ -296,6 +296,7 @@ function RecurrenceRow({
             <button
               type="button"
               className="flex items-center gap-1.5 rounded hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              data-link
               onClick={() => onOpenWorkspace(workspace.id)}
             >
               <WorkspaceMark home={false} workspace={workspace} size="sm" />

@@ -424,7 +424,13 @@ function validate(input: Record<string, unknown>): Record<string, unknown> {
     const id = text(input.assigneeAgentId, 64);
     // `you` and `workspace` are not rows: one is the person at this daemon, the
     // other the workspace's own default model.
-    if (id && id !== YOU && id !== WORKSPACE_AGENT && !getAgent(id)) throw new Error("no such agent");
+    if (id && id !== YOU && id !== WORKSPACE_AGENT) {
+      const agent = getAgent(id);
+      if (!agent) throw new Error("no such agent");
+      // Remy runs the app rather than the work in a repository, so a ticket is
+      // not something it can be handed.
+      if (agent.builtIn) throw new Error("Remy does not take tickets");
+    }
     patch.assigneeAgentId = id ?? "";
   }
   if (input.parentId !== undefined) {

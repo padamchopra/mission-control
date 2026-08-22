@@ -62,6 +62,7 @@ import { syncSleepAssertion } from "./sleep.js";
 import {
   applyAnswers,
   applyNotes,
+  applyToolOutput,
   buildDiff,
   buildQuestions,
   clip,
@@ -150,6 +151,11 @@ interface ChatRecord {
   provider: ProviderId;
   model?: string;
   permissionMode: ChatPermissionMode;
+  /// True when this is an agent's inbox conversation rather than work in a
+  /// repository. One per agent, and never listed among the threads.
+  dm?: boolean;
+  /// When you last had this conversation open. What makes an inbox row bold.
+  readAt?: number;
   createdAt: number;
   updatedAt: number;
   claudeSessionId?: string;
@@ -179,6 +185,12 @@ export interface ChatSummary {
   model?: string;
   permissionMode: ChatPermissionMode;
   agentId?: string;
+  /// True when this is the conversation with an agent in the inbox. It has an
+  /// agent, it has no work of its own, and there is exactly one per agent.
+  dm?: boolean;
+  /// The agent has spoken since you last opened this. Derived rather than
+  /// stored, so it clears the moment you read it on any device.
+  unread?: boolean;
   createdAt: number;
   updatedAt: number;
   state: ChatState;
@@ -391,6 +403,8 @@ class Chat {
       model: this.record.model,
       permissionMode: this.record.permissionMode,
       ...(this.record.agentId ? { agentId: this.record.agentId } : {}),
+      ...(this.record.dm ? { dm: true } : {}),
+      ...(this.unread() ? { unread: true } : {}),
       createdAt: this.record.createdAt,
       updatedAt: this.record.updatedAt,
       state: this.state,
@@ -403,6 +417,37 @@ class Chat {
       error: this.record.error,
       live: this.isLive,
     };
+  }
+
+  /// Whether the last thing said here was the agent's, and said after you last
+  /// looked. A turn still running is not unread: you have not been left
+  /// anything to read yet.
+  private unread(): boolean {
+    const last = [...this.record.entries]
+      .reverse()
+      .find((entry) => entry.kind === "assistant" || entry.kind === "user");
+    if (last?.kind !== "assistant") return false;
+    return this.record.updatedAt > (this.record.readAt ?? 0);
+  }
+
+  markRead(): void {
+    if (this.record.readAt === this.record.updatedAt) return;
+    this.record.readAt = this.record.updatedAt;
+    this.persist();
+    this.push();
+  }
+
+  /// Says something in this conversation as Remy rather than as the agent.
+  ///
+  /// Nothing reaches a provider: no turn runs, no token is spent, and the agent
+  /// does not read it back on its next turn. It is Remy talking in the agent's
+  /// conversation, which is what an announcement is.
+  post(text: string): void {
+    if (!text.trim()) return;
+    this.record.updatedAt = nowMs();
+    this.append({ id: `n-${randomUUID()}`, kind: "assistant", text: clip(text, MAX_TEXT) });
+    this.persist();
+    this.push();
   }
 
   detail(): ChatDetail {
@@ -422,12 +467,14 @@ class Chat {
     if (!trimmed) return;
     const safeText = await redactForCwd(this.record.cwd, trimmed);
     const first = this.record.entries.length === 0;
-    if (first && this.record.title === "New chat") {
+    // A DM is called after the agent you are talking to, and stays called that
+    // however the conversation opens.
+    if (first && !this.record.dm && this.record.title === "New chat") {
       this.record.title = titleFrom(safeText);
     }
     // A better name is worth having but not worth waiting for, so it runs
     // alongside the turn and lands whenever it lands.
-    if (first) void this.rename(safeText);
+    if (first && !this.record.dm) void this.rename(safeText);
     linkTicketFromWorkPrompt(this.record.id, safeText, this.record.agentId);
     const ticketContext = ticketPromptContext(this.record.id);
     const agentPrompt = ticketContext ? `${ticketContext}\n\n${safeText}` : safeText;
@@ -624,7 +671,13 @@ class Chat {
       // The user's own Claude Code configuration — settings, permissions,
       // CLAUDE.md, skills — so a chat behaves like their terminal sessions.
       settingSources: ["user", "project", "local"],
-      permissionMode: this.record.permissionMode as PermissionMode,
+      // Claude's SDK knows four modes and `auto` is not one of them, so it would
+      // fall back to asking for everything — the opposite of what the word says.
+      // It means here what it means on Cursor's `--auto-review`: get on with it,
+      // and stop for what cannot be undone.
+      permissionMode: (this.record.permissionMode === "auto"
+        ? "acceptEdits"
+        : this.record.permissionMode) as PermissionMode,
       ...(this.record.permissionMode === "bypassPermissions"
         ? { allowDangerouslySkipPermissions: true }
         : {}),
@@ -873,7 +926,7 @@ class Chat {
         applyNotes(entry.questions, toolUseResult?.annotations);
       } else {
         const output = resultText(block.content) ?? resultText(toolUseResult);
-        if (output) entry.output = clip(output, MAX_OUTPUT);
+        if (output) applyToolOutput(entry, output, MAX_OUTPUT);
       }
       this.markDirty(entry.id);
     }
@@ -1517,7 +1570,7 @@ class Chat {
   // ── feed bookkeeping ─────────────────────────────────────────────────────
 
   private append(entry: ConvEntry, options: { defer?: boolean } = {}): void {
-    entry = redactEntry(entry);
+    redactEntry(entry);
     this.record.entries.push(entry);
     this.byId.set(entry.id, entry);
     if (!this.deleted) saveEntry(this.record.id, entry);
@@ -1560,11 +1613,7 @@ class Chat {
     const entries = [...this.dirtyEntries]
       .map((id) => this.byId.get(id))
       .filter((e): e is ConvEntry => !!e)
-      .map((entry) => {
-        const safe = redactEntry(entry);
-        Object.assign(entry, safe);
-        return entry;
-      });
+      .map(redactEntry);
     this.dirtyEntries.clear();
     if (entries.length === 0 || this.deleted) return;
     for (const entry of entries) saveEntry(this.record.id, entry);
@@ -1589,6 +1638,9 @@ class Chat {
       live: this.isLive,
       error: this.record.error ?? null,
       updatedAt: this.record.updatedAt,
+      // Carried on every frame so an inbox row goes bold the moment the agent
+      // stops talking, rather than on the next poll.
+      unread: this.unread(),
     };
   }
 
@@ -1618,29 +1670,31 @@ function blockKind(type: unknown): ConvEntry["kind"] | undefined {
   return undefined;
 }
 
-function redactEntry(entry: ConvEntry): ConvEntry {
-  const text = (value: string | undefined) => value === undefined ? undefined : redactKnownSecrets(value);
-  return {
-    ...entry,
-    ...(entry.text !== undefined ? { text: text(entry.text) } : {}),
-    ...(entry.arg !== undefined ? { arg: text(entry.arg) } : {}),
-    ...(entry.output !== undefined ? { output: text(entry.output) } : {}),
-    ...(entry.diff ? { diff: entry.diff.map((line) => ({ ...line, text: redactKnownSecrets(line.text) })) } : {}),
-    ...(entry.questions ? {
-      questions: entry.questions.map((question) => ({
-        ...question,
-        question: redactKnownSecrets(question.question),
-        ...(question.answer !== undefined ? { answer: redactKnownSecrets(question.answer) } : {}),
-        ...(question.notes !== undefined ? { notes: redactKnownSecrets(question.notes) } : {}),
-        options: question.options.map((option) => ({
-          ...option,
-          label: redactKnownSecrets(option.label),
-          ...(option.description !== undefined ? { description: redactKnownSecrets(option.description) } : {}),
-          ...(option.preview !== undefined ? { preview: redactKnownSecrets(option.preview) } : {}),
-        })),
-      })),
-    } : {}),
-  };
+/// Takes a workspace's environment values out of a feed entry, in place.
+///
+/// In place, and returning the entry it was given, on purpose. A streaming text
+/// block is held by `openBlocks` while its deltas arrive, and the feed, the
+/// database and the socket all read it through `byId` — one object, four
+/// references. Handing back a redacted copy would leave those references
+/// pointing at different things, and the feed would keep only whatever text the
+/// first delta happened to carry. `redactEntry(entry) === entry` is what keeps
+/// that from happening, and it is what the test asserts.
+export function redactEntry(entry: ConvEntry): ConvEntry {
+  if (entry.text !== undefined) entry.text = redactKnownSecrets(entry.text);
+  if (entry.arg !== undefined) entry.arg = redactKnownSecrets(entry.arg);
+  if (entry.output !== undefined) entry.output = redactKnownSecrets(entry.output);
+  for (const line of entry.diff ?? []) line.text = redactKnownSecrets(line.text);
+  for (const question of entry.questions ?? []) {
+    question.question = redactKnownSecrets(question.question);
+    if (question.answer !== undefined) question.answer = redactKnownSecrets(question.answer);
+    if (question.notes !== undefined) question.notes = redactKnownSecrets(question.notes);
+    for (const option of question.options) {
+      option.label = redactKnownSecrets(option.label);
+      if (option.description !== undefined) option.description = redactKnownSecrets(option.description);
+      if (option.preview !== undefined) option.preview = redactKnownSecrets(option.preview);
+    }
+  }
+  return entry;
 }
 
 function sessionAllowRules(tool: string): PermissionUpdate[] {
@@ -1664,12 +1718,110 @@ export function chatsUnavailable(): string | undefined {
   return chatStorageError();
 }
 
-export function listChats(): ChatSummary[] {
+function summaries(): ChatSummary[] {
   return [...chats.values()].map((chat) => chat.summary()).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/// The threads: work in a repository. An agent's inbox conversation is not one
+/// of these, so it never appears in the thread list or in a thread count.
+export function listChats(): ChatSummary[] {
+  return summaries().filter((chat) => !chat.dm);
+}
+
+/// The inbox: one conversation per agent, most recently spoken to first.
+///
+/// An agent's conversation belongs to the agent, so a row whose agent is gone
+/// is not in the inbox — deleted here, deleted on the machine you paired with,
+/// or a tombstone that arrived before its conversation was cleaned up.
+export function listDms(): ChatSummary[] {
+  return summaries().filter((chat) => chat.dm && chat.agentId && getAgent(chat.agentId));
+}
+
+/// Clears out conversations whose agent is gone, once, at boot.
+///
+/// `listDms` already hides them, so this is about the rows rather than the
+/// screen: an agent deleted while this machine was shut leaves a conversation
+/// behind that nothing will ever ask for again.
+export function pruneOrphanDms(): void {
+  for (const chat of summaries()) {
+    if (chat.dm && (!chat.agentId || !getAgent(chat.agentId))) deleteChat(chat.id);
+  }
+}
+
+/// Both, for the few callers that mean every conversation this machine is
+/// holding — keeping the machine awake while one is working, and shutting them
+/// all down. A DM runs a real turn like any other thread.
+export function listAllChats(): ChatSummary[] {
+  return summaries();
+}
+
+/// The one conversation you have with an agent, made the first time you open it.
+///
+/// It opens in your home folder rather than a repository: work that needs a
+/// repository open in front of it is a thread the agent starts, not this. Found
+/// by its agent rather than by id, so opening the inbox twice never leaves two
+/// conversations behind.
+export function dmChatFor(agentId: string): ChatSummary {
+  const existing = listDms()
+    .filter((chat) => chat.agentId === agentId)
+    .sort((a, b) => a.createdAt - b.createdAt)[0];
+  if (existing) return existing;
+  const agent = getAgent(agentId);
+  if (!agent) throw new Error("no such agent");
+  return createChat({ cwd: homedir(), title: agent.name, agentId: agent.id, dm: true });
 }
 
 export function getChat(id: string): ChatDetail | undefined {
   return chats.get(id)?.detail();
+}
+
+/// Moves an agent's inbox conversation onto what that agent now thinks with.
+///
+/// A thread keeps the provider it was started on: its transcript is only
+/// readable by the tool that wrote it, and the thread is a piece of work with
+/// its own history. An inbox conversation is not that — it is the agent, so
+/// picking a model for the agent picks it here too, whether that choice was
+/// made on the agent or on the machine default it follows.
+///
+/// A conversation mid-turn is left alone; the next change catches it.
+export function syncAgentDm(agentId: string): void {
+  const agent = getAgent(agentId);
+  if (!agent) {
+    // The agent is gone, so the conversation goes with it: it was the agent,
+    // and there is nobody left in it to answer.
+    for (const chat of summaries()) {
+      if (chat.dm && chat.agentId === agentId) deleteChat(chat.id);
+    }
+    return;
+  }
+  const dm = listDms().find((chat) => chat.agentId === agentId);
+  if (!dm || dm.state === "working" || dm.state === "needs_input") return;
+  const { provider, model } = resolvedAgentModel(agent);
+  if (dm.provider === provider && (dm.model ?? "") === model) return;
+  try {
+    updateChat(dm.id, { provider, model: model || null });
+  } catch (error) {
+    // A provider that is off, or a tool that is not installed. The conversation
+    // keeps what it had rather than being left pointing at nothing.
+    console.error(`could not move @${agent.handle}'s conversation:`, error);
+  }
+}
+
+/// Every inbox conversation at once, for a change to the machine default that
+/// each inherited agent follows.
+export function syncAgentDms(): void {
+  for (const dm of listDms()) if (dm.agentId) syncAgentDm(dm.agentId);
+}
+
+/// Says something in a conversation as Remy. See `Chat.post`.
+export function postToChat(id: string, text: string): void {
+  chats.get(id)?.post(text);
+}
+
+/// Clears an inbox conversation's unread mark. Opening it is what calls this,
+/// from whichever device you opened it on.
+export function markChatRead(id: string): void {
+  chats.get(id)?.markRead();
 }
 
 function expandChatCwd(raw: string): string {
@@ -1686,6 +1838,9 @@ export function createChat(input: {
   model?: string;
   permissionMode?: unknown;
   agentId?: string;
+  /// Marks this as an agent's inbox conversation. `dmChatFor` is the only
+  /// caller that sets it, so there stays one per agent.
+  dm?: boolean;
   /// What the workspace this thread opens in runs on, when it does not follow
   /// the machine. The caller resolves it: which workspace holds a directory
   /// takes the worktree list, and this does not wait on git.
@@ -1726,6 +1881,7 @@ export function createChat(input: {
     provider,
     ...(model ? { model } : {}),
     ...(agent ? { agentId: agent.id } : {}),
+    ...(input.dm ? { dm: true } : {}),
     permissionMode: permissionMode(input.permissionMode, agent?.permissionMode ?? config.defaultPermissionMode),
     createdAt: nowMs(),
     updatedAt: nowMs(),
