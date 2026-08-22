@@ -158,7 +158,7 @@ export function ModelPicker({
                 key={`favorite:${provider.id}:${model.value}`}
                 value={`${model.label} ${provider.label} favorite`}
                 keywords={[model.value, provider.id]}
-                disabled={provider.available === false}
+                disabled={provider.available === false || provider.enabled === false}
                 onSelect={() => pick({ provider: provider.id, model: model.value })}
               >
                 <ProviderMark provider={provider.id} />
@@ -182,11 +182,12 @@ export function ModelPicker({
           </CommandGroup>
         )}
         {providers.map((provider) => {
+          const disabled = provider.enabled === false;
           const missing = provider.available === false;
           return (
             <CommandGroup
               key={provider.id}
-              heading={missing ? `${provider.label} — not installed here` : provider.label}
+              heading={disabled ? `${provider.label} — turned off` : missing ? `${provider.label} — not installed here` : provider.label}
             >
               {provider.models.map((model) => (
                 <CommandItem
@@ -198,7 +199,7 @@ export function ModelPicker({
                   // have a Default, and a value has to be its own.
                   value={`${model.label} ${provider.label}`}
                   keywords={[model.value, provider.id].filter(Boolean)}
-                  disabled={missing}
+                  disabled={disabled || missing}
                   onSelect={() => pick({ provider: provider.id, model: model.value })}
                 >
                   <ProviderMark provider={provider.id} />

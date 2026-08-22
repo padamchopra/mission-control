@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { getKv, setKv } from "./db.js";
-import { knowsModel, providerId, providerModel, type ProviderId } from "./providers.js";
+import { knowsModel, provider, providerId, providerModel, PROVIDERS, type ProviderId } from "./providers.js";
 // Type-only, so this module keeps no runtime dependency on the one that runs a
 // thread — chat.ts already depends on this one.
 import type { ChatPermissionMode } from "./chat.js";
@@ -36,6 +36,9 @@ export interface Config {
   /// What a new thread and every inherited agent thinks with. The pair is
   /// validated together: a provider only ever holds one of its own models.
   defaultProvider: ProviderId;
+  /// Providers offered for new work on this machine. Existing threads keep
+  /// their provider so their history remains readable.
+  enabledProviders: ProviderId[];
   /// What a new thread may do without being asked. An agent or the thread
   /// itself can still say otherwise; this is where one starts when neither has.
   defaultPermissionMode: ChatPermissionMode;
@@ -151,6 +154,15 @@ function favoriteModels(value: unknown): string[] {
   }))].slice(0, 24);
 }
 
+function enabledProviders(value: unknown): ProviderId[] {
+  if (!Array.isArray(value)) return PROVIDERS.map((entry) => entry.id);
+  const enabled = [...new Set(value.flatMap((entry) => {
+    const found = provider(entry);
+    return found ? [found.id] : [];
+  }))];
+  return enabled.length > 0 ? enabled : [PROVIDERS[0].id];
+}
+
 /// A worktree root has to be somewhere `git worktree add` can actually write,
 /// so it is an absolute path or nothing. `~` is expanded here because the
 /// clients that set it are showing people a home-relative path.
@@ -213,6 +225,11 @@ export function branchPrefix(value: unknown): string | undefined {
 
 function load(): Config {
   const parsed = getKv<Partial<Config> & { preventSleepWhileBusy?: boolean }>("config") ?? {};
+  const enabled = enabledProviders(parsed.enabledProviders);
+  const parsedDefaultProvider = providerId(parsed.defaultProvider);
+  const defaultProvider = enabled.includes(parsedDefaultProvider) ? parsedDefaultProvider : enabled[0];
+  const parsedRemyProvider = providerId(parsed.remyProvider);
+  const remyProvider = enabled.includes(parsedRemyProvider) ? parsedRemyProvider : defaultProvider;
   const config: Config = {
     port: Number(parsed.port) || 8420,
     token: typeof parsed.token === "string" && parsed.token.length >= 32 ? parsed.token : randomBytes(32).toString("hex"),
@@ -221,11 +238,12 @@ function load(): Config {
     defaultCheckout: oneOf(CHECKOUT_MODES, parsed.defaultCheckout, "main"),
     worktreeBase: oneOf(WORKTREE_BASES, parsed.worktreeBase, "remote"),
     worktreeRoot: worktreeRootPath(parsed.worktreeRoot),
-    defaultProvider: providerId(parsed.defaultProvider),
-    defaultModel: providerModel(parsed.defaultProvider, parsed.defaultModel),
+    defaultProvider,
+    defaultModel: providerModel(defaultProvider, parsed.defaultModel),
+    enabledProviders: enabled,
     defaultPermissionMode: oneOf(PERMISSION_MODES, parsed.defaultPermissionMode, "default"),
-    remyProvider: providerId(parsed.remyProvider),
-    remyModel: remyModelValue(parsed.remyProvider, parsed.remyModel ?? "haiku"),
+    remyProvider,
+    remyModel: remyModelValue(remyProvider, parsed.remyModel ?? "haiku"),
     favoriteModels: favoriteModels(parsed.favoriteModels),
     repoUpdate: oneOf(REPO_UPDATES, parsed.repoUpdate, "off"),
     defaultGitIdentity: gitIdentity(parsed.defaultGitIdentity, "author"),
@@ -251,6 +269,7 @@ export interface PublicSettings {
   worktreeRoot: string;
   defaultModel: string;
   defaultProvider: ProviderId;
+  enabledProviders: ProviderId[];
   defaultPermissionMode: ChatPermissionMode;
   remyProvider: ProviderId;
   remyModel: string;
@@ -273,6 +292,7 @@ export function publicSettings(): PublicSettings {
     worktreeRoot: config.worktreeRoot,
     defaultModel: config.defaultModel,
     defaultProvider: config.defaultProvider,
+    enabledProviders: config.enabledProviders,
     defaultPermissionMode: config.defaultPermissionMode,
     remyProvider: config.remyProvider,
     remyModel: config.remyModel,
@@ -313,16 +333,18 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   // patch that moves to Codex and keeps `sonnet` lands on Codex's default
   // rather than on a model Codex has never heard of.
   if (patch.defaultProvider !== undefined || patch.defaultModel !== undefined) {
-    const provider = patch.defaultProvider === undefined
+    const asked = patch.defaultProvider === undefined
       ? config.defaultProvider
       : providerId(patch.defaultProvider, config.defaultProvider);
+    const provider = config.enabledProviders.includes(asked) ? asked : config.defaultProvider;
     set("defaultProvider", provider);
     set("defaultModel", modelFor(provider, patch.defaultModel, config.defaultModel));
   }
   if (patch.remyProvider !== undefined || patch.remyModel !== undefined) {
-    const provider = patch.remyProvider === undefined
+    const asked = patch.remyProvider === undefined
       ? config.remyProvider
       : providerId(patch.remyProvider, config.remyProvider);
+    const provider = config.enabledProviders.includes(asked) ? asked : config.remyProvider;
     set("remyProvider", provider);
     set(
       "remyModel",
@@ -368,5 +390,25 @@ export function patchSettings(patch: Record<string, unknown>): PublicSettings {
   }
 
   if (touched) setKv("config", config);
+  return publicSettings();
+}
+
+export function setProviderEnabled(value: unknown, enabled: boolean): PublicSettings {
+  const selected = provider(value);
+  if (!selected) throw new Error("no such provider");
+  const next = new Set(config.enabledProviders);
+  if (enabled) next.add(selected.id);
+  else next.delete(selected.id);
+  if (next.size === 0) throw new Error("keep at least one provider on");
+  config.enabledProviders = PROVIDERS.map((entry) => entry.id).filter((id) => next.has(id));
+  if (!next.has(config.defaultProvider)) {
+    config.defaultProvider = config.enabledProviders[0];
+    config.defaultModel = "";
+  }
+  if (!next.has(config.remyProvider)) {
+    config.remyProvider = config.defaultProvider;
+    if (config.remyModel !== OFF) config.remyModel = config.defaultModel;
+  }
+  setKv("config", config);
   return publicSettings();
 }

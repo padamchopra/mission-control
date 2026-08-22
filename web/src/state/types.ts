@@ -234,6 +234,7 @@ export interface ServerSettings {
   /// What a new thread and every inherited agent thinks with. It pairs with
   /// `defaultModel`: a provider only ever holds one of its own models.
   defaultProvider: string;
+  enabledProviders: string[];
   /// What a new thread may do without being asked. A workspace, an agent or the
   /// thread itself can still say otherwise.
   defaultPermissionMode: string;

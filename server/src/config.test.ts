@@ -10,7 +10,7 @@ const stateDir = mkdtempSync(join(tmpdir(), "remy-config-test-"));
 process.env.MC_CONFIG_DIR = stateDir;
 process.env.HOME = stateDir;
 
-const { patchSettings, publicSettings, worktreeRootPath } = await import("./config.js");
+const { patchSettings, publicSettings, setProviderEnabled, worktreeRootPath } = await import("./config.js");
 
 test("takes a worktree root only when it is somewhere git can write", () => {
   assert.equal(worktreeRootPath("/vol/trees"), "/vol/trees");
@@ -38,6 +38,24 @@ test("starts on the defaults a fresh install should have", () => {
   assert.equal(settings.deviceIcon, "");
   assert.equal(settings.deviceTint, "");
   assert.deepEqual(settings.favoriteModels, []);
+  assert.deepEqual(settings.enabledProviders, ["claude", "codex", "cursor"]);
+});
+
+test("keeps at least one provider on and moves defaults off a disabled provider", () => {
+  patchSettings({ defaultProvider: "cursor", defaultModel: "auto", remyProvider: "cursor", remyModel: "auto" });
+  let settings = setProviderEnabled("cursor", false);
+  assert.deepEqual(settings.enabledProviders, ["claude", "codex"]);
+  assert.equal(settings.defaultProvider, "claude");
+  assert.equal(settings.defaultModel, "");
+  assert.equal(settings.remyProvider, "claude");
+  assert.equal(settings.remyModel, "");
+
+  settings = setProviderEnabled("codex", false);
+  assert.deepEqual(settings.enabledProviders, ["claude"]);
+  assert.throws(() => setProviderEnabled("claude", false), /keep at least one provider on/);
+  setProviderEnabled("codex", true);
+  setProviderEnabled("cursor", true);
+  patchSettings({ defaultProvider: "claude", defaultModel: "", remyProvider: "claude", remyModel: "haiku" });
 });
 
 test("keeps valid model favorites and drops values no provider accepts", () => {

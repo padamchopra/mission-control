@@ -24,6 +24,8 @@ export interface Provider {
   approvals: boolean;
   /// Whether the machine that answered has it. Absent means nobody has said.
   available?: boolean;
+  /// Whether this machine offers it for new work. Existing threads still keep it.
+  enabled?: boolean;
 }
 
 export const PROVIDERS: Provider[] = [
