@@ -10,6 +10,7 @@ import { Pointer, RefreshCw } from "../parts/Icons";
 import { SeamLink } from "../parts/SeamLink";
 import { SkeletonPane } from "../parts/SkeletonPane";
 import { WaitingPanel } from "../parts/WaitingPanel";
+import { Sfx } from "../parts/Sfx";
 
 /// Step three, and the only step that matters. Somebody standing at the other
 /// Mac reads six digits, sees the same six digits here, and presses Allow.
@@ -242,6 +243,8 @@ export const Allow: React.FC = () => {
       >
         <Pointer size={46} />
       </div>
+
+      <Sfx sound="click" at={102} />
 
       <Interactive.Div name="Allow caption">
         <Caption

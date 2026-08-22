@@ -1,0 +1,20 @@
+Score the pairing video
+
+An original arrangement rather than a licensed track, so the video carries no
+rights but ours, and so it can be cut to the picture: at 112 BPM a bar line
+lands within ~0.1s of four of the five scene cuts, the drums drop out through
+the bar where the two codes are being compared, and the chord resolves on the
+frame the link turns green. Three interface sounds sit on the frames they
+belong to — a tick per machine the tailnet turns up, a press on Pair and on
+Allow, and a rising fifth on paired, which is the same resolution the score
+arrives at.
+
+tools/make-audio.mjs synthesises all of it and is deterministic, so a re-run
+rewrites the same bytes. The arrangement is one row per bar in PLAN, where
+`level` scales the whole bar: the per-voice gains alone measured almost flat,
+because a pad-only opening is within a couple of dB of the full band and the
+limiter then flattened what was left. Softened knee, quieter hats and a 14kHz
+master trim keep it a bed rather than a beat.
+
+Mixed peak is -1.4dB with no clipping, and each sound measures 8 to 10dB over
+the score at its own frame.

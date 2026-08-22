@@ -6,6 +6,7 @@ import { DeviceRow } from "../parts/DeviceRow";
 import { PrimaryButton } from "../parts/Buttons";
 import { MacWindow } from "../parts/MacWindow";
 import { RefreshCw } from "../parts/Icons";
+import { Sfx } from "../parts/Sfx";
 
 /// Step one. Nothing has been asked of anybody yet — this is only Tailscale's
 /// own list of your machines, with the ones answering Remy marked. The `401`
@@ -212,6 +213,10 @@ export const Discovery: React.FC = () => {
           </div>
         </div>
       </MacWindow>
+
+      <Sfx sound="tick" at={27} />
+      <Sfx sound="tick" at={45} />
+      <Sfx sound="tick" at={63} />
 
       <Interactive.Div name="Discovery caption">
         <Caption

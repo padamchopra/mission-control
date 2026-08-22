@@ -24,6 +24,8 @@ The newest render is committed at `docs/video/remy-add-a-device.mp4`.
 | `src/pair/PairDevice.tsx` | The six scenes, crossfaded by `TransitionSeries`. |
 | `src/pair/scenes/` | One file per scene. Each is also registered on its own in `src/Root.tsx`, so you can open and trim it in the Studio. |
 | `src/pair/parts/` | The app's surfaces at video scale — the window, a tailnet row, the waiting panel, the pair dialog, the seam link between two machines. |
+| `tools/make-audio.mjs` | Synthesises the score and the three interface sounds. |
+| `public/audio/` | Its output, committed as MP3. |
 
 Some rules the scenes are held to:
 
@@ -46,3 +48,31 @@ Some rules the scenes are held to:
 - **Fonts load in `src/Root.tsx`.** `sideEffects` in `package.json` lists CSS
   only, so a side-effect-only `import "./fonts"` gets tree-shaken and every scene
   falls back to the browser's serif.
+
+## Sound
+
+`tools/make-audio.mjs` writes all of it — nothing here is licensed from anywhere,
+so the video carries no rights but yours. It is also cut to the picture in a way
+a stock track cannot be: 112 BPM puts a bar line within ~0.1s of four of the five
+scene cuts, the drums drop out through the bar where the two codes are being
+compared, and the chord resolves on the frame the link turns green.
+
+```sh
+node tools/make-audio.mjs      # writes public/audio/*.wav
+                               # then convert to MP3 — the script prints how
+```
+
+It is deterministic, so re-running it without changing anything rewrites the same
+bytes. The arrangement is the `PLAN` array: one row per bar, `level` scaling the
+whole bar and the rest scaling a voice. Reach for `level` first — the per-voice
+gains alone measure almost flat, because the pad-only opening is within a couple
+of dB of the full band and the limiter then flattens what is left.
+
+The score sits on the master composition in `PairDevice.tsx`; its fades are baked
+into the file rather than driven by a volume curve. The three interface sounds
+(`Sfx`) sit in the scenes on the frame each one belongs to, so a scene opened by
+itself in the Studio still sounds right.
+
+**Swapping in a licensed track:** replace `public/audio/score.mp3` and check the
+level on `<Audio>` in `PairDevice.tsx`. The interface sounds are independent and
+can stay.

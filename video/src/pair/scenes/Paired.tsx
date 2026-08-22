@@ -11,6 +11,7 @@ import { SeamLink } from "../parts/SeamLink";
 import { SkeletonPane } from "../parts/SkeletonPane";
 import { Toast, TicketChip } from "../parts/Toast";
 import { PairedPanel, WaitingPanel } from "../parts/WaitingPanel";
+import { Sfx } from "../parts/Sfx";
 
 /// The payoff. `mac-mini` leaves the tailnet list because it is a device now,
 /// and the two boards start converging — which is a merge against a version
@@ -270,6 +271,8 @@ export const Paired: React.FC = () => {
           }),
         }}
       />
+
+      <Sfx sound="paired" at={8} />
 
       <Interactive.Div name="Paired caption">
         <Caption

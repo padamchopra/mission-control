@@ -1,4 +1,5 @@
-import { AbsoluteFill } from "remotion";
+import { AbsoluteFill, staticFile } from "remotion";
+import { Audio } from "@remotion/media";
 import { TransitionSeries, linearTiming } from "@remotion/transitions";
 import { fade } from "@remotion/transitions/fade";
 import { Hook } from "./scenes/Hook";
@@ -18,6 +19,13 @@ export const PairDevice: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#fcfcfc" }}>
+      {/* The score lives on the master rather than in the scenes: each scene is
+          also its own composition, and an <Audio> inside one would restart the
+          track from the top every time. Its fades are baked into the file, so
+          there is no volume curve to keep in sync here. The interface sounds do
+          go in the scenes, next to the frames they belong to. */}
+      <Audio src={staticFile("audio/score.mp3")} volume={0.7} />
+
       <TransitionSeries>
         <TransitionSeries.Sequence durationInFrames={75} name="Hook">
           <Hook />

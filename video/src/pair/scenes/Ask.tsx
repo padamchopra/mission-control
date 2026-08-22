@@ -8,6 +8,7 @@ import { MacWindow } from "../parts/MacWindow";
 import { Pointer, RefreshCw } from "../parts/Icons";
 import { SkeletonPane } from "../parts/SkeletonPane";
 import { WaitingPanel } from "../parts/WaitingPanel";
+import { Sfx } from "../parts/Sfx";
 
 /// Step two. The stage opens out to both machines, and Pair is pressed on this
 /// one. All that crosses the wire is a request id — the other Mac is told
@@ -194,6 +195,8 @@ export const Ask: React.FC = () => {
       >
         <Pointer size={46} />
       </div>
+
+      <Sfx sound="click" at={72} />
 
       <Interactive.Div name="Ask caption">
         <Caption
