@@ -14,7 +14,6 @@ import { InputGroupButton, InputGroupText } from "@/components/ui/input-group";
 import { ProviderMark } from "@/components/ProviderMark";
 import {
   modelLabel,
-  providerLabel,
   resolvedModelLabel,
   PROVIDERS,
   type ModelChoice,
@@ -71,6 +70,10 @@ function useProviders(): Provider[] {
 
 function displayModel(model: ProviderModel): string {
   return model.context ? `${model.label} (${model.context})` : model.label;
+}
+
+function inheritedLabel(providers: Provider[], choice?: ModelChoice): string {
+  return choice ? `Default - ${resolvedModelLabel(providers, choice)}` : "Default";
 }
 
 /// The dialog on its own, for a caller that already has a trigger.
@@ -139,15 +142,12 @@ export function ModelPicker({
         {allowDefault && (
           <CommandGroup>
             <CommandItem
-              value="Default inherited"
+              value={`${inheritedLabel(providers, defaultChoice)} inherited`}
+              keywords={defaultChoice ? [defaultChoice.provider, defaultChoice.model] : undefined}
               onSelect={() => pick({ provider: REMY_DEFAULT, model: "" })}
             >
               <ProviderMark provider={defaultChoice?.provider ?? "claude"} />
-              <span>
-                {defaultChoice
-                  ? `Default (${providerLabel(providers, defaultChoice.provider)} ${resolvedModelLabel(providers, defaultChoice)})`
-                  : "Default"}
-              </span>
+              <span>{inheritedLabel(providers, defaultChoice)}</span>
               {inherited ? <Check className="ml-auto" /> : null}
             </CommandItem>
           </CommandGroup>
@@ -278,9 +278,7 @@ export function ModelPickerButton({
   const [open, setOpen] = useState(false);
   const inherited = allowDefault && value.provider === REMY_DEFAULT;
   const label = inherited
-    ? defaultChoice
-      ? `Default (${providerLabel(providers, defaultChoice.provider)} ${resolvedModelLabel(providers, defaultChoice)})`
-      : "Default"
+    ? inheritedLabel(providers, defaultChoice)
     : value.model === OFF ? "Off" : modelLabel(providers, value);
   const mark = inherited
     ? <ProviderMark provider={defaultChoice?.provider ?? "claude"} />

@@ -401,10 +401,12 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
 }
 
 export function createAgent(input: Record<string, unknown>): Agent {
+  return createAgentWithId(randomUUID(), input);
+}
+
+function createAgentWithId(id: string, input: Record<string, unknown>): Agent {
   const patch = validate(input);
   if (!patch.name) throw new Error("an agent needs a name");
-  const id = randomUUID();
-  const handle = String(patch.handle);
   const created = {
     instructions: "",
     // Store inheritance rather than today's answer, so a later settings change
@@ -544,6 +546,10 @@ const PRESETS: Preset[] = [
   },
 ];
 
+function presetAgentId(preset: string): string {
+  return `remy-preset-${preset}`;
+}
+
 function presetPatch(preset: Preset): Record<string, unknown> {
   const { preset: _preset, ...patch } = preset;
   return { ...patch, gitName: preset.name };
@@ -554,6 +560,18 @@ function presetPatch(preset: Preset): Record<string, unknown> {
 /// retired Critic handoff with QA. Existing Triagers remain, but new boards do
 /// not seed one.
 export function seedPresetAgents(): void {
+  // Two machines can each seed their roster before they pair. The oldest copy
+  // wins everywhere, while fixed ids keep new machines from doing it again.
+  const groups = new Map<string, Agent[]>();
+  for (const agent of listAgents()) {
+    if (!agent.preset) continue;
+    groups.set(agent.preset, [...(groups.get(agent.preset) ?? []), agent]);
+  }
+  for (const group of groups.values()) {
+    group.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    for (const duplicate of group.slice(1)) deleteAgent(duplicate.id);
+  }
+
   const existing = listAgents().filter((agent) => agent.preset);
   const byPreset = new Map(existing.map((agent) => [agent.preset!, agent]));
   let criticMigrated = false;
@@ -586,7 +604,7 @@ export function seedPresetAgents(): void {
   for (const preset of PRESETS) {
     if (seen.has(preset.preset)) continue;
     try {
-      createAgent({ ...preset, gitName: preset.name });
+      createAgentWithId(presetAgentId(preset.preset), { ...preset, gitName: preset.name });
     } catch (error) {
       console.error(`could not seed the ${preset.name} agent:`, error);
     }
