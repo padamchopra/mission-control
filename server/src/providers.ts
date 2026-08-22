@@ -32,8 +32,7 @@ export interface Provider {
   command: string;
   models: ProviderModel[];
   /// Whether a thread on this provider can stop and ask you to allow a tool
-  /// call. Codex answers a prompt and exits, with nowhere to come back and ask,
-  /// so Remy holds it to a sandbox instead — see `codexSandbox`.
+  /// call through its bidirectional integration.
   approvals: boolean;
 }
 
@@ -58,7 +57,7 @@ export const PROVIDERS: Provider[] = [
     id: "codex",
     label: "Codex",
     command: "codex",
-    approvals: false,
+    approvals: true,
     models: [
       { value: "", label: "Default", detail: "Whatever Codex is set to." },
       { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
@@ -115,10 +114,8 @@ export function modelLabel(id: unknown, value: unknown): string {
 /// What a thread on Codex may touch, from the same permission mode a thread on
 /// Claude runs under.
 ///
-/// `codex exec` answers a prompt and exits: there is no channel for it to stop
-/// and ask on, so an approval Remy would have shown you cannot happen. Rather
-/// than quietly granting what you were going to be asked about, Ask fails
-/// closed — read-only, the same as Plan — and writing is something you choose.
+/// App-server adds the approval policy around this broad filesystem boundary;
+/// see `codexPermissions` for the exact per-turn mapping.
 export function codexSandbox(
   permissionMode: string,
 ): { sandbox: "read-only" | "workspace-write" | "danger-full-access"; approval: "never" } {

@@ -1,20 +1,11 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { codexSandbox } from "./providers.js";
 import { clip, MAX_ARG, MAX_OUTPUT, MAX_TEXT, MAX_THINK, type ConvEntry, type ConvTodo } from "./transcript.js";
 
-/// Threads that run on Codex.
-///
-/// `codex exec --experimental-json` takes a prompt on stdin, writes one JSON
-/// event per line, and exits when the turn is done. So a Codex thread is a
-/// process per turn rather than a session held open, and what carries the
-/// conversation across turns is the thread id Codex gives back — `resume <id>`
-/// picks up the transcript Codex keeps in `~/.codex/sessions`.
-///
-/// The events below are Codex's own, named as it names them. Nothing here talks
-/// to the network: it is the copy of Codex on this machine, spawned with an
-/// argument array like every other tool Remy reaches.
-
+/// The app-server shapes Remy renders. They stay deliberately smaller than the
+/// generated protocol: the installed Codex CLI is the schema authority, while
+/// Remy's feed only needs the stable fields below.
 export type CodexItem =
   | { id: string; type: "agent_message"; text: string }
   | { id: string; type: "reasoning"; text: string }
@@ -30,7 +21,7 @@ export type CodexItem =
       id: string;
       type: "file_change";
       changes: { path: string; kind: "add" | "delete" | "update" }[];
-      status: "completed" | "failed";
+      status: "in_progress" | "completed" | "failed";
     }
   | {
       id: string;
@@ -51,35 +42,29 @@ export interface CodexUsage {
   cache_write_input_tokens?: number;
   output_tokens: number;
   reasoning_output_tokens?: number;
+  context_window?: number;
 }
 
 export type CodexEvent =
   | { type: "thread.started"; thread_id: string }
   | { type: "turn.started" }
-  | { type: "turn.completed"; usage: CodexUsage }
+  | { type: "turn.completed" }
   | { type: "turn.failed"; error: { message: string } }
+  | { type: "usage.updated"; usage: CodexUsage }
   | { type: "item.started"; item: CodexItem }
   | { type: "item.updated"; item: CodexItem }
   | { type: "item.completed"; item: CodexItem }
   | { type: "error"; message: string };
 
-export interface CodexTurnOptions {
+export interface CodexSessionOptions {
   /// The `codex` executable on this machine, from `agentCommand("codex")`.
   command: string;
-  /// What to ask. It goes in on stdin, so nothing about it is ever part of a
-  /// command line.
-  prompt: string;
   cwd: string;
-  /// A Codex model slug, or empty to leave the choice to the machine's own
-  /// Codex configuration.
   model?: string;
-  /// The permission mode the thread runs under, mapped to a sandbox by
-  /// `codexSandbox`.
   permissionMode: string;
-  /// The thread to continue, absent on the first turn.
   threadId?: string;
-  /// Directories outside the workspace the turn may read, for uploads.
   additionalDirectories?: string[];
+  developerInstructions?: string;
   mcpServer?: {
     command: string;
     args: string[];
@@ -88,60 +73,528 @@ export interface CodexTurnOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/// The command line for one turn.
-///
-/// Kept separate from running it so the flags are something a test can read.
-/// The order follows Codex's own SDK: `resume` is a subcommand and comes last,
-/// after every flag it applies to.
-export function codexArgs(options: CodexTurnOptions): string[] {
-  const { sandbox, approval } = codexSandbox(options.permissionMode);
-  const args = ["exec", "--experimental-json"];
-  if (options.model) args.push("--model", options.model);
-  args.push("--sandbox", sandbox);
-  args.push("--cd", options.cwd);
-  for (const directory of options.additionalDirectories ?? []) args.push("--add-dir", directory);
-  // A thread can be started anywhere — the home directory included — and Codex
-  // otherwise refuses to run outside a repository.
-  args.push("--skip-git-repo-check");
-  // A sandbox that can write is no use to an agent that cannot fetch a
-  // dependency or push a branch. Still narrower than a thread on Claude, which
-  // runs with no sandbox at all.
-  if (sandbox === "workspace-write") args.push("--config", "sandbox_workspace_write.network_access=true");
-  args.push("--config", `approval_policy="${approval}"`);
+export interface CodexApprovalRequest {
+  kind: "command" | "file_change";
+  itemId: string;
+  command?: string;
+  cwd?: string;
+  reason?: string;
+  allowAlways: boolean;
+  signal: AbortSignal;
+}
+
+export interface CodexQuestion {
+  id: string;
+  header: string;
+  question: string;
+  options?: { label: string; description?: string }[];
+}
+
+export interface CodexQuestionRequest {
+  questions: CodexQuestion[];
+  signal: AbortSignal;
+}
+
+export type CodexApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+
+interface RpcMessage {
+  id?: number | string;
+  method?: string;
+  params?: Record<string, unknown>;
+  result?: unknown;
+  error?: { code?: number; message?: string };
+}
+
+interface PendingRequest {
+  resolve(value: unknown): void;
+  reject(error: Error): void;
+}
+
+interface ActiveTurn {
+  id?: string;
+  controller: AbortController;
+  stopped: boolean;
+  resolve(): void;
+  reject(error: Error): void;
+}
+
+export interface CodexRun {
+  /// Ends the active turn but keeps app-server alive for the next message.
+  stop(): void;
+  done: Promise<void>;
+}
+
+export interface CodexSession {
+  run(prompt: string, options?: { model?: string; permissionMode?: string }): CodexRun;
+  close(): void;
+}
+
+/// The app-server command line contains configuration keys and environment
+/// variable names, never their values. Those travel only in the child env.
+export function codexAppServerArgs(options: CodexSessionOptions): string[] {
+  const args = ["app-server", "--stdio"];
   if (options.mcpServer) {
     args.push("--config", `mcp_servers.remy.command=${JSON.stringify(options.mcpServer.command)}`);
     args.push("--config", `mcp_servers.remy.args=${JSON.stringify(options.mcpServer.args)}`);
     args.push("--config", 'mcp_servers.remy.default_tools_approval_mode="approve"');
     args.push("--config", `mcp_servers.remy.env_vars=${JSON.stringify(Object.keys(options.mcpServer.env))}`);
   }
-  if (options.threadId) args.push("resume", options.threadId);
   return args;
 }
 
-/// One line of Codex's output, or nothing when the line is not an event. Codex
-/// writes the occasional human-readable line to stdout, and a thread should not
-/// fall over because of one.
-export function parseCodexEvent(line: string): CodexEvent | undefined {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("{")) return undefined;
-  try {
-    const parsed = JSON.parse(trimmed) as { type?: unknown };
-    return typeof parsed.type === "string" ? (parsed as CodexEvent) : undefined;
-  } catch {
-    return undefined;
+export function codexPermissions(permissionMode: string, roots: string[]): {
+  sandbox: "read-only" | "workspace-write" | "danger-full-access";
+  approvalPolicy: "on-request" | "never";
+  sandboxPolicy:
+    | { type: "readOnly"; networkAccess: false }
+    | { type: "workspaceWrite"; writableRoots: string[]; networkAccess: boolean; excludeTmpdirEnvVar: false; excludeSlashTmp: false }
+    | { type: "dangerFullAccess" };
+} {
+  const { sandbox } = codexSandbox(permissionMode);
+  if (sandbox === "danger-full-access") {
+    return { sandbox, approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } };
+  }
+  if (sandbox === "workspace-write") {
+    return {
+      sandbox,
+      approvalPolicy: permissionMode === "acceptEdits" ? "on-request" : "never",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: roots,
+        networkAccess: true,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    };
+  }
+  if (permissionMode === "default") {
+    return {
+      sandbox: "workspace-write",
+      approvalPolicy: "on-request",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: roots,
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    };
+  }
+  return { sandbox, approvalPolicy: "never", sandboxPolicy: { type: "readOnly", networkAccess: false } };
+}
+
+/// Opens one long-lived app-server connection for a Remy thread. Turns still
+/// finish one at a time, but approvals, interruption, and later steering all
+/// share the same bidirectional JSON-RPC channel.
+export function createCodexSession(
+  options: CodexSessionOptions,
+  onEvent: (event: CodexEvent) => void,
+  onApproval?: (request: CodexApprovalRequest) => Promise<CodexApprovalDecision>,
+  onQuestion?: (request: CodexQuestionRequest) => Promise<Record<string, string[]>>,
+): CodexSession {
+  return new AppServerSession(options, onEvent, onApproval, onQuestion);
+}
+
+class AppServerSession implements CodexSession {
+  private child: ChildProcessWithoutNullStreams;
+  private nextId = 1;
+  private requests = new Map<number | string, PendingRequest>();
+  private items = new Map<string, CodexItem>();
+  private active?: ActiveTurn;
+  private threadId?: string;
+  private closed = false;
+  private stderr: string[] = [];
+  private ready: Promise<void>;
+
+  constructor(
+    private options: CodexSessionOptions,
+    private onEvent: (event: CodexEvent) => void,
+    private onApproval?: (request: CodexApprovalRequest) => Promise<CodexApprovalDecision>,
+    private onQuestion?: (request: CodexQuestionRequest) => Promise<Record<string, string[]>>,
+  ) {
+    this.child = spawn(options.command, codexAppServerArgs(options), {
+      cwd: options.cwd,
+      env: { ...process.env, ...options.env, ...options.mcpServer?.env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    this.child.stderr.setEncoding("utf8");
+    this.child.stderr.on("data", (chunk: string) => {
+      this.stderr.push(chunk);
+      if (this.stderr.length > 40) this.stderr.splice(0, this.stderr.length - 40);
+    });
+    const reader = createInterface({ input: this.child.stdout, crlfDelay: Infinity });
+    reader.on("line", (line) => this.receive(line));
+    this.child.once("error", (error) => this.fail(new Error(`Codex could not be started: ${error.message}`)));
+    this.child.once("exit", (code, signal) => {
+      if (this.closed) return;
+      const tail = this.stderr.join("").trim().split("\n").filter(Boolean).pop();
+      const detail = tail || (signal ? `Codex stopped with ${signal}.` : `Codex exited with code ${code ?? 1}.`);
+      this.fail(new Error(detail));
+    });
+    this.ready = this.initialize();
+    this.ready.catch(() => {});
+  }
+
+  run(prompt: string, overrides: { model?: string; permissionMode?: string } = {}): CodexRun {
+    if (this.active) throw new Error("Codex is already running a turn.");
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const done = new Promise<void>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    const active: ActiveTurn = { controller: new AbortController(), stopped: false, resolve, reject };
+    this.active = active;
+    void this.ready.then(async () => {
+      if (active.stopped || this.closed) {
+        this.finish(active);
+        return;
+      }
+      const permissionMode = overrides.permissionMode ?? this.options.permissionMode;
+      const roots = [this.options.cwd, ...(this.options.additionalDirectories ?? [])];
+      const permissions = codexPermissions(permissionMode, [this.options.cwd]);
+      const chosenModel = overrides.model ?? this.options.model;
+      const result = asRecord(await this.request("turn/start", {
+        threadId: this.threadId,
+        input: [{ type: "text", text: prompt }],
+        cwd: this.options.cwd,
+        ...(chosenModel ? { model: chosenModel } : {}),
+        approvalPolicy: permissions.approvalPolicy,
+        sandboxPolicy: permissions.sandboxPolicy,
+        runtimeWorkspaceRoots: roots,
+      }));
+      const turn = asRecord(result.turn);
+      if (typeof turn.id === "string") active.id = turn.id;
+      if (active.stopped && active.id) {
+        await this.request("turn/interrupt", { threadId: this.threadId, turnId: active.id }).catch(() => {});
+      }
+    }).catch((error) => this.failTurn(active, error));
+    return {
+      stop: () => {
+        if (active.stopped) return;
+        active.stopped = true;
+        active.controller.abort();
+        if (!active.id || !this.threadId) return;
+        void this.request("turn/interrupt", { threadId: this.threadId, turnId: active.id }).catch(() => {});
+      },
+      done,
+    };
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.active?.controller.abort();
+    this.active?.resolve();
+    this.active = undefined;
+    for (const pending of this.requests.values()) pending.reject(new Error("Codex session stopped."));
+    this.requests.clear();
+    this.child.kill("SIGTERM");
+  }
+
+  private async initialize(): Promise<void> {
+    await this.request("initialize", {
+      clientInfo: { name: "remy", title: "Remy", version: "0.1.0" },
+      capabilities: { experimentalApi: true },
+    });
+    this.notify("initialized", {});
+    const roots = [this.options.cwd, ...(this.options.additionalDirectories ?? [])];
+    const permissions = codexPermissions(this.options.permissionMode, [this.options.cwd]);
+    const common = {
+      cwd: this.options.cwd,
+      ...(this.options.model ? { model: this.options.model } : {}),
+      ...(this.options.developerInstructions ? { developerInstructions: this.options.developerInstructions } : {}),
+      approvalPolicy: permissions.approvalPolicy,
+      sandbox: permissions.sandbox,
+      runtimeWorkspaceRoots: roots,
+    };
+    let result: Record<string, unknown>;
+    if (this.options.threadId) {
+      try {
+        result = asRecord(await this.request("thread/resume", { threadId: this.options.threadId, ...common }));
+      } catch {
+        result = asRecord(await this.request("thread/start", common));
+      }
+    } else {
+      result = asRecord(await this.request("thread/start", common));
+    }
+    const thread = asRecord(result.thread);
+    if (typeof thread.id !== "string" || !thread.id) throw new Error("Codex did not return a thread id.");
+    this.threadId = thread.id;
+    this.onEvent({ type: "thread.started", thread_id: thread.id });
+  }
+
+  private request(method: string, params: Record<string, unknown>): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error("Codex session stopped."));
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.requests.set(id, { resolve, reject });
+      this.write({ id, method, params });
+    });
+  }
+
+  private notify(method: string, params: Record<string, unknown>): void {
+    this.write({ method, params });
+  }
+
+  private write(message: RpcMessage): void {
+    this.child.stdin.write(`${JSON.stringify(message)}\n`);
+  }
+
+  private receive(line: string): void {
+    let message: RpcMessage;
+    try {
+      message = JSON.parse(line) as RpcMessage;
+    } catch {
+      return;
+    }
+    if (message.id !== undefined && !message.method) {
+      const pending = this.requests.get(message.id);
+      if (!pending) return;
+      this.requests.delete(message.id);
+      if (message.error) pending.reject(new Error(message.error.message || "Codex request failed."));
+      else pending.resolve(message.result);
+      return;
+    }
+    if (message.id !== undefined && message.method) {
+      void this.serverRequest(message);
+      return;
+    }
+    if (message.method) this.notification(message.method, message.params ?? {});
+  }
+
+  private async serverRequest(message: RpcMessage): Promise<void> {
+    const id = message.id!;
+    const params = message.params ?? {};
+    try {
+      if (message.method === "item/commandExecution/requestApproval") {
+        const available = Array.isArray(params.availableDecisions) ? params.availableDecisions : [];
+        const decision = await this.onApproval?.({
+          kind: "command",
+          itemId: String(params.itemId ?? ""),
+          command: stringValue(params.command),
+          cwd: stringValue(params.cwd),
+          reason: stringValue(params.reason),
+          allowAlways: available.includes("acceptForSession"),
+          signal: this.active?.controller.signal ?? AbortSignal.abort(),
+        }) ?? "decline";
+        this.write({ id, result: { decision } });
+        return;
+      }
+      if (message.method === "item/fileChange/requestApproval") {
+        const decision = await this.onApproval?.({
+          kind: "file_change",
+          itemId: String(params.itemId ?? ""),
+          reason: stringValue(params.reason),
+          allowAlways: true,
+          signal: this.active?.controller.signal ?? AbortSignal.abort(),
+        }) ?? "decline";
+        this.write({ id, result: { decision } });
+        return;
+      }
+      if (message.method === "item/tool/requestUserInput") {
+        const questions = Array.isArray(params.questions)
+          ? params.questions.flatMap((value): CodexQuestion[] => {
+              const question = asRecord(value);
+              if (typeof question.id !== "string" || typeof question.question !== "string") return [];
+              const options = Array.isArray(question.options)
+                ? question.options.flatMap((option): { label: string; description?: string }[] => {
+                    const row = asRecord(option);
+                    return typeof row.label === "string"
+                      ? [{ label: row.label, ...(typeof row.description === "string" ? { description: row.description } : {}) }]
+                      : [];
+                  })
+                : undefined;
+              return [{
+                id: question.id,
+                header: stringValue(question.header) ?? "Question",
+                question: question.question,
+                ...(options?.length ? { options } : {}),
+              }];
+            })
+          : [];
+        const answers = await this.onQuestion?.({
+          questions,
+          signal: this.active?.controller.signal ?? AbortSignal.abort(),
+        }) ?? {};
+        this.write({
+          id,
+          result: { answers: Object.fromEntries(Object.entries(answers).map(([key, value]) => [key, { answers: value }])) },
+        });
+        return;
+      }
+      this.write({ id, error: { code: -32601, message: `Remy does not handle ${message.method}.` } });
+    } catch (error) {
+      this.write({ id, error: { code: -32000, message: errorMessage(error) } });
+    }
+  }
+
+  private notification(method: string, params: Record<string, unknown>): void {
+    if (this.threadId && typeof params.threadId === "string" && params.threadId !== this.threadId) return;
+    if (method === "turn/started") {
+      const turn = asRecord(params.turn);
+      if (this.active && typeof turn.id === "string") this.active.id = turn.id;
+      this.onEvent({ type: "turn.started" });
+      return;
+    }
+    if (method === "turn/completed") {
+      const turn = asRecord(params.turn);
+      const active = this.active;
+      if (!active) return;
+      if (turn.status === "failed") {
+        const error = asRecord(turn.error);
+        this.onEvent({ type: "turn.failed", error: { message: stringValue(error.message) ?? "the turn failed" } });
+      } else {
+        this.onEvent({ type: "turn.completed" });
+      }
+      this.finish(active);
+      return;
+    }
+    if (method === "thread/tokenUsage/updated") {
+      const tokenUsage = asRecord(params.tokenUsage);
+      const last = asRecord(tokenUsage.last);
+      this.onEvent({
+        type: "usage.updated",
+        usage: {
+          input_tokens: numberValue(last.inputTokens),
+          cached_input_tokens: numberValue(last.cachedInputTokens),
+          cache_write_input_tokens: numberValue(last.cacheWriteInputTokens),
+          output_tokens: numberValue(last.outputTokens),
+          reasoning_output_tokens: numberValue(last.reasoningOutputTokens),
+          ...(typeof tokenUsage.modelContextWindow === "number" ? { context_window: tokenUsage.modelContextWindow } : {}),
+        },
+      });
+      return;
+    }
+    if (method === "turn/plan/updated") {
+      const plan = Array.isArray(params.plan) ? params.plan : [];
+      this.onEvent({
+        type: "item.updated",
+        item: {
+          id: `plan-${String(params.turnId ?? "current")}`,
+          type: "todo_list",
+          items: plan.flatMap((value): { text: string; completed: boolean }[] => {
+            const row = asRecord(value);
+            return typeof row.step === "string" ? [{ text: row.step, completed: row.status === "completed" }] : [];
+          }),
+        },
+      });
+      return;
+    }
+    if (method === "item/started" || method === "item/completed") {
+      const item = toCodexItem(params.item);
+      if (!item) return;
+      this.items.set(item.id, item);
+      this.onEvent({ type: method === "item/started" ? "item.started" : "item.completed", item });
+      return;
+    }
+    if (method === "item/agentMessage/delta") {
+      this.appendDelta(String(params.itemId ?? ""), stringValue(params.delta) ?? "", "agent_message");
+      return;
+    }
+    if (method === "item/reasoning/summaryTextDelta") {
+      this.appendDelta(String(params.itemId ?? ""), stringValue(params.delta) ?? "", "reasoning");
+      return;
+    }
+    if (method === "item/commandExecution/outputDelta") {
+      this.appendDelta(String(params.itemId ?? ""), stringValue(params.delta) ?? "", "command_execution");
+      return;
+    }
+    if (method === "error") {
+      if (params.willRetry === true) return;
+      const error = asRecord(params.error);
+      this.onEvent({ type: "error", message: stringValue(error.message) ?? "Codex failed." });
+    }
+  }
+
+  private appendDelta(id: string, delta: string, kind: "agent_message" | "reasoning" | "command_execution"): void {
+    const existing = this.items.get(id);
+    if (!existing || existing.type !== kind || !delta) return;
+    let item: CodexItem;
+    if (existing.type === "agent_message") item = { ...existing, text: existing.text + delta };
+    else if (existing.type === "reasoning") item = { ...existing, text: existing.text + delta };
+    else item = { ...existing, aggregated_output: (existing.aggregated_output ?? "") + delta };
+    this.items.set(id, item);
+    this.onEvent({ type: "item.updated", item });
+  }
+
+  private finish(active: ActiveTurn): void {
+    if (this.active !== active) return;
+    this.active = undefined;
+    active.resolve();
+  }
+
+  private failTurn(active: ActiveTurn, error: unknown): void {
+    if (this.active === active) this.active = undefined;
+    active.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private fail(error: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const pending of this.requests.values()) pending.reject(error);
+    this.requests.clear();
+    if (this.active) {
+      this.active.controller.abort();
+      this.active.reject(error);
+      this.active = undefined;
+    }
   }
 }
 
-/// What one Codex item looks like in Remy's feed. Codex's own id carries
-/// through, so an item that starts, updates and completes is one entry that
-/// fills in rather than three.
-///
-/// `turn` is prefixed onto that id, because Codex numbers items within a turn
-/// and a turn is a process: without it a second turn's first item would land on
-/// top of the first turn's, and the feed would lose a reply rather than gain one.
-///
-/// Returns nothing for the items Remy renders elsewhere: a to-do list is the
-/// thread's plan, not a line in its transcript.
+function toCodexItem(value: unknown): CodexItem | undefined {
+  const item = asRecord(value);
+  const id = stringValue(item.id);
+  const type = stringValue(item.type);
+  if (!id || !type) return undefined;
+  if (type === "agentMessage") return { id, type: "agent_message", text: stringValue(item.text) ?? "" };
+  if (type === "plan") return { id, type: "agent_message", text: stringValue(item.text) ?? "" };
+  if (type === "reasoning") {
+    const summary = Array.isArray(item.summary) ? item.summary.filter((part): part is string => typeof part === "string") : [];
+    const content = Array.isArray(item.content) ? item.content.filter((part): part is string => typeof part === "string") : [];
+    return { id, type: "reasoning", text: [...summary, ...content].join("\n") };
+  }
+  if (type === "commandExecution") {
+    const status = item.status === "inProgress" ? "in_progress" : item.status === "completed" ? "completed" : "failed";
+    return {
+      id,
+      type: "command_execution",
+      command: stringValue(item.command) ?? "",
+      status,
+      ...(typeof item.aggregatedOutput === "string" ? { aggregated_output: item.aggregatedOutput } : {}),
+      ...(typeof item.exitCode === "number" ? { exit_code: item.exitCode } : {}),
+    };
+  }
+  if (type === "fileChange") {
+    const status = item.status === "inProgress" ? "in_progress" : item.status === "completed" ? "completed" : "failed";
+    const changes = Array.isArray(item.changes)
+      ? item.changes.flatMap((value): { path: string; kind: "add" | "delete" | "update" }[] => {
+          const change = asRecord(value);
+          if (typeof change.path !== "string") return [];
+          const kind = change.kind === "add" || change.kind === "delete" ? change.kind : "update";
+          return [{ path: change.path, kind }];
+        })
+      : [];
+    return { id, type: "file_change", changes, status };
+  }
+  if (type === "mcpToolCall" || type === "dynamicToolCall") {
+    const status = item.status === "inProgress" ? "in_progress" : item.status === "completed" ? "completed" : "failed";
+    const error = asRecord(item.error);
+    return {
+      id,
+      type: "mcp_tool_call",
+      server: stringValue(item.server) ?? stringValue(item.namespace) ?? "remy",
+      tool: stringValue(item.tool) ?? "tool",
+      arguments: item.arguments,
+      ...(typeof error.message === "string" ? { error: { message: error.message } } : {}),
+      status,
+    };
+  }
+  if (type === "webSearch") return { id, type: "web_search", query: stringValue(item.query) ?? "" };
+  return undefined;
+}
+
+/// What one Codex item looks like in Remy's provider-neutral feed.
 export function codexEntry(item: CodexItem, turn = ""): ConvEntry | undefined {
   const id = `${turn}${item.id}`;
   switch (item.type) {
@@ -150,13 +603,7 @@ export function codexEntry(item: CodexItem, turn = ""): ConvEntry | undefined {
     case "reasoning":
       return { id, kind: "thinking", text: clip(item.text ?? "", MAX_THINK) };
     case "command_execution": {
-      const entry: ConvEntry = {
-        id,
-        kind: "tool",
-        tool: "Bash",
-        verb: "Ran",
-        arg: clip(item.command ?? "", MAX_ARG),
-      };
+      const entry: ConvEntry = { id, kind: "tool", tool: "Bash", verb: "Ran", arg: clip(item.command ?? "", MAX_ARG) };
       if (item.status !== "in_progress") entry.status = item.status === "failed" || item.exit_code ? "error" : "ok";
       const output = item.aggregated_output?.trim();
       if (output) entry.output = clip(output, MAX_OUTPUT);
@@ -171,32 +618,19 @@ export function codexEntry(item: CodexItem, turn = ""): ConvEntry | undefined {
         tool: "Edit",
         verb: changes.length > 1 ? "Edited" : verbFor(changes[0]?.kind),
         arg: changes.length > 1 ? `${changes.length} files` : base(first),
-        status: item.status === "failed" ? "error" : "ok",
       };
+      if (item.status !== "in_progress") entry.status = item.status === "failed" ? "error" : "ok";
       if (changes.length === 1 && first) entry.file = first;
       return entry;
     }
     case "mcp_tool_call": {
-      const entry: ConvEntry = {
-        id,
-        kind: "tool",
-        tool: `${item.server}.${item.tool}`,
-        verb: "Called",
-        arg: clip(item.tool ?? "", MAX_ARG),
-      };
+      const entry: ConvEntry = { id, kind: "tool", tool: `${item.server}.${item.tool}`, verb: "Called", arg: clip(item.tool ?? "", MAX_ARG) };
       if (item.status !== "in_progress") entry.status = item.status === "failed" ? "error" : "ok";
       if (item.error?.message) entry.output = clip(item.error.message, MAX_OUTPUT);
       return entry;
     }
     case "web_search":
-      return {
-        id,
-        kind: "tool",
-        tool: "WebSearch",
-        verb: "Searched web",
-        arg: clip(item.query ?? "", MAX_ARG),
-        status: "ok",
-      };
+      return { id, kind: "tool", tool: "WebSearch", verb: "Searched web", arg: clip(item.query, MAX_ARG), status: "ok" };
     case "error":
       return { id, kind: "assistant", text: `⚠️ ${clip(item.message ?? "", MAX_TEXT)}` };
     default:
@@ -204,20 +638,45 @@ export function codexEntry(item: CodexItem, turn = ""): ConvEntry | undefined {
   }
 }
 
-/// Codex's plan, in the shape Remy's own plan panel reads.
 export function codexTodos(item: CodexItem): ConvTodo[] {
   if (item.type !== "todo_list") return [];
-  return (item.items ?? []).map((todo) => ({
-    content: clip(todo.text ?? "", MAX_ARG),
-    status: todo.completed ? "completed" : "pending",
-  }));
+  return (item.items ?? []).map((todo) => ({ content: todo.text, status: todo.completed ? "completed" : "pending" }));
 }
 
-/// How full the window is, from what the turn reported. Codex counts the cached
-/// part of the prompt separately, and both halves are occupying the window.
 export function codexTokens(usage: CodexUsage | undefined): number {
   if (!usage) return 0;
   return num(usage.input_tokens) + num(usage.cached_input_tokens);
+}
+
+/// One small read-only answer for Remy's own background work, such as naming a
+/// new thread. It still uses app-server, but closes the connection after one
+/// turn rather than keeping a chat behind it.
+export async function codexAnswer(options: {
+  command: string;
+  prompt: string;
+  cwd: string;
+  model?: string;
+  timeoutMs: number;
+}): Promise<string> {
+  let answer = "";
+  const session = createCodexSession(
+    { ...options, permissionMode: "plan" },
+    (event) => {
+      if (event.type === "item.completed" && event.item.type === "agent_message") {
+        answer += event.item.text;
+      }
+    },
+  );
+  const run = session.run(options.prompt, { model: options.model, permissionMode: "plan" });
+  const timer = setTimeout(() => run.stop(), options.timeoutMs);
+  timer.unref?.();
+  try {
+    await run.done;
+    return answer;
+  } finally {
+    clearTimeout(timer);
+    session.close();
+  }
 }
 
 function num(value: unknown): number {
@@ -235,93 +694,18 @@ function base(path: string | undefined): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export interface CodexRun {
-  /// Ends the turn. Codex leaves the transcript behind, so the next message
-  /// resumes what it managed before it was stopped.
-  stop(): void;
-  /// Settles when the process is gone: rejects with what Codex said when the
-  /// turn failed, resolves otherwise.
-  done: Promise<void>;
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-/// Runs one turn, calling `onEvent` for each event as it arrives.
-export function runCodexTurn(
-  options: CodexTurnOptions,
-  onEvent: (event: CodexEvent) => void,
-): CodexRun {
-  const child = spawn(options.command, codexArgs(options), {
-    cwd: options.cwd,
-    env: { ...process.env, ...options.env, ...options.mcpServer?.env },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  let stopped = false;
-  const stderr: string[] = [];
-  child.stderr?.setEncoding("utf8");
-  child.stderr?.on("data", (chunk: string) => {
-    stderr.push(chunk);
-    // Keep the tail only: a failed turn needs the last thing Codex said, not
-    // every progress line it wrote on the way there.
-    if (stderr.length > 40) stderr.splice(0, stderr.length - 40);
-  });
-
-  const reader = createInterface({ input: child.stdout!, crlfDelay: Infinity });
-  reader.on("line", (line) => {
-    const event = parseCodexEvent(line);
-    if (event) onEvent(event);
-  });
-
-  // Both, in this order. `exit` can arrive while the last lines are still
-  // buffered, so a turn that only waited for it would drop the reply it was
-  // waiting for; readline's `close` is what says every line has been handled.
-  const drained = new Promise<void>((resolve) => reader.once("close", resolve));
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-    child.once("error", (error) => reject(new Error(`Codex could not be started: ${error.message}`)));
-    child.once("exit", (code, signal) => resolve({ code, signal }));
-  });
-  const done = (async () => {
-    const { code, signal } = await exited;
-    await drained;
-    if (stopped || signal) return;
-    if (code === 0) return;
-    const detail = stderr.join("").trim().split("\n").filter(Boolean).pop();
-    throw new Error(detail || `Codex exited with code ${code ?? 1}.`);
-  })();
-
-  child.stdin?.on("error", () => {
-    // Codex that died before reading the prompt is reported by `done`.
-  });
-  child.stdin?.end(options.prompt);
-
-  return {
-    stop() {
-      stopped = true;
-      child.kill("SIGTERM");
-      // A killed child's stdout may never end on its own, and a turn nobody is
-      // reading must not leave `done` hanging.
-      reader.close();
-    },
-    done,
-  };
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/// One question, one answer, no thread kept. This is what Remy's own small jobs
-/// run on when they run on Codex — read-only, in the home directory, and given
-/// up on rather than waited for.
-export async function codexAnswer(
-  options: Omit<CodexTurnOptions, "permissionMode" | "threadId"> & { timeoutMs: number },
-): Promise<string> {
-  let answer = "";
-  const run = runCodexTurn({ ...options, permissionMode: "plan" }, (event) => {
-    if (event.type !== "item.completed") return;
-    if (event.item.type === "agent_message") answer += event.item.text ?? "";
-  });
-  const timer = setTimeout(() => run.stop(), options.timeoutMs);
-  timer.unref?.();
-  try {
-    await run.done;
-    return answer;
-  } finally {
-    clearTimeout(timer);
-  }
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -107,9 +107,8 @@ export async function suggestName(
   return answer ? parse(answer) : undefined;
 }
 
-/// Codex has no system prompt to hand instructions to, so they go in front of
-/// the request. Read-only in the home directory, like the Claude side: this is
-/// a naming call and it has no business reading the repository.
+/// Read-only in the home directory, like the Claude side: this is a naming call
+/// and it has no business reading the repository.
 async function nameWithCodex(request: string, model: string): Promise<string | undefined> {
   try {
     return await codexAnswer({

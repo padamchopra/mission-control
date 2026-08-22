@@ -20,9 +20,12 @@ import {
   codexEntry,
   codexTodos,
   codexTokens,
-  runCodexTurn,
+  createCodexSession,
+  type CodexApprovalRequest,
   type CodexEvent,
+  type CodexQuestionRequest,
   type CodexRun,
+  type CodexSession,
 } from "./codex.js";
 import { providerId, providerModel, provider as providerOf, type ProviderId } from "./providers.js";
 import {
@@ -70,12 +73,10 @@ import { nameDetachedWorktree } from "./workspaces.js";
 // session, so approvals and questions have to be answered here rather than by
 // driving a cursor.
 //
-// A thread runs on one of two providers, and they are shaped differently.
-// Claude is a session held open through the Agent SDK: one process across many
-// turns, which can stop mid-turn and ask. Codex is a process per turn that
-// answers a prompt and exits, resumed by the thread id it hands back, with
-// nowhere to come back and ask — so it runs inside a sandbox instead. Both land
-// in the same feed, so a client renders one vocabulary either way.
+// A thread runs on one of two providers, and both now keep a bidirectional
+// process open across turns: Claude through the Agent SDK, Codex through
+// app-server. Their native events still differ, so both land in the same feed
+// vocabulary before a client sees them.
 
 export type ChatState = "idle" | "working" | "needs_input" | "error";
 export type ChatPermissionMode =
@@ -287,14 +288,15 @@ class Chat {
   question?: ChatQuestionRequest;
 
   private live?: { query: Query; queue: PromptQueue };
-  /// The Codex turn running now, and the prompts typed while it runs. Codex
-  /// takes one prompt per process, so a second message waits its turn rather
-  /// than joining the one in flight.
+  /// One app-server connection per thread, plus the turn running on it. A
+  /// second message waits its turn rather than joining the one in flight.
+  private codexSession?: CodexSession;
   private codex?: CodexRun;
+  private codexDrain?: Promise<void>;
   private codexQueue: string[] = [];
-  /// What the turn running now prefixes its entry ids with. Codex numbers its
-  /// items within a turn, and a turn is a process, so without this the second
-  /// turn would write over the first.
+  /// What the turn running now prefixes its entry ids with. Item ids are only
+  /// meaningful within their originating Codex turn, so this keeps later turns
+  /// from writing over earlier transcript entries.
   private codexTurnId = "";
   private pending = new Map<string, (result: PermissionResult) => void>();
   private byToolUseId = new Map<string, ConvEntry>();
@@ -323,7 +325,7 @@ class Chat {
   }
 
   get isLive(): boolean {
-    return this.live !== undefined || this.codex !== undefined;
+    return this.live !== undefined || this.codexSession !== undefined || this.codexDrain !== undefined;
   }
 
   get state(): ChatState {
@@ -409,7 +411,12 @@ class Chat {
       // A turn already running keeps the prompt until it finishes; nothing is
       // lost and the order is the order they were typed in.
       this.codexQueue.push(agentPrompt);
-      if (!this.codex) void this.drainCodex();
+      if (!this.codexDrain) {
+        const drain = this.drainCodex().finally(() => {
+          if (this.codexDrain === drain) this.codexDrain = undefined;
+        });
+        this.codexDrain = drain;
+      }
       this.push();
       this.persist();
       return;
@@ -490,6 +497,8 @@ class Chat {
     this.settlePending("Session stopped.");
     this.codexQueue = [];
     this.codex?.stop();
+    this.codexSession?.close();
+    this.codexSession = undefined;
     const live = this.live;
     // Closing the prompt stream only ends the session once the current turn
     // finishes, so interrupt first when one is running.
@@ -504,7 +513,7 @@ class Chat {
   }
 
   maybeReap(): void {
-    if (!this.live || this.state !== "idle") return;
+    if ((!this.live && !this.codexSession) || this.state !== "idle") return;
     if (nowMs() - this.lastActivity < IDLE_SHUTDOWN_MS) return;
     this.stop();
   }
@@ -858,16 +867,18 @@ class Chat {
   }
 
   /// How full the window is, from whichever provider just reported it.
-  private noteTokens(tokens: number, model?: string): void {
+  private noteTokens(tokens: number, model?: string, exactLimit?: number): void {
     if (tokens <= 0) return;
     if (tokens > this.peakTokens) this.peakTokens = tokens;
     // A window bigger than the configured one proves the session is running a
     // long-context variant, the same inference the transcript meter makes.
-    const limit = this.peakTokens > config.contextLimit ? 1_000_000 : config.contextLimit;
+    const limit = exactLimit && exactLimit > 0
+      ? exactLimit
+      : this.peakTokens > config.contextLimit ? 1_000_000 : config.contextLimit;
     this.record.context = {
       tokens,
       limit,
-      limitEstimated: true,
+      limitEstimated: !exactLimit,
       model: model ?? this.record.context?.model,
       compactions: this.compactions,
       droppedTokens: this.record.context?.droppedTokens ?? 0,
@@ -883,6 +894,12 @@ class Chat {
   /// thread moved back resumes the session it left.
   switchProvider(next: ProviderId): void {
     if (next === this.record.provider) return;
+    if (this.record.provider === "codex") {
+      this.codex?.stop();
+      this.codexSession?.close();
+      this.codex = undefined;
+      this.codexSession = undefined;
+    }
     this.record.provider = next;
     // A model belongs to a provider, so it does not travel with the thread.
     this.record.model = undefined;
@@ -895,7 +912,7 @@ class Chat {
 
   // ── the Codex turn ───────────────────────────────────────────────────────
 
-  /// Runs the queued prompts, one process each, until there are none left.
+  /// Runs queued prompts one at a time on the thread's app-server connection.
   private async drainCodex(): Promise<void> {
     while (this.codexQueue.length > 0 && !this.deleted) {
       const prompt = this.codexQueue.shift()!;
@@ -910,18 +927,17 @@ class Chat {
     this.codexTurnId = `${randomUUID().slice(0, 8)}-`;
     let run: CodexRun;
     try {
-      run = runCodexTurn(
+      this.codexSession ??= createCodexSession(
         {
           // Absent Codex is a message, not a crash: the thread keeps its feed
           // and says what is missing.
           command: agentCommand("codex")!,
-          prompt: this.codexPrompt(prompt, agent),
           cwd: this.record.cwd,
           ...(this.record.model ? { model: this.record.model } : {}),
           permissionMode: this.record.permissionMode,
           ...(this.record.codexThreadId ? { threadId: this.record.codexThreadId } : {}),
-          // Uploaded media is referenced by path in the message that carries it.
           additionalDirectories: [uploadRoot],
+          ...(agent?.instructions.trim() ? { developerInstructions: agent.instructions.trim() } : {}),
           mcpServer: {
             command: process.execPath,
             args: [ticketMcpPath],
@@ -942,7 +958,13 @@ class Chat {
             console.error("codex event handling failed:", error);
           }
         },
+        (request) => this.codexApproval(request),
+        (request) => this.codexQuestion(request),
       );
+      run = this.codexSession.run(prompt, {
+        ...(this.record.model ? { model: this.record.model } : {}),
+        permissionMode: this.record.permissionMode,
+      });
     } catch (error) {
       this.failTurn(error);
       return;
@@ -973,15 +995,6 @@ class Chat {
     this.notifyTurnEnd().catch(() => {});
   }
 
-  /// The prompt Codex is given. An agent's instructions go in front of the
-  /// first turn: `codex exec` has no system prompt to append them to, and the
-  /// turns after the first inherit them from the transcript it resumes.
-  private codexPrompt(prompt: string, agent?: Agent): string {
-    const instructions = agent?.instructions.trim();
-    if (!instructions || this.record.codexThreadId) return prompt;
-    return `${instructions}\n\n---\n\n${prompt}`;
-  }
-
   private handleCodexEvent(event: CodexEvent): void {
     this.lastActivity = nowMs();
     switch (event.type) {
@@ -999,7 +1012,9 @@ class Chat {
         this.push();
         return;
       case "turn.completed":
-        this.noteTokens(codexTokens(event.usage), this.record.model);
+        return;
+      case "usage.updated":
+        this.noteTokens(codexTokens(event.usage), this.record.model, event.usage.context_window);
         return;
       case "turn.failed":
         this.recordFailure(event.error?.message ?? "the turn failed");
@@ -1046,6 +1061,8 @@ class Chat {
   /// A turn that could not run at all — Codex missing, or the process dying.
   private failTurn(error: unknown): void {
     if (this.codex) this.codex = undefined;
+    this.codexSession?.close();
+    this.codexSession = undefined;
     const message = error instanceof Error ? error.message : String(error);
     this.recordFailure(message);
     this.state = "error";
@@ -1079,7 +1096,18 @@ class Chat {
     if (tool.startsWith("mcp__remy__")) {
       return Promise.resolve({ behavior: "allow", updatedInput: input });
     }
+    return this.requestToolApproval(tool, input, {
+      signal: options.signal,
+      title: options.title,
+      reason: options.decisionReason,
+    });
+  }
 
+  private requestToolApproval(
+    tool: string,
+    input: Record<string, unknown>,
+    options: { signal: AbortSignal; title?: string; reason?: string; allowAlways?: boolean },
+  ): Promise<PermissionResult> {
     const requestId = randomUUID();
     const described = describeTool(tool, input);
     const diff = buildDiff(tool, input);
@@ -1090,11 +1118,11 @@ class Chat {
       verb: described.verb,
       arg: described.arg,
       ...(options.title ? { title: options.title } : {}),
-      ...(options.decisionReason ? { reason: options.decisionReason } : {}),
+      ...(options.reason ? { reason: options.reason } : {}),
       ...(described.file ? { file: described.file } : {}),
       ...(diff.length ? { diff } : {}),
       ...(plan ? { plan: clip(plan, 4000) } : {}),
-      allowAlways: tool !== "ExitPlanMode",
+      allowAlways: options.allowAlways ?? tool !== "ExitPlanMode",
       at: nowMs(),
     };
     this.approval = approval;
@@ -1110,6 +1138,44 @@ class Chat {
     return this.park(requestId, options.signal, () => {
       if (this.approval?.requestId === requestId) this.approval = undefined;
     });
+  }
+
+  private async codexApproval(request: CodexApprovalRequest): Promise<"accept" | "acceptForSession" | "decline"> {
+    const entry = this.byId.get(`${this.codexTurnId}${request.itemId}`);
+    const tool = request.kind === "command" ? "Bash" : "Edit";
+    const input = request.kind === "command"
+      ? { command: request.command ?? "" }
+      : { file_path: entry?.file ?? this.record.cwd };
+    const result = await this.requestToolApproval(tool, input, {
+      signal: request.signal,
+      reason: request.reason,
+      allowAlways: request.allowAlways,
+    });
+    if (result.behavior !== "allow") return "decline";
+    return result.updatedPermissions?.length ? "acceptForSession" : "accept";
+  }
+
+  private async codexQuestion(request: CodexQuestionRequest): Promise<Record<string, string[]>> {
+    const result = await this.askUserQuestion({
+      questions: request.questions.map((question) => ({
+        header: question.header,
+        question: question.question,
+        multiSelect: false,
+        options: question.options ?? [],
+      })),
+    }, request.signal);
+    if (result.behavior !== "allow") return {};
+    const updated = result.updatedInput && typeof result.updatedInput === "object"
+      ? result.updatedInput as Record<string, unknown>
+      : {};
+    const answers = updated.answers && typeof updated.answers === "object"
+      ? updated.answers as Record<string, unknown>
+      : {};
+    return Object.fromEntries(request.questions.map((question) => {
+      const answer = answers[question.question];
+      if (Array.isArray(answer)) return [question.id, answer.filter((value): value is string => typeof value === "string")];
+      return [question.id, typeof answer === "string" ? [answer] : []];
+    }));
   }
 
   private askUserQuestion(input: Record<string, unknown>, signal: AbortSignal): Promise<PermissionResult> {

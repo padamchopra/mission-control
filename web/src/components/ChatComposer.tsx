@@ -110,9 +110,6 @@ export function ChatComposer({
   const DeviceIcon = deviceIcon(server?.icon);
   const canSend = Boolean(text.trim() && server && !busy);
   const provider = useProvider(choice.provider);
-  // A provider that answers and exits has nowhere to stop and ask, so Ask means
-  // something narrower there than it does on Claude. Said once, where the mode
-  // is chosen, rather than left to be discovered.
   const asks = provider?.approvals !== false;
   const providerName = provider?.label ?? "This provider";
   const permission = permissionOf(permissionMode);

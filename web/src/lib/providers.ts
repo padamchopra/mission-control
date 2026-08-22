@@ -45,7 +45,7 @@ export const PROVIDERS: Provider[] = [
     id: "codex",
     label: "Codex",
     command: "codex",
-    approvals: false,
+    approvals: true,
     models: [
       { value: "", label: "Default", detail: "Whatever Codex is set to." },
       { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
