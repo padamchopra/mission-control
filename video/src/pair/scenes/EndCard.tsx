@@ -34,12 +34,12 @@ export const EndCard: React.FC = () => {
             display: "flex",
             alignItems: "center",
             gap: 30,
-            opacity: interpolate(frame, [0, 16], [0, 1], {
+            opacity: interpolate(frame, [0, 12], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            scale: interpolate(frame, [0, 26], [0.92, 1], {
+            scale: interpolate(frame, [0, 20], [0.92, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -74,12 +74,12 @@ export const EndCard: React.FC = () => {
             color: "#71717b",
             textAlign: "center",
             lineHeight: 1.3,
-            opacity: interpolate(frame, [12, 32], [0, 1], {
+            opacity: interpolate(frame, [8, 22], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            translate: interpolate(frame, [12, 36], ["0px 24px", "0px 0px"], {
+            translate: interpolate(frame, [8, 26], ["0px 20px", "0px 0px"], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -103,12 +103,12 @@ export const EndCard: React.FC = () => {
             fontFamily: "JetBrains Mono, Menlo, monospace",
             fontSize: 40,
             color: "#1b4ed8",
-            opacity: interpolate(frame, [26, 46], [0, 1], {
+            opacity: interpolate(frame, [18, 32], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            translate: interpolate(frame, [26, 50], ["0px 24px", "0px 0px"], {
+            translate: interpolate(frame, [18, 36], ["0px 20px", "0px 0px"], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),

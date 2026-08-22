@@ -2,6 +2,7 @@ import { AbsoluteFill, Easing, Interactive, interpolate, useCurrentFrame } from 
 import { Backdrop } from "../parts/Backdrop";
 import { Caption } from "../parts/Caption";
 import { Chrome } from "../parts/Chrome";
+import { CodeHighlight } from "../parts/CodeHighlight";
 import { DeviceRow } from "../parts/DeviceRow";
 import { PrimaryButton } from "../parts/Buttons";
 import { DeviceWindow } from "../parts/DeviceWindow";
@@ -39,13 +40,24 @@ export const Allow: React.FC = () => {
             }}
           >
             <span
-              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#f5f5f5" }}
+              style={{
+                fontFamily: "Inter, system-ui, sans-serif",
+                fontSize: 30,
+                fontWeight: 500,
+                color: "#f5f5f5",
+              }}
             >
               On your tailnet
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <RefreshCw size={26} color="#818181" />
-              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#818181" }}>
+              <span
+                style={{
+                  fontFamily: "Inter, system-ui, sans-serif",
+                  fontSize: 28,
+                  color: "#818181",
+                }}
+              >
                 Look again
               </span>
             </div>
@@ -53,9 +65,7 @@ export const Allow: React.FC = () => {
 
           <div style={{ marginTop: 18 }}>
             <WaitingPanel name="workbench" code="418 902" style={{ marginBottom: 14 }} />
-            <div
-              style={{ display: "flex", flexDirection: "column", gap: 12, opacity: 0.5 }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, opacity: 0.5 }}>
               <DeviceRow
                 name="workbench"
                 note="Remy is running here."
@@ -98,7 +108,7 @@ export const Allow: React.FC = () => {
               position: "absolute",
               inset: -26,
               backgroundColor: "rgba(10, 10, 10, 0.72)",
-              opacity: interpolate(frame, [4, 22], [0, 1], {
+              opacity: interpolate(frame, [2, 14], [0, 1], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -111,12 +121,12 @@ export const Allow: React.FC = () => {
               position: "absolute",
               inset: -26,
               padding: 18,
-              opacity: interpolate(frame, [6, 26], [0, 1], {
+              opacity: interpolate(frame, [4, 18], [0, 1], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
               }),
-              scale: interpolate(frame, [6, 30], [0.955, 1], {
+              scale: interpolate(frame, [4, 22], [0.955, 1], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -127,12 +137,12 @@ export const Allow: React.FC = () => {
             <PairDialog
               fromName="studio"
               code="418 902"
-              allowPressed={interpolate(frame, [102, 106, 114], [1, 0.93, 1], {
+              allowPressed={interpolate(frame, [70, 74, 80], [1, 0.93, 1], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.33, 1, 0.68, 1),
               })}
-              allowBusy={frame > 112}
+              allowBusy={frame > 78}
             />
           </div>
         </div>
@@ -140,67 +150,53 @@ export const Allow: React.FC = () => {
 
       <SeamLink
         tone="asking"
-        draw={interpolate(frame, [30, 60], [0, 1], {
+        draw={interpolate(frame, [16, 40], [0, 1], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp",
           easing: Easing.bezier(0.4, 0, 0.2, 1),
         })}
-        label={interpolate(frame, [52, 68], [0, 1], {
+        label={interpolate(frame, [32, 44], [0, 1], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp",
           easing: Easing.bezier(0.16, 1, 0.3, 1),
         })}
-        badge={interpolate(frame, [60, 78], [0, 1], {
+        badge={interpolate(frame, [38, 52], [0, 1], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp",
           easing: Easing.bezier(0.34, 1.5, 0.64, 1),
         })}
       />
 
-      <div
-        style={{
-          position: "absolute",
-          left: 309,
-          top: 434,
-          width: 370,
-          height: 72,
-          borderRadius: 18,
-          border: "3px solid #60a5fa",
-          opacity: interpolate(frame, [46, 58], [0, 0.75], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-            easing: Easing.bezier(0.16, 1, 0.3, 1),
-          }),
-          scale: interpolate(frame, [46, 62], [1.08, 1], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-            easing: Easing.bezier(0.16, 1, 0.3, 1),
-            output: "perceptual-scale",
-          }),
-        }}
+      <CodeHighlight
+        left={309}
+        top={433}
+        opacity={interpolate(frame, [30, 40], [0, 0.85], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+        })}
+        scale={interpolate(frame, [30, 44], [1.08, 1], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+          output: "perceptual-scale",
+        })}
       />
 
-      <div
-        style={{
-          position: "absolute",
-          left: 1241,
-          top: 526,
-          width: 370,
-          height: 72,
-          borderRadius: 18,
-          border: "3px solid #60a5fa",
-          opacity: interpolate(frame, [46, 58], [0, 0.75], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-            easing: Easing.bezier(0.16, 1, 0.3, 1),
-          }),
-          scale: interpolate(frame, [46, 62], [1.08, 1], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-            easing: Easing.bezier(0.16, 1, 0.3, 1),
-            output: "perceptual-scale",
-          }),
-        }}
+      <CodeHighlight
+        left={1241}
+        top={525}
+        opacity={interpolate(frame, [30, 40], [0, 0.85], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+        })}
+        scale={interpolate(frame, [30, 44], [1.08, 1], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+          output: "perceptual-scale",
+        })}
       />
 
       <div
@@ -212,12 +208,12 @@ export const Allow: React.FC = () => {
           height: 88,
           borderRadius: 44,
           border: "4px solid #60a5fa",
-          opacity: interpolate(frame, [104, 112, 130], [0, 0.55, 0], {
+          opacity: interpolate(frame, [72, 78, 92], [0, 0.55, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
           }),
-          scale: interpolate(frame, [104, 130], [0.3, 2.1], {
+          scale: interpolate(frame, [72, 92], [0.3, 2.1], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -229,12 +225,12 @@ export const Allow: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          left: interpolate(frame, [70, 100], [1990, 1747], {
+          left: interpolate(frame, [44, 68], [1990, 1747], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
           }),
-          top: interpolate(frame, [70, 100], [880, 644], {
+          top: interpolate(frame, [44, 68], [880, 644], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -244,15 +240,10 @@ export const Allow: React.FC = () => {
         <Pointer size={46} />
       </div>
 
-      <Sfx sound="click" at={102} />
+      <Sfx sound="click" at={70} />
 
       <Interactive.Div name="Allow caption">
-        <Caption
-          step="03"
-          line="Somebody there compares the code and allows it."
-          detail="POST /pair/pending/:id/approve — a person, not a token"
-          from={16}
-        />
+        <Caption step="03" line="Somebody there compares the code and allows it." from={10} />
       </Interactive.Div>
     </AbsoluteFill>
   );

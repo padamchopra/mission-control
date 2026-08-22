@@ -27,47 +27,47 @@ export const PairDevice: React.FC = () => {
       <Audio src={staticFile("audio/score.mp3")} volume={0.7} />
 
       <TransitionSeries>
-        <TransitionSeries.Sequence durationInFrames={75} name="Hook">
+        <TransitionSeries.Sequence durationInFrames={54} name="Hook">
           <Hook />
         </TransitionSeries.Sequence>
         <TransitionSeries.Transition
           presentation={fade()}
-          timing={linearTiming({ durationInFrames: 12 })}
+          timing={linearTiming({ durationInFrames: 10 })}
         />
 
-        <TransitionSeries.Sequence durationInFrames={150} name="Discovery">
+        <TransitionSeries.Sequence durationInFrames={96} name="Discovery">
           <Discovery />
         </TransitionSeries.Sequence>
         <TransitionSeries.Transition
           presentation={fade()}
-          timing={linearTiming({ durationInFrames: 12 })}
+          timing={linearTiming({ durationInFrames: 10 })}
         />
 
-        <TransitionSeries.Sequence durationInFrames={132} name="Ask">
+        <TransitionSeries.Sequence durationInFrames={90} name="Ask">
           <Ask />
         </TransitionSeries.Sequence>
         <TransitionSeries.Transition
           presentation={fade()}
-          timing={linearTiming({ durationInFrames: 12 })}
+          timing={linearTiming({ durationInFrames: 10 })}
         />
 
-        <TransitionSeries.Sequence durationInFrames={144} name="Allow">
+        <TransitionSeries.Sequence durationInFrames={102} name="Allow">
           <Allow />
         </TransitionSeries.Sequence>
         <TransitionSeries.Transition
           presentation={fade()}
-          timing={linearTiming({ durationInFrames: 12 })}
+          timing={linearTiming({ durationInFrames: 10 })}
         />
 
-        <TransitionSeries.Sequence durationInFrames={126} name="Paired">
+        <TransitionSeries.Sequence durationInFrames={84} name="Paired">
           <Paired />
         </TransitionSeries.Sequence>
         <TransitionSeries.Transition
           presentation={fade()}
-          timing={linearTiming({ durationInFrames: 12 })}
+          timing={linearTiming({ durationInFrames: 10 })}
         />
 
-        <TransitionSeries.Sequence durationInFrames={90} name="End card">
+        <TransitionSeries.Sequence durationInFrames={66} name="End card">
           <EndCard />
         </TransitionSeries.Sequence>
       </TransitionSeries>

@@ -9,8 +9,7 @@ import { RefreshCw } from "../parts/Icons";
 import { Sfx } from "../parts/Sfx";
 
 /// Step one. Nothing has been asked of anybody yet — this is only Tailscale's
-/// own list of your machines, with the ones answering Remy marked. The `401`
-/// badge is the real signal: an un-tokened `/health` that refuses is Remy.
+/// own list of your devices, with the ones answering Remy marked.
 export const Discovery: React.FC = () => {
   const frame = useCurrentFrame();
 
@@ -28,12 +27,12 @@ export const Discovery: React.FC = () => {
           top: 176,
           left: 570,
           width: 780,
-          opacity: interpolate(frame, [0, 14], [0, 1], {
+          opacity: interpolate(frame, [0, 10], [0, 1], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
           }),
-          scale: interpolate(frame, [0, 22], [0.965, 1], {
+          scale: interpolate(frame, [0, 16], [0.965, 1], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -64,7 +63,7 @@ export const Discovery: React.FC = () => {
               <div
                 style={{
                   display: "flex",
-                  rotate: interpolate(frame, [8, 74], ["0deg", "720deg"], {
+                  rotate: interpolate(frame, [6, 52], ["0deg", "720deg"], {
                     extrapolateLeft: "clamp",
                     extrapolateRight: "clamp",
                     easing: Easing.bezier(0.4, 0, 0.2, 1),
@@ -73,7 +72,13 @@ export const Discovery: React.FC = () => {
               >
                 <RefreshCw size={26} color="#818181" />
               </div>
-              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#818181" }}>
+              <span
+                style={{
+                  fontFamily: "Inter, system-ui, sans-serif",
+                  fontSize: 28,
+                  color: "#818181",
+                }}
+              >
                 Look again
               </span>
             </div>
@@ -93,35 +98,14 @@ export const Discovery: React.FC = () => {
               note="Remy is running here."
               device="monitor"
               action={<PrimaryButton label="Pair" />}
-              badge={
-                <span
-                  style={{
-                    marginRight: 14,
-                    padding: "7px 16px",
-                    borderRadius: 999,
-                    border: "1.5px solid rgba(59, 130, 246, 0.35)",
-                    backgroundColor: "rgba(59, 130, 246, 0.2)",
-                    fontFamily: "JetBrains Mono, Menlo, monospace",
-                    fontSize: 24,
-                    color: "#60a5fa",
-                    opacity: interpolate(frame, [44, 56], [0, 1], {
-                      extrapolateLeft: "clamp",
-                      extrapolateRight: "clamp",
-                      easing: Easing.bezier(0.16, 1, 0.3, 1),
-                    }),
-                  }}
-                >
-                  401
-                </span>
-              }
               style={{
-                height: interpolate(frame, [26, 40], [0, 118], {
+                height: interpolate(frame, [14, 26], [0, 118], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.bezier(0.16, 1, 0.3, 1),
                 }),
                 overflow: "hidden",
-                opacity: interpolate(frame, [26, 40], [0, 1], {
+                opacity: interpolate(frame, [14, 26], [0, 1], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -134,35 +118,14 @@ export const Discovery: React.FC = () => {
               note="Remy is running here."
               device="server"
               action={<PrimaryButton label="Pair" />}
-              badge={
-                <span
-                  style={{
-                    marginRight: 14,
-                    padding: "7px 16px",
-                    borderRadius: 999,
-                    border: "1.5px solid rgba(59, 130, 246, 0.35)",
-                    backgroundColor: "rgba(59, 130, 246, 0.2)",
-                    fontFamily: "JetBrains Mono, Menlo, monospace",
-                    fontSize: 24,
-                    color: "#60a5fa",
-                    opacity: interpolate(frame, [62, 74], [0, 1], {
-                      extrapolateLeft: "clamp",
-                      extrapolateRight: "clamp",
-                      easing: Easing.bezier(0.16, 1, 0.3, 1),
-                    }),
-                  }}
-                >
-                  401
-                </span>
-              }
               style={{
-                height: interpolate(frame, [44, 58], [0, 118], {
+                height: interpolate(frame, [26, 38], [0, 118], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.bezier(0.16, 1, 0.3, 1),
                 }),
                 overflow: "hidden",
-                opacity: interpolate(frame, [44, 58], [0, 1], {
+                opacity: interpolate(frame, [26, 38], [0, 1], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -176,13 +139,13 @@ export const Discovery: React.FC = () => {
               device="drive"
               quiet
               style={{
-                height: interpolate(frame, [62, 76], [0, 118], {
+                height: interpolate(frame, [38, 50], [0, 118], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.bezier(0.16, 1, 0.3, 1),
                 }),
                 overflow: "hidden",
-                opacity: interpolate(frame, [62, 76], [0, 1], {
+                opacity: interpolate(frame, [38, 50], [0, 1], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -198,12 +161,12 @@ export const Discovery: React.FC = () => {
                 height: 150,
                 backgroundImage:
                   "linear-gradient(180deg, rgba(96, 165, 250, 0), rgba(96, 165, 250, 0.12), rgba(96, 165, 250, 0))",
-                translate: interpolate(frame, [10, 82], ["0px -160px", "0px 400px"], {
+                translate: interpolate(frame, [6, 56], ["0px -160px", "0px 400px"], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.bezier(0.4, 0, 0.2, 1),
                 }),
-                opacity: interpolate(frame, [10, 24, 68, 84], [0, 1, 1, 0], {
+                opacity: interpolate(frame, [6, 14, 48, 58], [0, 1, 1, 0], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                   easing: Easing.linear,
@@ -214,17 +177,12 @@ export const Discovery: React.FC = () => {
         </div>
       </DeviceWindow>
 
+      <Sfx sound="tick" at={15} />
       <Sfx sound="tick" at={27} />
-      <Sfx sound="tick" at={45} />
-      <Sfx sound="tick" at={63} />
+      <Sfx sound="tick" at={39} />
 
       <Interactive.Div name="Discovery caption">
-        <Caption
-          step="01"
-          line="Your tailnet already knows every machine you own."
-          detail="an un-tokened /health that answers 401 is Remy saying hello"
-          from={18}
-        />
+        <Caption step="01" line="Your tailnet already knows your devices." from={10} />
       </Interactive.Div>
     </AbsoluteFill>
   );

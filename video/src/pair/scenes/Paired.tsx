@@ -14,8 +14,7 @@ import { PairedPanel, WaitingPanel } from "../parts/WaitingPanel";
 import { Sfx } from "../parts/Sfx";
 
 /// The payoff. `workbench` leaves the tailnet list because it is a device now,
-/// and the two boards start converging — which is a merge against a version
-/// vector, not a copy, so neither machine is the one that holds the truth.
+/// and the two boards start converging.
 export const Paired: React.FC = () => {
   const frame = useCurrentFrame();
 
@@ -41,13 +40,24 @@ export const Paired: React.FC = () => {
             }}
           >
             <span
-              style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 30, fontWeight: 500, color: "#f5f5f5" }}
+              style={{
+                fontFamily: "Inter, system-ui, sans-serif",
+                fontSize: 30,
+                fontWeight: 500,
+                color: "#f5f5f5",
+              }}
             >
               On your tailnet
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <RefreshCw size={26} color="#818181" />
-              <span style={{ fontFamily: "Inter, system-ui, sans-serif", fontSize: 28, color: "#818181" }}>
+              <span
+                style={{
+                  fontFamily: "Inter, system-ui, sans-serif",
+                  fontSize: 28,
+                  color: "#818181",
+                }}
+              >
                 Look again
               </span>
             </div>
@@ -61,7 +71,7 @@ export const Paired: React.FC = () => {
                 style={{
                   position: "absolute",
                   inset: 0,
-                  opacity: interpolate(frame, [4, 20], [1, 0], {
+                  opacity: interpolate(frame, [2, 14], [1, 0], {
                     extrapolateLeft: "clamp",
                     extrapolateRight: "clamp",
                     easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -73,12 +83,12 @@ export const Paired: React.FC = () => {
                 style={{
                   position: "absolute",
                   inset: 0,
-                  opacity: interpolate(frame, [10, 28], [0, 1], {
+                  opacity: interpolate(frame, [6, 20], [0, 1], {
                     extrapolateLeft: "clamp",
                     extrapolateRight: "clamp",
                     easing: Easing.bezier(0.16, 1, 0.3, 1),
                   }),
-                  scale: interpolate(frame, [10, 34], [0.97, 1], {
+                  scale: interpolate(frame, [6, 24], [0.97, 1], {
                     extrapolateLeft: "clamp",
                     extrapolateRight: "clamp",
                     easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -95,13 +105,13 @@ export const Paired: React.FC = () => {
                 device="monitor"
                 action={<PrimaryButton label="Pair" />}
                 style={{
-                  height: interpolate(frame, [18, 40], [118, 0], {
+                  height: interpolate(frame, [12, 30], [118, 0], {
                     extrapolateLeft: "clamp",
                     extrapolateRight: "clamp",
                     easing: Easing.bezier(0.16, 1, 0.3, 1),
                   }),
                   overflow: "hidden",
-                  opacity: interpolate(frame, [18, 34], [0.5, 0], {
+                  opacity: interpolate(frame, [12, 26], [0.5, 0], {
                     extrapolateLeft: "clamp",
                     extrapolateRight: "clamp",
                     easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -114,7 +124,7 @@ export const Paired: React.FC = () => {
                 device="server"
                 action={<PrimaryButton label="Pair" />}
                 style={{
-                  opacity: interpolate(frame, [18, 40], [0.5, 1], {
+                  opacity: interpolate(frame, [12, 30], [0.5, 1], {
                     extrapolateLeft: "clamp",
                     extrapolateRight: "clamp",
                     easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -152,7 +162,7 @@ export const Paired: React.FC = () => {
               position: "absolute",
               inset: -26,
               backgroundColor: "rgba(10, 10, 10, 0.72)",
-              opacity: interpolate(frame, [2, 22], [1, 0], {
+              opacity: interpolate(frame, [2, 16], [1, 0], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -165,12 +175,12 @@ export const Paired: React.FC = () => {
               position: "absolute",
               inset: -26,
               padding: 18,
-              opacity: interpolate(frame, [0, 16], [1, 0], {
+              opacity: interpolate(frame, [0, 12], [1, 0], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
               }),
-              scale: interpolate(frame, [0, 20], [1, 0.955], {
+              scale: interpolate(frame, [0, 14], [1, 0.955], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -187,12 +197,12 @@ export const Paired: React.FC = () => {
               position: "absolute",
               right: 0,
               bottom: 0,
-              opacity: interpolate(frame, [26, 42, 110, 122], [0, 1, 1, 0], {
+              opacity: interpolate(frame, [16, 28, 70, 80], [0, 1, 1, 0], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
               }),
-              translate: interpolate(frame, [26, 44], ["0px 22px", "0px 0px"], {
+              translate: interpolate(frame, [16, 30], ["0px 22px", "0px 0px"], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
                 easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -206,7 +216,7 @@ export const Paired: React.FC = () => {
         style={{
           position: "absolute",
           inset: 0,
-          opacity: interpolate(frame, [0, 16], [1, 0], {
+          opacity: interpolate(frame, [0, 12], [1, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -220,7 +230,7 @@ export const Paired: React.FC = () => {
         style={{
           position: "absolute",
           inset: 0,
-          opacity: interpolate(frame, [8, 26], [0, 1], {
+          opacity: interpolate(frame, [6, 20], [0, 1], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -233,17 +243,17 @@ export const Paired: React.FC = () => {
       <TicketChip
         label="REMY-41"
         style={{
-          left: interpolate(frame, [32, 68], [700, 1300], {
+          left: interpolate(frame, [20, 50], [700, 1300], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.45, 0, 0.55, 1),
           }),
-          top: interpolate(frame, [32, 68], [598, 654], {
+          top: interpolate(frame, [20, 50], [598, 654], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.45, 0, 0.55, 1),
           }),
-          opacity: interpolate(frame, [32, 41, 59, 68], [0, 1, 1, 0], {
+          opacity: interpolate(frame, [20, 27, 43, 50], [0, 1, 1, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.linear,
@@ -254,17 +264,17 @@ export const Paired: React.FC = () => {
       <TicketChip
         label="REMY-38"
         style={{
-          left: interpolate(frame, [74, 110], [1300, 700], {
+          left: interpolate(frame, [52, 82], [1300, 700], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.45, 0, 0.55, 1),
           }),
-          top: interpolate(frame, [74, 110], [654, 598], {
+          top: interpolate(frame, [52, 82], [654, 598], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.bezier(0.45, 0, 0.55, 1),
           }),
-          opacity: interpolate(frame, [74, 83, 101, 110], [0, 1, 1, 0], {
+          opacity: interpolate(frame, [52, 59, 75, 82], [0, 1, 1, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp",
             easing: Easing.linear,
@@ -272,15 +282,10 @@ export const Paired: React.FC = () => {
         }}
       />
 
-      <Sfx sound="paired" at={8} />
+      <Sfx sound="paired" at={6} />
 
       <Interactive.Div name="Paired caption">
-        <Caption
-          step="✓"
-          line="Now the two boards converge."
-          detail="threads stay on the machine that holds the repo"
-          from={22}
-        />
+        <Caption step="✓" line="Now the two boards converge." from={12} />
       </Interactive.Div>
     </AbsoluteFill>
   );

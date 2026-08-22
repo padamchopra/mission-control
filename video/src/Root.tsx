@@ -23,7 +23,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="PairDevice"
         component={PairDevice}
-        durationInFrames={657}
+        durationInFrames={442}
         fps={30}
         width={1920}
         height={1080}
@@ -33,7 +33,7 @@ export const RemotionRoot: React.FC = () => {
         <Composition
           id="Hook"
           component={Hook}
-          durationInFrames={75}
+          durationInFrames={54}
           fps={30}
           width={1920}
           height={1080}
@@ -41,7 +41,7 @@ export const RemotionRoot: React.FC = () => {
         <Composition
           id="Discovery"
           component={Discovery}
-          durationInFrames={150}
+          durationInFrames={96}
           fps={30}
           width={1920}
           height={1080}
@@ -49,7 +49,7 @@ export const RemotionRoot: React.FC = () => {
         <Composition
           id="Ask"
           component={Ask}
-          durationInFrames={132}
+          durationInFrames={90}
           fps={30}
           width={1920}
           height={1080}
@@ -57,7 +57,7 @@ export const RemotionRoot: React.FC = () => {
         <Composition
           id="Allow"
           component={Allow}
-          durationInFrames={144}
+          durationInFrames={102}
           fps={30}
           width={1920}
           height={1080}
@@ -65,7 +65,7 @@ export const RemotionRoot: React.FC = () => {
         <Composition
           id="Paired"
           component={Paired}
-          durationInFrames={126}
+          durationInFrames={84}
           fps={30}
           width={1920}
           height={1080}
@@ -73,7 +73,7 @@ export const RemotionRoot: React.FC = () => {
         <Composition
           id="EndCard"
           component={EndCard}
-          durationInFrames={90}
+          durationInFrames={66}
           fps={30}
           width={1920}
           height={1080}

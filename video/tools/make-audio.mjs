@@ -13,32 +13,33 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 
 const SR = 44100;
-const BPM = 112;
-const BEAT = 60 / BPM; // 0.5357s
-const BAR = BEAT * 4; // 2.1429s
+const BPM = 140;
+const BEAT = 60 / BPM; // 0.4286s
+const BAR = BEAT * 4; // 1.7143s
 const EIGHTH = BEAT / 2;
-const DURATION = 22.4; // the composition is 21.95s; the tail rings past it
+const DURATION = 15.5; // the composition is 14.73s; the tail rings past it
 
-/// Bar boundaries land within ~0.1s of four of the five scene cuts at 112 BPM,
-/// which is close enough that a crossfade reads as landing on the chord.
+/// 140 BPM was chosen so that six bars land on 10.29s, which is where the Paired
+/// cut is — the one moment the music has to agree with the picture. The opening
+/// cut lands within 0.08s too; the middle two are off by up to 0.7s, which a
+/// crossfade absorbs in a way a hard cut would not.
 const bar = (n) => n * BAR;
 
 const midi = (n) => 440 * 2 ** ((n - 69) / 12);
 
 // ── Arrangement ────────────────────────────────────────────────────────────────
 //
-// bar 0  Hook        Emaj9    pad swell alone
-// bar 1  Discovery   Emaj9    arpeggio and hats enter
-// bar 2  Discovery   C#m7     kick enters
-// bar 3  Ask         Amaj9
-// bar 4  Ask         B7sus4   build
-// bar 5  Allow       C#m7     kick drops out — this is the beat where the two
-//                             codes are being compared, so the music gets out
-//                             of the way and the tension is left hanging
-// bar 6  Allow       B7sus4   unresolved
-// bar 7  Paired      Emaj9    resolution, on the frame the link turns green
-// bar 8  Paired      Amaj9    peak
-// bar 9  End card    Emaj9    stripped back, fading
+// bar 0  0.00  Hook       Emaj9    pad swell alone
+// bar 1  1.71  Discovery  Emaj9    arpeggio and hats enter
+// bar 2  3.43  Discovery  C#m7     kick enters
+// bar 3  5.14  Ask        Amaj9    build
+// bar 4  6.86  Allow      C#m7     kick drops out — this is the beat where the
+//                                  two codes are being compared, so the music
+//                                  gets out of the way and the tension hangs
+// bar 5  8.57  Allow      B7sus4   unresolved, building back
+// bar 6 10.29  Paired     Emaj9    resolution, on the cut where they pair
+// bar 7 12.00  Paired     Amaj9    peak
+// bar 8 13.71  End card   Emaj9    stripped back, fading
 
 const CHORDS = [
   { pad: [56, 59, 64, 66], bass: 40, arp: [76, 78, 71, 83, 80] }, // Emaj9
@@ -57,16 +58,15 @@ const BSUS = 3;
 /// shape of the video is quiet-build-drop-resolve, and the score has to have the
 /// same shape or it is just a loop playing underneath.
 const PLAN = [
-  { chord: E, level: 0.3, pad: 0.5, bass: 0.5, arp: 0.0, hat: 0.0, kick: 0.0, snap: false },
-  { chord: E, level: 0.62, pad: 0.7, bass: 0.6, arp: 0.5, hat: 0.3, kick: 0.0, snap: false },
-  { chord: CSM, level: 0.72, pad: 0.7, bass: 0.6, arp: 0.58, hat: 0.34, kick: 0.5, snap: false },
-  { chord: A, level: 0.82, pad: 0.72, bass: 0.6, arp: 0.7, hat: 0.38, kick: 0.6, snap: true },
-  { chord: BSUS, level: 0.88, pad: 0.76, bass: 0.66, arp: 0.7, hat: 0.42, kick: 0.66, snap: true },
-  { chord: CSM, level: 0.58, pad: 0.7, bass: 0.6, arp: 0.44, hat: 0.24, kick: 0.0, snap: false },
-  { chord: BSUS, level: 0.72, pad: 0.76, bass: 0.66, arp: 0.6, hat: 0.38, kick: 0.5, snap: true },
+  { chord: E, level: 0.32, pad: 0.5, bass: 0.5, arp: 0.0, hat: 0.0, kick: 0.0, snap: false },
+  { chord: E, level: 0.6, pad: 0.7, bass: 0.6, arp: 0.5, hat: 0.3, kick: 0.0, snap: false },
+  { chord: CSM, level: 0.74, pad: 0.7, bass: 0.6, arp: 0.6, hat: 0.34, kick: 0.5, snap: false },
+  { chord: A, level: 0.84, pad: 0.74, bass: 0.62, arp: 0.72, hat: 0.4, kick: 0.62, snap: true },
+  { chord: CSM, level: 0.6, pad: 0.7, bass: 0.6, arp: 0.44, hat: 0.24, kick: 0.0, snap: false },
+  { chord: BSUS, level: 0.8, pad: 0.78, bass: 0.66, arp: 0.66, hat: 0.4, kick: 0.56, snap: true },
   { chord: E, level: 1.0, pad: 0.86, bass: 0.72, arp: 0.85, hat: 0.46, kick: 0.76, snap: true },
-  { chord: A, level: 1.0, pad: 0.86, bass: 0.72, arp: 0.85, hat: 0.46, kick: 0.76, snap: true },
-  { chord: E, level: 0.66, pad: 0.7, bass: 0.5, arp: 0.4, hat: 0.2, kick: 0.3, snap: false },
+  { chord: A, level: 0.95, pad: 0.86, bass: 0.72, arp: 0.85, hat: 0.46, kick: 0.76, snap: true },
+  { chord: E, level: 0.58, pad: 0.7, bass: 0.5, arp: 0.4, hat: 0.18, kick: 0.28, snap: false },
 ];
 
 const ARP_SPARSE = [1, 0, 1, 0, 1, 1, 0, 1];
@@ -246,7 +246,7 @@ PLAN.forEach((slot, b) => {
   const mask = slot.arp >= 0.6 ? ARP_FULL : ARP_SPARSE;
   for (let s = 0; s < 8; s += 1) {
     if (!mask[s] || slot.arp === 0) continue;
-    if (b === 9 && s > 3) continue; // the last bar thins out rather than stopping
+    if (b === 8 && s > 3) continue; // the last bar thins out rather than stopping
     const note = chord.arp[arpStep % chord.arp.length];
     arpStep += 1;
     const accent = s === 0 ? 1 : s % 2 === 0 ? 0.82 : 0.66;
@@ -308,7 +308,7 @@ const master = (buf, { fadeIn, fadeOut, fadeOutStart, peak, drive = 0.62, topTri
   return buf;
 };
 
-master(music, { fadeIn: 0.14, fadeOut: 2.6, fadeOutStart: 19.6, peak: 0.89, topTrim: 14000 });
+master(music, { fadeIn: 0.12, fadeOut: 1.9, fadeOutStart: 12.9, peak: 0.89, topTrim: 14000 });
 
 // ── Interface sounds ───────────────────────────────────────────────────────────
 

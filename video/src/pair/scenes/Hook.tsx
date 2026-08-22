@@ -39,12 +39,12 @@ export const Hook: React.FC = () => {
             alignItems: "center",
             gap: 24,
             marginBottom: 62,
-            opacity: interpolate(frame, [0, 14], [0, 1], {
+            opacity: interpolate(frame, [0, 10], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            scale: interpolate(frame, [0, 20], [0.9, 1], {
+            scale: interpolate(frame, [0, 14], [0.9, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -78,12 +78,12 @@ export const Hook: React.FC = () => {
             color: "#27272a",
             letterSpacing: "-0.035em",
             lineHeight: 1.06,
-            opacity: interpolate(frame, [6, 26], [0, 1], {
+            opacity: interpolate(frame, [4, 18], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            translate: interpolate(frame, [6, 30], ["0px 34px", "0px 0px"], {
+            translate: interpolate(frame, [4, 22], ["0px 26px", "0px 0px"], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -102,12 +102,12 @@ export const Hook: React.FC = () => {
             color: "#1b4ed8",
             letterSpacing: "-0.035em",
             lineHeight: 1.06,
-            opacity: interpolate(frame, [14, 34], [0, 1], {
+            opacity: interpolate(frame, [9, 23], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            translate: interpolate(frame, [14, 38], ["0px 34px", "0px 0px"], {
+            translate: interpolate(frame, [9, 27], ["0px 26px", "0px 0px"], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
@@ -125,12 +125,12 @@ export const Hook: React.FC = () => {
             fontSize: 46,
             fontWeight: 400,
             color: "#71717b",
-            opacity: interpolate(frame, [26, 46], [0, 1], {
+            opacity: interpolate(frame, [17, 31], [0, 1], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             }),
-            translate: interpolate(frame, [26, 50], ["0px 26px", "0px 0px"], {
+            translate: interpolate(frame, [17, 35], ["0px 20px", "0px 0px"], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
               easing: Easing.bezier(0.16, 1, 0.3, 1),
