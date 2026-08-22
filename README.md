@@ -1,6 +1,6 @@
 # Remy
 
-Remy is a remote for [Claude Code](https://claude.com/claude-code) and [Codex](https://developers.openai.com/codex) on your own machines. Point it at a folder, say what you want done, and the agent runs on the Mac that actually holds the repo — while you watch from the desktop app, a browser tab, or the iPhone app on the couch.
+Remy is a remote for [Claude Code](https://claude.com/claude-code), [Codex](https://developers.openai.com/codex), and [Cursor](https://cursor.com/docs/cli/acp) on your own machines. Point it at a folder, say what you want done, and the agent runs on the Mac that actually holds the repo — while you watch from the desktop app, a browser tab, or the iPhone app on the couch.
 
 <img src="docs/images/threads.png" alt="Remy showing four threads across two machines, with a composer for a new one" width="100%" />
 
@@ -8,13 +8,13 @@ Remy is a remote for [Claude Code](https://claude.com/claude-code) and [Codex](h
 
 Nowhere. That is the whole point.
 
-Remy is a daemon on your machine plus a window onto it. Your repos are never uploaded, never cloned to a server, never sent through anybody's API but the one you picked the thread to run on — the same call Claude Code or Codex already makes when you run it in a terminal. The daemon listens on `127.0.0.1` and nothing else. When you want to reach it from another device, that goes over [Tailscale](https://tailscale.com), which is your own private network, not the public internet.
+Remy is a daemon on your machine plus a window onto it. Your repos are never uploaded, never cloned to a server, never sent through anybody's API but the one you picked the thread to run on — the same call Claude Code, Codex, or Cursor already makes when you run it in a terminal. The daemon listens on `127.0.0.1` and nothing else. When you want to reach it from another device, that goes over [Tailscale](https://tailscale.com), which is your own private network, not the public internet.
 
 There is no account, no sign-up, and no hosted anything. If this repo disappeared tomorrow your copy would keep working.
 
 ## Try it
 
-You need a Mac that can stay awake, with [Claude Code](https://claude.com/claude-code) installed on it — and [Codex](https://developers.openai.com/codex) too, if you want threads on that. Those are what actually run your threads, so Remy is only as capable as the copy sitting next to it.
+You need a Mac that can stay awake, with at least one provider installed: [Claude Code](https://claude.com/claude-code), [Codex](https://developers.openai.com/codex), or [Cursor Agent](https://cursor.com/docs/cli/installation). Those are what actually run your threads, so Remy is only as capable as the copy sitting next to it.
 
 **Install the app.** Grab the newest DMG from [Releases](https://github.com/padamchopra/remy/releases) and drag it to Applications. It is signed and notarized, so it just opens. The DMG carries both the window and the daemon — opening Remy starts everything, quitting it stops everything, and it brings its own Node.
 
@@ -36,7 +36,7 @@ Then open `http://127.0.0.1:5173`. That is the real app against your real folder
 
 Start a thread in a workspace, pick a model and how much the agent may do unasked, and send. A folder with git worktrees lets you branch on send rather than beforehand. Threads that stop to ask you something collect in the Inbox, so a machine working on four things at once has one queue instead of four windows.
 
-Workspace settings can hold named environments that sync across your paired devices. Values are encrypted on each machine and stay out of Claude and Codex themselves; an agent can run a separate, approval-gated command with the active environment, and Remy removes exact values from its output, changed text files, staged diffs, and commit messages before the agent continues. Encoded or transformed values cannot be recognised, so this is protection against accidental disclosure rather than a boundary against a hostile command.
+Workspace settings can hold named environments that sync across your paired devices. Values are encrypted on each machine and stay out of Claude, Codex, and Cursor themselves; an agent can run a separate, approval-gated command with the active environment, and Remy removes exact values from its output, changed text files, staged diffs, and commit messages before the agent continues. Encoded or transformed values cannot be recognised, so this is protection against accidental disclosure rather than a boundary against a hostile command.
 
 `⌘K` gets you anywhere, and tells you which threads need you.
 

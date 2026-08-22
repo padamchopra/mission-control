@@ -507,7 +507,7 @@ function Entry({
 /// `MessageAvatar` is the slot; `Avatar` is what goes in it, which is what
 /// gives the mark its circle and keeps it from stretching.
 function AgentAvatar({ provider, lead }: { provider: string; lead: boolean }) {
-  const claude = provider !== "codex";
+  const claude = provider === "claude";
   return (
     <MessageAvatar className={cn("bg-transparent", !lead && "invisible")}>
       <Avatar>

@@ -18,6 +18,7 @@ test("every provider offers a default, and names its own executable", () => {
 
 test("an unknown provider falls back rather than being stored", () => {
   assert.equal(providerId("codex"), "codex");
+  assert.equal(providerId("cursor"), "cursor");
   assert.equal(providerId("gemini"), "claude");
   assert.equal(providerId(undefined, "codex"), "codex");
 });
@@ -28,6 +29,8 @@ test("a model only ever belongs to the provider that answers to it", () => {
   assert.equal(providerModel("codex", "gpt-5.6-sol"), "gpt-5.6-sol");
   assert.equal(knowsModel("claude", "gpt-5.6-sol"), false);
   assert.equal(knowsModel("claude", ""), true);
+  assert.equal(providerModel("cursor", "grok-4.6[effort=high,fast=true]"), "grok-4.6[effort=high,fast=true]");
+  assert.equal(providerModel("cursor", "not a safe alias"), "");
 });
 
 test("a model reads as its own name, and an empty one as the default", () => {

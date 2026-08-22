@@ -10,6 +10,7 @@
     "postinstall": "find node_modules/node-pty/prebuilds -name spawn-helper -exec chmod +x {} +"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
     "@anthropic-ai/claude-agent-sdk": "^0.3.234",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "node-pty": "^1.0.0",

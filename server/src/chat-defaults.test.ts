@@ -11,10 +11,10 @@ process.env.MC_CONFIG_DIR = stateDir;
 process.env.HOME = stateDir;
 
 // A thread is refused outright on a machine without the provider's command, so
-// both are stood up here rather than letting the suite depend on what happens
+// all are stood up here rather than letting the suite depend on what happens
 // to be installed.
 const binDir = mkdtempSync(join(tmpdir(), "remy-chat-bin-"));
-for (const command of ["claude", "codex"]) {
+for (const command of ["claude", "codex", "agent"]) {
   const path = join(binDir, command);
   writeFileSync(path, "#!/bin/sh\nexit 0\n");
   chmodSync(path, 0o755);
@@ -39,6 +39,12 @@ test("a workspace with a provider of its own stands in for the machine's", () =>
   const chat = createChat({ cwd, workspaceDefault: { provider: "codex", model: "gpt-5.6-terra" } });
   assert.equal(chat.provider, "codex");
   assert.equal(chat.model, "gpt-5.6-terra");
+});
+
+test("Cursor can be the workspace provider", () => {
+  const chat = createChat({ cwd, workspaceDefault: { provider: "cursor", model: "auto" } });
+  assert.equal(chat.provider, "cursor");
+  assert.equal(chat.model, "auto");
 });
 
 test("a workspace that follows the machine changes nothing", () => {

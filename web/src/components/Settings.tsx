@@ -1081,8 +1081,19 @@ function ProvidersPane() {
           status={tooling?.codex}
           detail={
             tooling?.codex?.available
-              ? "Codex answers a turn and exits, so it works inside a sandbox instead of asking."
+              ? "Threads run through Codex on this machine."
               : "Install Codex on this machine to run threads on it."
+          }
+        />
+        <ToolRow
+          name="cursor"
+          label="Cursor"
+          mark={<ProviderMark provider="cursor" />}
+          status={tooling?.cursor}
+          detail={
+            tooling?.cursor?.available
+              ? "Threads run through Cursor on this machine."
+              : "Install Cursor Agent on this machine to run threads on it."
           }
         />
       </div>

@@ -62,6 +62,19 @@ test("a thread on Codex keeps the id that resumes it there", () => {
   assert.equal(loaded?.claudeSessionId, undefined);
 });
 
+test("a thread on Cursor keeps its ACP session id", () => {
+  storage.saveChat(chat("cursor", {
+    provider: "cursor",
+    model: "auto",
+    cursorSessionId: "cursor-session-7",
+  }));
+
+  const loaded = storage.loadChats(100).find((c) => c.id === "cursor");
+  assert.equal(loaded?.provider, "cursor");
+  assert.equal(loaded?.model, "auto");
+  assert.equal(loaded?.cursorSessionId, "cursor-session-7");
+});
+
 test("re-saving an entry updates it in place, keeping its position", () => {
   storage.saveChat(chat("b"));
   storage.saveEntry("b", entry("s1", "partial"));
@@ -111,4 +124,3 @@ test("newest chat first", () => {
   const ids = storage.loadChats(1).map((c) => c.id);
   assert.ok(ids.indexOf("new") < ids.indexOf("old"));
 });
-

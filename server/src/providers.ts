@@ -3,13 +3,13 @@
 /// One catalogue, in one file, because every other place that needs it — the
 /// settings a machine holds, an agent's own model, a thread's toolbar, the
 /// picker in the window — used to carry its own copy of the same four Claude
-/// aliases. A model that is not in here cannot be stored, so a picker can never
-/// offer something the CLI would refuse at spawn time.
+/// aliases. Dynamically discovered aliases are remembered alongside this
+/// fallback catalogue, so a picker never has to freeze a provider's live list.
 ///
 /// Models are named the way each CLI names them on its own command line, so
 /// what Remy stores is what the tool is handed.
 
-export type ProviderId = "claude" | "codex";
+export type ProviderId = "claude" | "codex" | "cursor";
 
 export interface ProviderModel {
   /// What the CLI is handed. Empty means "say nothing", which leaves the choice
@@ -69,6 +69,16 @@ export const PROVIDERS: Provider[] = [
       { value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
     ],
   },
+  {
+    id: "cursor",
+    label: "Cursor",
+    command: "agent",
+    approvals: true,
+    models: [
+      { value: "", label: "Default", detail: "Whatever Cursor is set to." },
+      { value: "auto", label: "Auto", detail: "Cursor chooses the model." },
+    ],
+  },
 ];
 
 const discoveredModels = new Map<ProviderId, Set<string>>();
@@ -94,8 +104,18 @@ export function providerId(value: unknown, fallback: ProviderId = DEFAULT_PROVID
 /// therefore lands on Codex's default rather than on `sonnet`, which Codex has
 /// never heard of.
 export function providerModel(id: unknown, value: unknown): string {
-  const models = provider(providerId(id))?.models ?? [];
-  return models.some((model) => model.value === value) ? String(value) : "";
+  const resolved = providerId(id);
+  const models = provider(resolved)?.models ?? [];
+  if (models.some((model) => model.value === value) || discoveredModels.get(resolved)?.has(String(value ?? ""))) {
+    return String(value);
+  }
+  // Cursor model aliases are supplied by the installed CLI and can change
+  // independently of Remy. Preserve a previously selected safe alias across a
+  // daemon restart; the live catalogue remains what the picker offers.
+  if (resolved === "cursor" && typeof value === "string" && /^[A-Za-z0-9._:[\],=-]{1,160}$/.test(value)) {
+    return value;
+  }
+  return "";
 }
 
 /// True when this provider knows the model, which is how a caller tells "the
@@ -103,7 +123,8 @@ export function providerModel(id: unknown, value: unknown): string {
 export function knowsModel(id: unknown, value: unknown): boolean {
   const resolved = providerId(id);
   return (provider(resolved)?.models ?? []).some((model) => model.value === value)
-    || discoveredModels.get(resolved)?.has(String(value ?? "")) === true;
+    || discoveredModels.get(resolved)?.has(String(value ?? "")) === true
+    || (resolved === "cursor" && typeof value === "string" && /^[A-Za-z0-9._:[\],=-]{1,160}$/.test(value));
 }
 
 export function modelLabel(id: unknown, value: unknown): string {

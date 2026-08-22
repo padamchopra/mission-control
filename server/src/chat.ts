@@ -34,6 +34,16 @@ import {
   type CodexRun,
   type CodexSession,
 } from "./codex.js";
+import {
+  createCursorSession,
+  cursorEntry,
+  type CursorApprovalRequest,
+  type CursorEvent,
+  type CursorPlanRequest,
+  type CursorQuestionRequest,
+  type CursorRun,
+  type CursorSession,
+} from "./cursor.js";
 import { providerId, providerModel, provider as providerOf, type ProviderId } from "./providers.js";
 import {
   assertChatStorage,
@@ -147,6 +157,9 @@ interface ChatRecord {
   /// alongside `claudeSessionId` rather than replacing it, so a thread moved to
   /// the other provider and back picks up where each of them left off.
   codexThreadId?: string;
+  /// Cursor's ACP session id. It is separate for the same reason as Codex's:
+  /// moving away and back resumes each provider's own conversation.
+  cursorSessionId?: string;
   /// The persona this thread runs as, if it was started as one. Decides the
   /// instructions appended to the preset and the name on its commits.
   agentId?: string;
@@ -305,6 +318,12 @@ class Chat {
   /// meaningful within their originating Codex turn, so this keeps later turns
   /// from writing over earlier transcript entries.
   private codexTurnId = "";
+  private cursorSession?: CursorSession;
+  private cursor?: CursorRun;
+  private cursorDrain?: Promise<void>;
+  private cursorQueue: string[] = [];
+  private cursorTurnId = "";
+  private cursorMessages = new Map<string, string>();
   private pending = new Map<string, (result: PermissionResult) => void>();
   private byToolUseId = new Map<string, ConvEntry>();
   private byId = new Map<string, ConvEntry>();
@@ -332,7 +351,11 @@ class Chat {
   }
 
   get isLive(): boolean {
-    return this.live !== undefined || this.codexSession !== undefined || this.codexDrain !== undefined;
+    return this.live !== undefined
+      || this.codexSession !== undefined
+      || this.codexDrain !== undefined
+      || this.cursorSession !== undefined
+      || this.cursorDrain !== undefined;
   }
 
   get state(): ChatState {
@@ -415,15 +438,25 @@ class Chat {
     this.state = this.pending.size > 0 ? "needs_input" : "working";
     this.action = undefined;
     this.lastActivity = nowMs();
-    if (this.record.provider === "codex") {
+    if (this.record.provider === "codex" || this.record.provider === "cursor") {
       // A turn already running keeps the prompt until it finishes; nothing is
       // lost and the order is the order they were typed in.
-      this.codexQueue.push(agentPrompt);
-      if (!this.codexDrain) {
-        const drain = this.drainCodex().finally(() => {
-          if (this.codexDrain === drain) this.codexDrain = undefined;
-        });
-        this.codexDrain = drain;
+      if (this.record.provider === "codex") {
+        this.codexQueue.push(agentPrompt);
+        if (!this.codexDrain) {
+          const drain = this.drainCodex().finally(() => {
+            if (this.codexDrain === drain) this.codexDrain = undefined;
+          });
+          this.codexDrain = drain;
+        }
+      } else {
+        this.cursorQueue.push(agentPrompt);
+        if (!this.cursorDrain) {
+          const drain = this.drainCursor().finally(() => {
+            if (this.cursorDrain === drain) this.cursorDrain = undefined;
+          });
+          this.cursorDrain = drain;
+        }
       }
       this.push();
       this.persist();
@@ -441,6 +474,15 @@ class Chat {
     this.settlePending("User stopped the turn.");
     // Anything typed while it was working was never sent, so it goes too.
     this.codexQueue = [];
+    this.cursorQueue = [];
+    const cursor = this.cursor;
+    if (cursor) {
+      cursor.stop();
+      this.state = "idle";
+      this.action = undefined;
+      this.push();
+      return;
+    }
     const codex = this.codex;
     if (codex) {
       codex.stop();
@@ -507,6 +549,10 @@ class Chat {
     this.codex?.stop();
     this.codexSession?.close();
     this.codexSession = undefined;
+    this.cursorQueue = [];
+    this.cursor?.stop();
+    this.cursorSession?.close();
+    this.cursorSession = undefined;
     const live = this.live;
     // Closing the prompt stream only ends the session once the current turn
     // finishes, so interrupt first when one is running.
@@ -521,7 +567,7 @@ class Chat {
   }
 
   maybeReap(): void {
-    if ((!this.live && !this.codexSession) || this.state !== "idle") return;
+    if ((!this.live && !this.codexSession && !this.cursorSession) || this.state !== "idle") return;
     if (nowMs() - this.lastActivity < IDLE_SHUTDOWN_MS) return;
     this.stop();
   }
@@ -909,6 +955,12 @@ class Chat {
       this.codex = undefined;
       this.codexSession = undefined;
     }
+    if (this.record.provider === "cursor") {
+      this.cursor?.stop();
+      this.cursorSession?.close();
+      this.cursor = undefined;
+      this.cursorSession = undefined;
+    }
     this.record.provider = next;
     // A model belongs to a provider, so it does not travel with the thread.
     this.record.model = undefined;
@@ -917,6 +969,144 @@ class Chat {
       kind: "assistant",
       text: `— moved to ${providerOf(next)?.label ?? next} —`,
     });
+  }
+
+  // ── the Cursor turn ──────────────────────────────────────────────────────
+
+  private async drainCursor(): Promise<void> {
+    while (this.cursorQueue.length > 0 && !this.deleted) {
+      const prompt = this.cursorQueue.shift()!;
+      await this.cursorTurn(prompt);
+    }
+  }
+
+  private async cursorTurn(prompt: string): Promise<void> {
+    const agent = this.record.agentId ? getAgent(this.record.agentId) : undefined;
+    this.cursorTurnId = `${randomUUID().slice(0, 8)}-`;
+    this.cursorMessages.clear();
+    let run: CursorRun;
+    try {
+      this.cursorSession ??= createCursorSession(
+        {
+          command: agentCommand("cursor")!,
+          cwd: this.record.cwd,
+          ...(this.record.model ? { model: this.record.model } : {}),
+          permissionMode: this.record.permissionMode,
+          ...(this.record.cursorSessionId ? { sessionId: this.record.cursorSessionId } : {}),
+          additionalDirectories: [uploadRoot],
+          ...(agent?.instructions.trim() ? { developerInstructions: agent.instructions.trim() } : {}),
+          mcpServer: {
+            command: process.execPath,
+            args: [ticketMcpPath],
+            env: {
+              REMY_API_URL: `http://127.0.0.1:${config.port}`,
+              REMY_API_TOKEN: remyToolToken(this.record.id),
+              REMY_CHAT_ID: this.record.id,
+              REMY_DEVICE_ID: deviceId,
+              ...(this.record.agentId ? { REMY_AGENT_ID: this.record.agentId } : {}),
+            },
+          },
+          env: agentEnvironment(agent),
+        },
+        (event) => {
+          try {
+            this.handleCursorEvent(event);
+          } catch (error) {
+            console.error("cursor event handling failed:", error);
+          }
+        },
+        (request) => this.cursorApproval(request),
+        (request) => this.cursorQuestion(request),
+        (request) => this.cursorPlan(request),
+      );
+      run = this.cursorSession.run(prompt);
+    } catch (error) {
+      this.failTurn(error);
+      return;
+    }
+    this.cursor = run;
+    this.state = "working";
+    this.push();
+    try {
+      await run.done;
+    } catch (error) {
+      this.failTurn(error);
+      return;
+    } finally {
+      if (this.cursor === run) this.cursor = undefined;
+      this.record.updatedAt = nowMs();
+      this.flush();
+      this.persist();
+    }
+    if (this.cursorQueue.length > 0) {
+      this.push();
+      return;
+    }
+    this.state = "idle";
+    this.action = undefined;
+    this.push();
+    this.notifyTurnEnd().catch(() => {});
+  }
+
+  private handleCursorEvent(event: CursorEvent): void {
+    this.lastActivity = nowMs();
+    switch (event.type) {
+      case "session.started":
+        if (event.sessionId !== this.record.cursorSessionId) {
+          this.record.cursorSessionId = event.sessionId;
+          this.persist();
+        }
+        return;
+      case "turn.started":
+        this.state = "working";
+        this.record.turns += 1;
+        this.push();
+        return;
+      case "turn.completed":
+        return;
+      case "turn.failed":
+        this.recordFailure(event.error);
+        return;
+      case "usage.updated":
+        this.noteTokens(event.used, this.record.model, event.size);
+        if (event.costUsd !== undefined) this.record.costUsd = event.costUsd;
+        return;
+      case "compacted":
+        this.compactions += 1;
+        return;
+      case "plan.updated":
+        this.record.todos = event.todos;
+        this.push();
+        return;
+      case "tool.updated": {
+        const entry = cursorEntry(event.toolCall, this.cursorTurnId);
+        this.upsert(entry);
+        this.action = `${entry.verb ?? ""} ${entry.arg ?? ""}`.trim();
+        this.push();
+        return;
+      }
+      case "message.delta": {
+        const key = `${event.kind}:${event.messageId ?? "current"}`;
+        const existingId = this.cursorMessages.get(key);
+        const existing = existingId ? this.byId.get(existingId) : undefined;
+        if (existing) {
+          existing.text = clip(`${existing.text ?? ""}${event.text}`, event.kind === "thinking" ? MAX_THINK : MAX_TEXT);
+          this.markDirty(existing.id);
+        } else {
+          const entry: ConvEntry = {
+            id: `${this.cursorTurnId}${key}`,
+            kind: event.kind,
+            text: clip(event.text, event.kind === "thinking" ? MAX_THINK : MAX_TEXT),
+          };
+          this.append(entry);
+          this.cursorMessages.set(key, entry.id);
+        }
+        this.push();
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   // ── the Codex turn ───────────────────────────────────────────────────────
@@ -1072,10 +1262,14 @@ class Chat {
     if (this.codex) this.codex = undefined;
     this.codexSession?.close();
     this.codexSession = undefined;
+    if (this.cursor) this.cursor = undefined;
+    this.cursorSession?.close();
+    this.cursorSession = undefined;
     const message = redactKnownSecrets(error instanceof Error ? error.message : String(error));
     this.recordFailure(message);
     this.state = "error";
     this.codexQueue = [];
+    this.cursorQueue = [];
     this.flush();
     this.push();
     this.persist();
@@ -1203,6 +1397,67 @@ class Chat {
       if (Array.isArray(answer)) return [question.id, answer.filter((value): value is string => typeof value === "string")];
       return [question.id, typeof answer === "string" ? [answer] : []];
     }));
+  }
+
+  private async cursorApproval(request: CursorApprovalRequest): Promise<"accept" | "acceptForSession" | "decline"> {
+    const name = request.toolCall.name ?? "";
+    if (name.startsWith("mcp__remy__")) return "accept";
+    if (this.record.permissionMode === "bypassPermissions") return "acceptForSession";
+    if (
+      this.record.permissionMode === "acceptEdits"
+      && ["edit", "delete", "move"].includes(request.toolCall.kind ?? "")
+    ) {
+      return "acceptForSession";
+    }
+    if (this.record.permissionMode === "plan") return "decline";
+    const input = request.toolCall.rawInput && typeof request.toolCall.rawInput === "object"
+      ? request.toolCall.rawInput as Record<string, unknown>
+      : {};
+    const tool = request.toolCall.kind === "execute" ? "Bash" : name || "Cursor";
+    const result = await this.requestToolApproval(tool, input, {
+      signal: request.signal,
+      title: request.toolCall.title,
+      allowAlways: request.allowAlways,
+    });
+    if (result.behavior !== "allow") return "decline";
+    return result.updatedPermissions?.length ? "acceptForSession" : "accept";
+  }
+
+  private async cursorQuestion(request: CursorQuestionRequest): Promise<Record<string, string[]>> {
+    const result = await this.askUserQuestion({
+      questions: request.questions.map((question) => ({
+        header: request.title,
+        question: question.prompt,
+        multiSelect: question.allowMultiple,
+        options: question.options.map((option) => ({ label: option.label })),
+      })),
+    }, request.signal);
+    if (result.behavior !== "allow") return {};
+    const updated = result.updatedInput && typeof result.updatedInput === "object"
+      ? result.updatedInput as Record<string, unknown>
+      : {};
+    const answers = updated.answers && typeof updated.answers === "object"
+      ? updated.answers as Record<string, unknown>
+      : {};
+    return Object.fromEntries(request.questions.map((question) => {
+      const answer = answers[question.prompt];
+      const labels = Array.isArray(answer)
+        ? answer.filter((value): value is string => typeof value === "string")
+        : typeof answer === "string" ? [answer] : [];
+      const ids = question.options
+        .filter((option) => labels.includes(option.label))
+        .map((option) => option.id);
+      return [question.id, ids];
+    }));
+  }
+
+  private async cursorPlan(request: CursorPlanRequest): Promise<boolean> {
+    const result = await this.requestToolApproval("ExitPlanMode", { plan: request.plan }, {
+      signal: request.signal,
+      title: request.name ?? request.overview ?? "Start working from this plan?",
+      allowAlways: false,
+    });
+    return result.behavior === "allow";
   }
 
   private askUserQuestion(input: Record<string, unknown>, signal: AbortSignal): Promise<PermissionResult> {

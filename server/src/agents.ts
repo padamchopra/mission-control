@@ -112,7 +112,7 @@ function gitIdentity(value: unknown, fallback: GitIdentityMode): GitIdentityMode
 
 function agentProvider(value: unknown, fallback: AgentProvider = REMY_DEFAULT): AgentProvider {
   if (value === REMY_DEFAULT) return REMY_DEFAULT;
-  if (value === "claude" || value === "codex") return value;
+  if (value === "claude" || value === "codex" || value === "cursor") return value;
   return fallback;
 }
 

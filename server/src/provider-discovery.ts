@@ -176,15 +176,64 @@ async function discoverCodex(): Promise<ProviderModel[]> {
   });
 }
 
+function cursorContext(label: string): string | undefined {
+  return /\b(\d+(?:\.\d+)?[KM])\b/i.exec(label)?.[1]?.toUpperCase();
+}
+
+export function cursorModels(listOutput: string, aboutOutput = ""): ProviderModel[] {
+  const resolvedLabel = /^Model\s+(.+)$/im.exec(aboutOutput)?.[1]?.trim();
+  const models = listOutput.split("\n").flatMap((line): ProviderModel[] => {
+    const match = /^\s*(\S+)\s+-\s+(.+?)\s*$/.exec(line);
+    if (!match) return [];
+    const [, value, rawLabel] = match;
+    const raw = rawLabel.replace(/\s*\((?:current,\s*)?default\)\s*$/i, "").trim();
+    const context = cursorContext(raw);
+    const label = context ? raw.replace(new RegExp(`\\s+${context}\\b`, "i"), "").trim() : raw;
+    return [{ value, label, ...(context ? { context } : {}) }];
+  });
+  return [
+    { value: "", label: "Default", ...(resolvedLabel ? { resolvedLabel } : {}) },
+    ...models,
+  ];
+}
+
+function cursorOutput(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("agent", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => child.kill(), DISCOVERY_TIMEOUT_MS);
+    timer.unref?.();
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(stdout);
+      else reject(new Error(stderr.trim() || `Cursor exited ${code ?? "before discovery completed"}.`));
+    });
+  });
+}
+
+async function discoverCursor(): Promise<ProviderModel[]> {
+  const [list, about] = await Promise.all([
+    cursorOutput(["--list-models"]),
+    cursorOutput(["about"]).catch(() => ""),
+  ]);
+  return cursorModels(list, about);
+}
+
 function mergeModels(discovered: ProviderModel[], fallback: ProviderModel[]): ProviderModel[] {
   const seen = new Set(discovered.map((model) => model.value));
   return [...discovered, ...fallback.filter((model) => !seen.has(model.value))];
 }
 
 async function discover(): Promise<Provider[]> {
-  const runtime = await Promise.allSettled([discoverClaude(), discoverCodex()]);
+  const runtime = await Promise.allSettled([discoverClaude(), discoverCodex(), discoverCursor()]);
   return PROVIDERS.map((provider) => {
-    const index = provider.id === "claude" ? 0 : 1;
+    const index = provider.id === "claude" ? 0 : provider.id === "codex" ? 1 : 2;
     const result = runtime[index];
     const discovered = result?.status === "fulfilled" ? result.value : [];
     const models = mergeModels(discovered, provider.models);

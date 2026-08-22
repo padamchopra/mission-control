@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { agentCommand } from "./agent.js";
 import { codexAnswer } from "./codex.js";
+import { cursorAnswer } from "./cursor.js";
 import { providerId, type ProviderId } from "./providers.js";
 
 /// Names a thread, and the branch its work belongs on, from the message that
@@ -101,9 +102,12 @@ export async function suggestName(
 ): Promise<ThreadName | undefined> {
   // `off` is how someone declines this entirely.
   if (model === "off") return undefined;
-  const answer = providerId(provider) === "codex"
+  const resolved = providerId(provider);
+  const answer = resolved === "codex"
     ? await nameWithCodex(request, model)
-    : await nameWithClaude(request, model);
+    : resolved === "cursor"
+      ? await nameWithCursor(request, model)
+      : await nameWithClaude(request, model);
   return answer ? parse(answer) : undefined;
 }
 
@@ -113,6 +117,20 @@ async function nameWithCodex(request: string, model: string): Promise<string | u
   try {
     return await codexAnswer({
       command: agentCommand("codex")!,
+      prompt: `${SYSTEM}\n\nName the session that starts with this request:\n\n${request}`,
+      cwd: homedir(),
+      ...(model ? { model } : {}),
+      timeoutMs: TIMEOUT_MS,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+async function nameWithCursor(request: string, model: string): Promise<string | undefined> {
+  try {
+    return await cursorAnswer({
+      command: agentCommand("cursor")!,
       prompt: `${SYSTEM}\n\nName the session that starts with this request:\n\n${request}`,
       cwd: homedir(),
       ...(model ? { model } : {}),

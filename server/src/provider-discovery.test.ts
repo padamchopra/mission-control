@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { claudeModels, codexModels } from "./provider-discovery.js";
+import { claudeModels, codexModels, cursorModels } from "./provider-discovery.js";
 
 test("Claude's SDK names the installed generations and context windows", () => {
   const models = claudeModels([
@@ -42,4 +42,16 @@ test("Codex app-server models keep its live names and default", () => {
   assert.deepEqual(models[0], { value: "", label: "Default", resolvedLabel: "GPT-5.6 Sol" });
   assert.equal(models[1]?.label, "GPT-5.6 Sol");
   assert.equal(models.length, 2);
+});
+
+test("Cursor models come from the installed CLI and show its active default", () => {
+  const models = cursorModels(
+    "Available models\n\nauto - Auto (default)\ngrok-4.6[effort=high,fast=true] - Grok 4.6 High Fast (256K)\n",
+    "CLI Version         2026.08.11\nModel               Cursor Grok 4.6 High Fast\n",
+  );
+
+  assert.deepEqual(models[0], { value: "", label: "Default", resolvedLabel: "Cursor Grok 4.6 High Fast" });
+  assert.deepEqual(models[1], { value: "auto", label: "Auto" });
+  assert.equal(models[2]?.value, "grok-4.6[effort=high,fast=true]");
+  assert.equal(models[2]?.context, "256K");
 });

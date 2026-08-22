@@ -20,6 +20,7 @@ export interface Tooling {
   gh: ToolStatus;
   claude: ToolStatus;
   codex: ToolStatus;
+  cursor: ToolStatus;
 }
 
 /// Version output is one line of prose (`git version 2.39.5`, `gh version 2.62.0
@@ -103,11 +104,12 @@ export async function githubAvatar(): Promise<string> {
 }
 
 export async function tooling(): Promise<Tooling> {
-  const [git, gh, claude, codex] = await Promise.all([
+  const [git, gh, claude, codex, cursor] = await Promise.all([
     probe("git", ["--version"]),
     ghStatus(),
     probe("claude", ["--version"]),
     probe("codex", ["--version"]),
+    probe("agent", ["--version"]),
   ]);
-  return { git, gh, claude, codex };
+  return { git, gh, claude, codex, cursor };
 }
