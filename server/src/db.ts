@@ -205,6 +205,36 @@ function migrate(database: DatabaseSync): void {
       registered_at integer not null,
       last_seen integer not null
     );
+    -- Shared workspace environments are encrypted independently on each
+    -- machine. Sync decrypts only in daemon memory, over the authenticated peer
+    -- channel, then re-encrypts with the receiving machine's key.
+    create table if not exists workspace_environments (
+      id text primary key,
+      project_id text not null,
+      name text not null,
+      updated_at integer not null,
+      device_id text not null,
+      deleted integer not null default 0
+    );
+    create index if not exists workspace_environments_project
+      on workspace_environments(project_id, deleted, name);
+    create table if not exists workspace_environment_values (
+      environment_id text not null,
+      name text not null,
+      ciphertext text,
+      iv text,
+      tag text,
+      updated_at integer not null,
+      device_id text not null,
+      deleted integer not null default 0,
+      primary key (environment_id, name)
+    );
+    create table if not exists workspace_environment_selection (
+      project_id text primary key,
+      environment_id text not null,
+      updated_at integer not null,
+      device_id text not null
+    );
   `);
   try {
     database.exec("alter table workspaces add column icon text");
@@ -257,7 +287,7 @@ function migrate(database: DatabaseSync): void {
   // replaced them, and a table nothing reads is worth dropping rather than
   // carrying.
   database.exec("drop table if exists loops");
-  database.exec("pragma user_version = 3");
+  database.exec("pragma user_version = 4");
 }
 
 export function getKv<T>(key: string): T | undefined {

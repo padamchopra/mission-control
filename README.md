@@ -36,6 +36,8 @@ Then open `http://127.0.0.1:5173`. That is the real app against your real folder
 
 Start a thread in a workspace, pick a model and how much the agent may do unasked, and send. A folder with git worktrees lets you branch on send rather than beforehand. Threads that stop to ask you something collect in the Inbox, so a machine working on four things at once has one queue instead of four windows.
 
+Workspace settings can hold named environments that sync across your paired devices. Values are encrypted on each machine and stay out of Claude and Codex themselves; an agent can run a separate, approval-gated command with the active environment, and Remy removes exact values from its output, changed text files, staged diffs, and commit messages before the agent continues. Encoded or transformed values cannot be recognised, so this is protection against accidental disclosure rather than a boundary against a hostile command.
+
 `⌘K` gets you anywhere, and tells you which threads need you.
 
 <img src="docs/images/palette.png" alt="The command palette listing threads that need you and threads still working" width="100%" />

@@ -39,6 +39,7 @@ import {
   listChats,
   respondToApproval,
   respondToQuestion,
+  runChatEnvironmentCommand,
   sendChatMessage,
   stopChat,
   chatCwd,
@@ -65,6 +66,7 @@ import {
   acceptEvents,
   completePair,
   identity,
+  isAuthenticatedPeerRequest,
   listPeers,
   pairWith,
   peerViews,
@@ -79,6 +81,19 @@ import {
   updateIdentity,
   updatePeer,
 } from "./peers.js";
+import {
+  createEnvironment,
+  deleteEnvironment,
+  deleteEnvironmentValue,
+  exportEnvironmentSync,
+  importEnvironmentFile,
+  listEnvironmentFiles,
+  listEnvironments,
+  mergeEnvironmentSync,
+  parseEnvironmentValues,
+  selectEnvironment,
+  setEnvironmentValues,
+} from "./environments.js";
 import {
   createPullRequest,
   diffStatFor,
@@ -540,6 +555,18 @@ const server = createServer(async (req, res) => {
       }
       return json(res, 200, { landed });
     }
+    // Environment values use a second daemon-only proof. The ordinary bearer
+    // token is also used by clients, so it is not enough for an endpoint that
+    // carries decrypted values between paired machines.
+    if (url.pathname === "/peers/environments/sync" && req.method === "POST") {
+      if (!isAuthenticatedPeerRequest(req.headers, req.method, url.pathname)) {
+        return json(res, 403, { error: "environment sync is available only to paired devices" });
+      }
+      const body = await readJson(req);
+      const landed = mergeEnvironmentSync(body.records);
+      if (landed > 0) broadcast({ type: "environments" });
+      return json(res, 200, { records: exportEnvironmentSync() });
+    }
     // A round now, rather than at the next tick.
     if (url.pathname === "/peers/sync-now" && req.method === "POST") {
       return json(res, 200, { landed: await syncNow() });
@@ -692,6 +719,50 @@ const server = createServer(async (req, res) => {
       await syncProjectBindings();
       return json(res, 200, { projects: listProjects() });
     }
+    if (parts[0] === "projects" && parts[1] && parts[2] === "environments") {
+      const projectId = decodeURIComponent(parts[1]);
+      try {
+        if (parts.length === 3 && req.method === "GET") {
+          return json(res, 200, { environments: listEnvironments(projectId) });
+        }
+        if (parts.length === 3 && req.method === "POST") {
+          const body = await readJson(req);
+          const environment = createEnvironment(projectId, body.name);
+          broadcast({ type: "environments", projectId });
+          return json(res, 201, { environment });
+        }
+        if (parts[3] === "files" && parts.length === 4 && req.method === "GET") {
+          return json(res, 200, { files: await listEnvironmentFiles(projectId) });
+        }
+        if (parts[3] === "active" && parts.length === 4 && req.method === "PUT") {
+          const body = await readJson(req);
+          const environment = selectEnvironment(projectId, String(body.environmentId ?? ""));
+          broadcast({ type: "environments", projectId });
+          return json(res, 200, { environment });
+        }
+        const environmentId = parts[3] ? decodeURIComponent(parts[3]) : "";
+        if (environmentId && parts.length === 4 && req.method === "DELETE") {
+          deleteEnvironment(projectId, environmentId);
+          broadcast({ type: "environments", projectId });
+          return json(res, 200, { ok: true });
+        }
+        if (environmentId && parts[4] === "import" && parts.length === 5 && req.method === "POST") {
+          const body = await readJson(req);
+          const environment = body.file !== undefined
+            ? await importEnvironmentFile(projectId, environmentId, body.file, body.remove === true)
+            : setEnvironmentValues(projectId, environmentId, parseEnvironmentValues(String(body.text ?? "")));
+          broadcast({ type: "environments", projectId });
+          return json(res, 200, { environment });
+        }
+        if (environmentId && parts[4] === "variables" && parts[5] && parts.length === 6 && req.method === "DELETE") {
+          deleteEnvironmentValue(projectId, environmentId, decodeURIComponent(parts[5]));
+          broadcast({ type: "environments", projectId });
+          return json(res, 200, { ok: true });
+        }
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "could not change that environment" });
+      }
+    }
     if (parts[0] === "projects" && parts[1] && parts.length === 2 && req.method === "PATCH") {
       const body = await readJson(req);
       try {
@@ -700,6 +771,15 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { project });
       } catch (error) {
         return json(res, 404, { error: (error as Error).message || "no such workspace" });
+      }
+    }
+
+    if (url.pathname === "/runtime/environment-command" && req.method === "POST") {
+      if (!scopedChatId) return json(res, 403, { error: "that operation is available only inside a thread" });
+      try {
+        return json(res, 200, await runChatEnvironmentCommand(scopedChatId, await readJson(req)));
+      } catch (error) {
+        return json(res, 400, { error: (error as Error).message || "the runtime command failed" });
       }
     }
 
