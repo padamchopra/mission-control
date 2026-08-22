@@ -98,6 +98,16 @@ function withPeers(base: LocalTransport): Transport {
   let localId: string | undefined;
   let peerIds = new Set<string>();
   let hasCursorCloud = false;
+  // Three requests answer "which machines are there": health, the pairings,
+  // and whether Cursor Cloud is on. Every read the window does begins by
+  // asking, and a write asks twice over — once for its own read-back, once for
+  // the frame the daemon sends afterwards. Callers in the same moment share one
+  // answer instead; the store's poll is shorter-lived than nothing and longer
+  // than this, so a machine that appears or goes still shows up on the next
+  // round rather than being cached out of sight.
+  const LIST_TTL_MS = 2_000;
+  let listed: { at: number; servers: Server[] } | undefined;
+  let listing: Promise<Server[]> | undefined;
 
   const localOf = (servers: Server[]) => servers.find((server) => server.local)?.id ?? servers[0]?.id;
 
@@ -110,51 +120,17 @@ function withPeers(base: LocalTransport): Transport {
   return {
     ...base,
 
-    async servers() {
-      const own = await base.servers();
-      localId = localOf(own);
-      if (!localId) {
-        peerIds = new Set();
-        return own;
-      }
-      let answer: {
-        name?: string;
-        icon?: string;
-        tint?: string;
-        configured?: { name?: boolean; icon?: boolean; tint?: boolean };
-        peers?: WirePeer[];
-      } = {};
-      let cursorCloud: CursorCloudStatus = {};
-      try {
-        [answer, cursorCloud] = await Promise.all([
-          base.request<typeof answer>(localId, "/peers"),
-          base.request<CursorCloudStatus>(localId, "/cursor-cloud/status").catch(() => ({})),
-        ]);
-      } catch {
-        // A daemon from before pairing landed has no /peers, which simply means
-        // this machine is the only one.
-      }
-      const listed = answer.peers ?? [];
-      hasCursorCloud = cursorCloud.visible === true;
-      peerIds = new Set(listed.map((peer) => peer.id));
-      const ownIdentity = own.map((server) => {
-        if (server.id !== localId) return server;
-        const name = answer.configured?.name && answer.name ? answer.name : server.name;
-        const icon = answer.configured?.icon && isDeviceIcon(answer.icon) ? answer.icon : server.icon;
-        const tint = answer.configured?.tint && isTint(answer.tint) ? answer.tint : server.tint;
-        return {
-          ...server,
-          name,
-          code: codeFor(name),
-          icon,
-          ...(tint ? { tint } : {}),
-        };
-      });
-      // A machine the desktop app paired the old way is already in `own`; it
-      // must not appear a second time under its daemon-side id.
-      const already = new Set(own.map((server) => server.url));
-      const peers = listed.filter((peer) => !already.has(peer.url)).map(toPeerServer);
-      return [...ownIdentity, ...peers, ...(hasCursorCloud ? [toCursorCloudServer(cursorCloud)] : [])];
+    servers() {
+      if (listed && Date.now() - listed.at < LIST_TTL_MS) return Promise.resolve(listed.servers);
+      listing ??= readServers()
+        .then((servers) => {
+          listed = { at: Date.now(), servers };
+          return servers;
+        })
+        .finally(() => {
+          listing = undefined;
+        });
+      return listing;
     },
 
     request<T>(serverId: string, path: string, init?: { method?: string; body?: unknown }) {
@@ -167,15 +143,18 @@ function withPeers(base: LocalTransport): Transport {
 
     async addServer(input) {
       await base.request(await home(), "/peers", { method: "POST", body: input });
+      listed = undefined;
     },
 
     async removeServer(id) {
+      listed = undefined;
       if (id === "cursor-cloud") throw new Error("Disconnect Cursor Cloud in its device settings.");
       if (!peerIds.has(id)) return base.removeServer(id);
       await base.request(await home(), `/peers/${encodeURIComponent(id)}`, { method: "DELETE" });
     },
 
     async updateServer(id, patch) {
+      listed = undefined;
       if (id === "cursor-cloud") return;
       // How a device looks is this window's business; what it is called is the
       // daemon's, so a rename reaches the other windows too.
@@ -188,7 +167,55 @@ function withPeers(base: LocalTransport): Transport {
       if (Object.keys(body).length === 0) return;
       await base.request(await home(), `/peers/${encodeURIComponent(id)}`, { method: "PATCH", body });
     },
+
   };
+
+  async function readServers(): Promise<Server[]> {
+    const own = await base.servers();
+    localId = localOf(own);
+    if (!localId) {
+      peerIds = new Set();
+      return own;
+    }
+    let answer: {
+      name?: string;
+      icon?: string;
+      tint?: string;
+      configured?: { name?: boolean; icon?: boolean; tint?: boolean };
+      peers?: WirePeer[];
+    } = {};
+    let cursorCloud: CursorCloudStatus = {};
+    try {
+      [answer, cursorCloud] = await Promise.all([
+        base.request<typeof answer>(localId, "/peers"),
+        base.request<CursorCloudStatus>(localId, "/cursor-cloud/status").catch(() => ({})),
+      ]);
+    } catch {
+      // A daemon from before pairing landed has no /peers, which simply means
+      // this machine is the only one.
+    }
+    const paired = answer.peers ?? [];
+    hasCursorCloud = cursorCloud.visible === true;
+    peerIds = new Set(paired.map((peer) => peer.id));
+    const ownIdentity = own.map((server) => {
+      if (server.id !== localId) return server;
+      const name = answer.configured?.name && answer.name ? answer.name : server.name;
+      const icon = answer.configured?.icon && isDeviceIcon(answer.icon) ? answer.icon : server.icon;
+      const tint = answer.configured?.tint && isTint(answer.tint) ? answer.tint : server.tint;
+      return {
+        ...server,
+        name,
+        code: codeFor(name),
+        icon,
+        ...(tint ? { tint } : {}),
+      };
+    });
+    // A machine the desktop app paired the old way is already in `own`; it
+    // must not appear a second time under its daemon-side id.
+    const already = new Set(own.map((server) => server.url));
+    const peers = paired.filter((peer) => !already.has(peer.url)).map(toPeerServer);
+    return [...ownIdentity, ...peers, ...(hasCursorCloud ? [toCursorCloudServer(cursorCloud)] : [])];
+  }
 }
 
 interface ListedServer {

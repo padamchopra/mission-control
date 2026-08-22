@@ -81,6 +81,7 @@ npm run typecheck    # web + desktop + mobile
 npm test             # server: tsc, then node --test on dist/*.test.js
 npm run shots        # Playwright PNGs of the window
 npm run live-check   # assert the window is showing threads
+npm run perf         # what each pane costs to open, and how much of it waits on another device
 npm run pack:mac     # web + daemon + Electron DMG → desktop/release/
 ```
 

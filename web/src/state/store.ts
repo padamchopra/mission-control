@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { codeFor, type DeviceIconId } from "~/lib/devices";
 import type { TintId } from "~/lib/tints";
 import type { Provider } from "~/lib/providers";
+import { byRank } from "~/lib/tickets";
 import { transport } from "~/lib/transport";
 import { fixtureChats, fixtureServers, fixtureWorkspaces } from "./fixture";
 import type {
@@ -294,48 +295,68 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
 
-    // Every server is asked in parallel, and one being down must not blank the
-    // others — so failures are collected per server rather than thrown.
-    const failures: string[] = [];
-    const results = await Promise.all(
+    // The device list itself is known now, so it lands before anything is
+    // asked of any of them. A machine that has gone away takes its threads and
+    // its workspaces with it rather than leaving them behind.
+    const known = new Set(servers.map((server) => server.id));
+    set((current) => ({
+      servers,
+      chats: current.chats.filter((chat) => known.has(chat.serverId)),
+      workspaces: current.workspaces.filter((workspace) => known.has(workspace.serverId)),
+    }));
+
+    // Every machine is asked in parallel and each one paints as it answers,
+    // rather than the round landing all at once at the end. The threads on this
+    // machine come back in a millisecond; waiting for a device that is asleep
+    // to give up first is what kept them off the screen for seconds.
+    const failures = new Map<string, string>();
+    await Promise.all(
       servers.map(async (server) => {
         try {
-          let chats: { chats?: RawChat[] };
-          try {
-            chats = await transport.request<{ chats?: RawChat[] }>(server.id, "/chats");
-          } catch (error) {
-            // An older server has no /chats; that is not an error worth showing.
-            const message = error instanceof Error ? error.message : String(error);
-            if (!/\b404\b/.test(message)) throw error;
-            chats = { chats: [] };
-          }
-          let workspaces: Workspace[] = [];
-          try {
-            const listed = await transport.request<{ workspaces?: RawWorkspace[] }>(server.id, "/workspaces");
-            workspaces = (listed.workspaces ?? []).map((raw) => toWorkspace(raw, server.id));
-          } catch {
-            workspaces = [];
-          }
-          return {
-            server: { ...server, online: server.cloud ? server.online : true },
-            chats: (chats.chats ?? []).map((raw) => toChat(raw, server.id)),
-            workspaces,
-          };
+          const [chats, workspaces] = await Promise.all([
+            transport.request<{ chats?: RawChat[] }>(server.id, "/chats").catch((error: unknown) => {
+              // An older server has no /chats; that is not an error worth showing.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!/\b404\b/.test(message)) throw error;
+              return { chats: [] };
+            }),
+            transport
+              .request<{ workspaces?: RawWorkspace[] }>(server.id, "/workspaces")
+              .then((listed) => listed.workspaces ?? [])
+              .catch(() => []),
+          ]);
+          set((current) => ({
+            // One machine answering is enough to stop saying "Connecting…":
+            // there is something to show, and there is somewhere to type.
+            loading: false,
+            servers: current.servers.map((entry) =>
+              entry.id === server.id ? { ...entry, online: entry.cloud ? entry.online : true } : entry),
+            chats: [
+              ...current.chats.filter((chat) => chat.serverId !== server.id),
+              ...(chats.chats ?? []).map((raw) => toChat(raw, server.id)),
+            ].sort(byAttention),
+            workspaces: [
+              ...current.workspaces.filter((workspace) => workspace.serverId !== server.id),
+              ...workspaces.map((raw) => toWorkspace(raw, server.id)),
+            ],
+          }));
         } catch (error) {
-          failures.push(`${server.name}: ${error instanceof Error ? error.message : String(error)}`);
-          return { server: { ...server, online: false }, chats: [], workspaces: [] };
+          failures.set(server.id, `${server.name}: ${error instanceof Error ? error.message : String(error)}`);
+          set((current) => ({
+            servers: current.servers.map((entry) =>
+              entry.id === server.id ? { ...entry, online: false } : entry),
+            chats: current.chats.filter((chat) => chat.serverId !== server.id),
+            workspaces: current.workspaces.filter((workspace) => workspace.serverId !== server.id),
+          }));
         }
       }),
     );
 
-    set({
-      servers: results.map((r) => r.server),
-      chats: results.flatMap((r) => r.chats).sort(byAttention),
-      workspaces: results.flatMap((r) => r.workspaces),
+    set((current) => ({
       loading: false,
-      error: failures.length === servers.length ? failures.join("; ") : undefined,
-      connected: results.some((r) => r.server.online),
-    });
+      error: failures.size === servers.length ? [...failures.values()].join("; ") : undefined,
+      connected: current.servers.some((server) => server.online),
+    }));
   },
 
   async addServer(input) {
@@ -739,13 +760,23 @@ export const useStore = create<State>((set, get) => ({
   async loadBoard() {
     if (useFixture) return;
     const servers = await transport.servers();
-    if (servers.length === 0) {
+    // The board is read from the machines this window holds a daemon of, and a
+    // paired one is not among them: daemons converge the board log between
+    // themselves, so a peer's tickets, agents and recurring tickets are already
+    // in the answer here. Asking that machine for them again waits on a device
+    // that may be asleep for something this one already knows — and its answer
+    // carries `workspaceIds` for folders on *its* disk, which are not ours.
+    //
+    // Threads and workspaces are the opposite: those live on one machine and
+    // replicate nowhere, so `refresh` does go and ask each one.
+    const asked = servers.filter((server) => !server.peer && !server.cloud);
+    if (asked.length === 0) {
       set({ agents: [], projects: [], tickets: [], recurring: [], boardDevices: [], boardLoading: false });
       return;
     }
     if (get().tickets.length === 0) set({ boardLoading: true });
     const results = await Promise.all(
-      servers.map(async (server) => {
+      asked.map(async (server) => {
         try {
           const board = await transport.request<{
             deviceId?: string;
@@ -778,12 +809,18 @@ export const useStore = create<State>((set, get) => ({
     const dedupe = <T extends { id: string }>(rows: T[]): T[] => [
       ...new Map(rows.map((row) => [row.id, row])).values(),
     ];
+    // A paired machine still takes its place in the device map. It costs no
+    // request: the id this window reaches that machine by *is* the id its
+    // events are written with, because pairing keys a device on exactly that.
+    const paired = servers
+      .filter((server) => server.peer)
+      .map((server) => ({ deviceId: server.id, serverId: server.id }));
     set({
       agents: dedupe(results.flatMap((r) => r.agents)),
       projects: dedupe(results.flatMap((r) => r.projects)),
-      tickets: dedupe(results.flatMap((r) => r.tickets)).sort((a, b) => a.rank.localeCompare(b.rank)),
+      tickets: dedupe(results.flatMap((r) => r.tickets)).sort(byRank),
       recurring: dedupe(results.flatMap((r) => r.recurring)).sort((a, b) => a.nextRunAt - b.nextRunAt),
-      boardDevices: results.flatMap((r) => r.devices),
+      boardDevices: [...results.flatMap((r) => r.devices), ...paired],
       boardLoading: false,
     });
   },
@@ -794,8 +831,10 @@ export const useStore = create<State>((set, get) => ({
       method: "POST",
       body: input,
     });
-    await get().loadBoard();
-    return { ...body.ticket, serverId: server, threads: body.ticket.threads ?? [] } as Ticket;
+    const ticket = toTicket(body.ticket, server);
+    set((current) => ({ tickets: withTicket(current.tickets, ticket) }));
+    void get().loadBoard().catch(() => {});
+    return ticket;
   },
 
   async startTicket(id) {
@@ -819,11 +858,17 @@ export const useStore = create<State>((set, get) => ({
   async updateTicket(id, patch) {
     const ticket = get().tickets.find((entry) => entry.id === id);
     if (!ticket) return;
-    await transport.request(ticket.serverId, `/tickets/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: patch,
-    });
-    await get().loadBoard();
+    const body = await transport.request<{ ticket: RawTicket }>(
+      ticket.serverId,
+      `/tickets/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: patch },
+    );
+    // The answer *is* the ticket, so the pane repaints from it now rather than
+    // waiting on a read of the whole board. That read still happens, behind the
+    // change, for what a write moves elsewhere — a parent's progress ring, a
+    // sub-ticket, a sibling's rank.
+    set((current) => ({ tickets: withTicket(current.tickets, toTicket(body.ticket, ticket.serverId)) }));
+    void get().loadBoard().catch(() => {});
   },
 
   async moveTicket(id, status, before, after) {
@@ -835,30 +880,35 @@ export const useStore = create<State>((set, get) => ({
       tickets: current.tickets.map((entry) => (entry.id === id ? { ...entry, status } : entry)),
     }));
     try {
-      await transport.request(ticket.serverId, `/tickets/${encodeURIComponent(id)}/move`, {
-        method: "POST",
-        body: { status, before, after },
-      });
+      const body = await transport.request<{ ticket: RawTicket }>(
+        ticket.serverId,
+        `/tickets/${encodeURIComponent(id)}/move`,
+        { method: "POST", body: { status, before, after } },
+      );
+      set((current) => ({ tickets: withTicket(current.tickets, toTicket(body.ticket, ticket.serverId)) }));
     } finally {
-      await get().loadBoard();
+      void get().loadBoard().catch(() => {});
     }
   },
 
   async commentOnTicket(id, body) {
     const ticket = get().tickets.find((entry) => entry.id === id);
     if (!ticket) return;
-    await transport.request(ticket.serverId, `/tickets/${encodeURIComponent(id)}/comment`, {
-      method: "POST",
-      body: { body },
-    });
-    await get().loadBoard();
+    const answer = await transport.request<{ ticket: RawTicket }>(
+      ticket.serverId,
+      `/tickets/${encodeURIComponent(id)}/comment`,
+      { method: "POST", body: { body } },
+    );
+    set((current) => ({ tickets: withTicket(current.tickets, toTicket(answer.ticket, ticket.serverId)) }));
+    void get().loadBoard().catch(() => {});
   },
 
   async deleteTicket(id) {
     const ticket = get().tickets.find((entry) => entry.id === id);
     if (!ticket) return;
     await transport.request(ticket.serverId, `/tickets/${encodeURIComponent(id)}`, { method: "DELETE" });
-    await get().loadBoard();
+    set((current) => ({ tickets: current.tickets.filter((entry) => entry.id !== id) }));
+    void get().loadBoard().catch(() => {});
   },
 
   async ticketActivity(id) {
@@ -878,27 +928,33 @@ export const useStore = create<State>((set, get) => ({
     if (!chat) throw new Error("That thread is gone.");
     const threadDevice = get().boardDevices.find((entry) => entry.serverId === chat.serverId)?.deviceId;
     if (!threadDevice) throw new Error("That thread's device is not connected.");
-    await transport.request(ticket.serverId, `/tickets/${encodeURIComponent(ticketId)}/threads`, {
-      method: "POST",
-      body: {
-        chatId,
-        deviceId: threadDevice,
-        state: chat.state,
-        ...(chat.agentId ? { agentId: chat.agentId } : {}),
+    const body = await transport.request<{ ticket: RawTicket }>(
+      ticket.serverId,
+      `/tickets/${encodeURIComponent(ticketId)}/threads`,
+      {
+        method: "POST",
+        body: {
+          chatId,
+          deviceId: threadDevice,
+          state: chat.state,
+          ...(chat.agentId ? { agentId: chat.agentId } : {}),
+        },
       },
-    });
-    await get().loadBoard();
+    );
+    set((current) => ({ tickets: withTicket(current.tickets, toTicket(body.ticket, ticket.serverId)) }));
+    void get().loadBoard().catch(() => {});
   },
 
   async detachThread(ticketId, chatId, deviceId) {
     const ticket = get().tickets.find((entry) => entry.id === ticketId);
     if (!ticket) return;
-    await transport.request(
+    const body = await transport.request<{ ticket: RawTicket }>(
       ticket.serverId,
       `/tickets/${encodeURIComponent(ticketId)}/threads/${encodeURIComponent(chatId)}?device=${encodeURIComponent(deviceId)}`,
       { method: "DELETE" },
     );
-    await get().loadBoard();
+    set((current) => ({ tickets: withTicket(current.tickets, toTicket(body.ticket, ticket.serverId)) }));
+    void get().loadBoard().catch(() => {});
   },
 
   async ticketFromThread(chatId) {
@@ -909,8 +965,10 @@ export const useStore = create<State>((set, get) => ({
       `/chats/${encodeURIComponent(chatId)}/ticket`,
       { method: "POST", body: {} },
     );
-    await get().loadBoard();
-    return { ...body.ticket, serverId: chat.serverId, threads: body.ticket.threads ?? [] } as Ticket;
+    const ticket = toTicket(body.ticket, chat.serverId);
+    set((current) => ({ tickets: withTicket(current.tickets, ticket) }));
+    void get().loadBoard().catch(() => {});
+    return ticket;
   },
 
   async saveRecurrence(id, patch) {
@@ -921,15 +979,18 @@ export const useStore = create<State>((set, get) => ({
       id ? `/recurring/${encodeURIComponent(id)}` : "/recurring",
       { method: id ? "PATCH" : "POST", body: patch },
     );
-    await get().loadBoard();
-    return { ...body.recurrence, serverId: server } as Recurrence;
+    const recurrence = { ...body.recurrence, serverId: server } as Recurrence;
+    set((current) => ({ recurring: withRecurrence(current.recurring, recurrence) }));
+    void get().loadBoard().catch(() => {});
+    return recurrence;
   },
 
   async deleteRecurrence(id) {
     const recurrence = get().recurring.find((entry) => entry.id === id);
     if (!recurrence) return;
     await transport.request(recurrence.serverId, `/recurring/${encodeURIComponent(id)}`, { method: "DELETE" });
-    await get().loadBoard();
+    set((current) => ({ recurring: current.recurring.filter((entry) => entry.id !== id) }));
+    void get().loadBoard().catch(() => {});
   },
 
   async runRecurrence(id) {
@@ -940,8 +1001,10 @@ export const useStore = create<State>((set, get) => ({
       `/recurring/${encodeURIComponent(id)}/run`,
       { method: "POST", body: {} },
     );
-    await get().loadBoard();
-    return { ...body.ticket, serverId: recurrence.serverId, threads: body.ticket.threads ?? [] } as Ticket;
+    const ticket = toTicket(body.ticket, recurrence.serverId);
+    set((current) => ({ tickets: withTicket(current.tickets, ticket) }));
+    void get().loadBoard().catch(() => {});
+    return ticket;
   },
 
   async saveAgent(id, patch) {
@@ -953,15 +1016,18 @@ export const useStore = create<State>((set, get) => ({
       id ? `/agents/${encodeURIComponent(id)}` : "/agents",
       { method: id ? "PATCH" : "POST", body: patch },
     );
-    await get().loadBoard();
-    return { ...body.agent, serverId: server } as Agent;
+    const agent = { ...body.agent, serverId: server } as Agent;
+    set((current) => ({ agents: withRow(current.agents, agent) }));
+    void get().loadBoard().catch(() => {});
+    return agent;
   },
 
   async deleteAgent(id) {
     const agent = get().agents.find((entry) => entry.id === id);
     if (!agent) return;
     await transport.request(agent.serverId, `/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
-    await get().loadBoard();
+    set((current) => ({ agents: current.agents.filter((entry) => entry.id !== id) }));
+    void get().loadBoard().catch(() => {});
   },
 
   async saveProject(id, patch) {
@@ -1180,6 +1246,32 @@ type RawAgent = Omit<Agent, "serverId">;
 type RawProject = Omit<Project, "serverId" | "workspaceIds"> & { workspaceIds?: string[] };
 type RawTicket = Omit<Ticket, "serverId" | "threads"> & { threads?: Ticket["threads"] };
 type RawRecurrence = Omit<Recurrence, "serverId">;
+
+function toTicket(raw: RawTicket, serverId: string): Ticket {
+  return { ...raw, serverId, threads: raw.threads ?? [] } as Ticket;
+}
+
+/// Puts the row a write answered with back where it came from.
+///
+/// A write already holds the record it made, so the pane it is on repaints from
+/// that rather than from a read of the whole board — which is a round trip the
+/// person is watching, and one that used to wait on every paired machine.
+function withRow<T extends { id: string }>(rows: T[], row: T): T[] {
+  return rows.some((entry) => entry.id === row.id)
+    ? rows.map((entry) => (entry.id === row.id ? row : entry))
+    : [...rows, row];
+}
+
+// The board and the recurring tab paint their lists in the order they are held
+// in, so a row put back by hand is put back in that order — otherwise a card
+// lands at the bottom of its column and jumps when the read behind it returns.
+function withTicket(rows: Ticket[], row: Ticket): Ticket[] {
+  return withRow(rows, row).sort(byRank);
+}
+
+function withRecurrence(rows: Recurrence[], row: Recurrence): Recurrence[] {
+  return withRow(rows, row).sort((a, b) => a.nextRunAt - b.nextRunAt);
+}
 
 function nameFromPath(path: string): string {
   const part = path
