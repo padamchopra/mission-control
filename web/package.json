@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "shots": "node scripts/shoot.mjs",
+    "perf": "node scripts/perf.mjs",
     "live-check": "node scripts/live-check.mjs"
   },
   "dependencies": {

@@ -84,6 +84,10 @@ export function AppSidebar({
   updateAvailable?: boolean;
 }) {
   const now = useTicker(scoped.some((chat) => chat.workingSince));
+  // Before the first read answers there is nothing to say about the threads
+  // yet: "No threads yet." would be a claim, and on a machine that has some it
+  // is a wrong one, corrected a moment later.
+  const stillLooking = useStore((s) => s.loading);
 
   return (
     <Sidebar collapsible="none" className="border-r border-sidebar-border">
@@ -144,7 +148,9 @@ export function AppSidebar({
               <SidebarGroupContent>
                 <SidebarMenu>
                   {scoped.length === 0 ? (
-                    <p className="px-2 py-1.5 text-xs text-muted-foreground">No threads yet.</p>
+                    stillLooking ? null : (
+                      <p className="px-2 py-1.5 text-xs text-muted-foreground">No threads yet.</p>
+                    )
                   ) : (
                     scoped.map((chat) => (
                       <SidebarMenuItem key={chat.id}>
