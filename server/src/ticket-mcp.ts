@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
 import { REMY_TOOL_INSTRUCTIONS } from "./ticket-tool-contract.js";
+import { artifactMarker, type ConvArtifact } from "./remy-artifacts.js";
 
 interface ApiTicket {
   id: string;
@@ -55,7 +56,7 @@ interface ApiThread {
 interface Board {
   tickets?: ApiTicket[];
   agents?: ApiAgent[];
-  projects?: { id: string; name: string }[];
+  projects?: { id: string; name: string; workspaceIds?: string[] }[];
 }
 
 const apiUrl = process.env.REMY_API_URL ?? "http://127.0.0.1:8420";
@@ -118,8 +119,14 @@ async function describe(key?: string): Promise<string> {
   ].filter(Boolean).join("\n");
 }
 
-function ok(text: string) {
-  return { content: [{ type: "text" as const, text }] };
+/// A tool's answer, and the card the feed draws under it. Same marker the
+/// in-process server uses, so a card looks the same on every provider.
+function ok(text: string, artifact?: ConvArtifact) {
+  return { content: [{ type: "text" as const, text: artifact ? text + artifactMarker(artifact) : text }] };
+}
+
+function ticketCard(ticket: ApiTicket): ConvArtifact {
+  return { kind: "ticket", key: ticket.key, title: ticket.title, detail: ticket.status };
 }
 
 function workspaceName(path: string): string {
@@ -129,6 +136,24 @@ function workspaceName(path: string): string {
 
 async function workspaces(): Promise<ApiWorkspace[]> {
   return (await request<{ workspaces?: ApiWorkspace[] }>("/workspaces")).workspaces ?? [];
+}
+
+/// The workspace a reference names, or the one this thread is already in.
+async function workspaceFor(reference?: string): Promise<ApiWorkspace | undefined> {
+  const listed = await workspaces();
+  if (!reference?.trim()) {
+    const current = await request<ApiThread>(`/chats/${encodeURIComponent(chatId)}`);
+    return listed.find((workspace) => workspace.path === current.cwd);
+  }
+  const asked = reference.trim();
+  const matches = listed.filter((workspace) =>
+    workspace.id === asked
+    || workspace.path === asked
+    || workspace.origin === asked
+    || workspace.name.toLowerCase() === asked.toLowerCase());
+  if (matches.length === 0) throw new Error(`No workspace called ${asked}. Register it first if this is a new folder.`);
+  if (matches.length > 1) throw new Error(`More than one workspace is called ${asked}. Use its id or path.`);
+  return matches[0];
 }
 
 async function workspacePath(reference?: string): Promise<string> {
@@ -192,7 +217,12 @@ server.registerTool("register_workspace", {
     method: "POST",
     body: { path, name: name?.trim() || workspaceName(path) },
   });
-  return ok(`Registered ${result.workspace.name} at ${result.workspace.path}.`);
+  return ok(`Registered ${result.workspace.name} at ${result.workspace.path}.`, {
+    kind: "workspace",
+    id: result.workspace.id,
+    title: result.workspace.name,
+    detail: result.workspace.path,
+  });
 });
 
 server.registerTool("run_with_environment", {
@@ -283,7 +313,12 @@ server.registerTool("start_thread", {
     method: "POST",
     body: { text: prompt },
   });
-  return ok(`Started ${created.chat.title} as thread ${created.chat.id}.`);
+  return ok(`Started ${created.chat.title} as thread ${created.chat.id}.`, {
+    kind: "thread",
+    id: created.chat.id,
+    title: created.chat.title,
+    detail: created.chat.cwd,
+  });
 });
 
 server.registerTool("send_to_thread", {
@@ -304,6 +339,33 @@ server.registerTool("stop_thread", {
   if (thread_id === chatId) throw new Error("The current thread cannot stop itself through Remy.");
   await request(`/chats/${encodeURIComponent(thread_id)}/stop`, { method: "POST" });
   return ok(`Stopped thread ${thread_id}.`);
+});
+
+server.registerTool("create_ticket", {
+  description: "Write a new ticket on a workspace's board.",
+  inputSchema: {
+    title: z.string().min(1).max(200),
+    body: z.string().max(20000).optional().describe("The description in markdown"),
+    workspace: z.string().optional().describe("Registered workspace name, id, path, or origin. Omit it to use this thread's folder."),
+    status: z.enum(["backlog", "todo", "in_progress", "needs_input", "pr_review", "done", "cancelled"]).optional().describe("Defaults to Backlog."),
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+}, async ({ title, body, workspace, status }) => {
+  const held = await workspaceFor(workspace);
+  const snapshot = await board();
+  const project = held && snapshot.projects?.find((entry) => entry.workspaceIds?.includes(held.id));
+  if (!project) throw new Error("That folder has no board yet. Register it as a workspace first.");
+  const created = await request<{ ticket: ApiTicket }>("/tickets", {
+    method: "POST",
+    body: {
+      projectId: project.id,
+      title,
+      ...(body ? { body } : {}),
+      ...(status ? { status } : {}),
+      actor: agentId,
+    },
+  });
+  return ok(`Created ${created.ticket.key} in ${project.name}.`, ticketCard(created.ticket));
 });
 
 server.registerTool("read_ticket", {
@@ -328,7 +390,7 @@ server.registerTool("attach_ticket", {
       ...(agentId ? { agentId } : {}),
     },
   });
-  return ok(`Linked this thread to ${ticket.key}.`);
+  return ok(`Linked this thread to ${ticket.key}.`, ticketCard(ticket));
 });
 
 server.registerTool("update_ticket", {
@@ -346,7 +408,7 @@ server.registerTool("update_ticket", {
   if (body !== undefined) patch.body = body;
   if (Object.keys(patch).length === 0) throw new Error("Give a title or description to update.");
   await request(`/tickets/${encodeURIComponent(ticket.id)}`, { method: "PATCH", body: patch });
-  return ok(`Updated ${ticket.key}.`);
+  return ok(`Updated ${ticket.key}.`, ticketCard(ticket));
 });
 
 server.registerTool("set_ticket_status", {
@@ -363,7 +425,7 @@ server.registerTool("set_ticket_status", {
     method: "POST",
     body: { status, note, actor: agentId },
   });
-  return ok(`Moved ${ticket.key} to ${status}.`);
+  return ok(`Moved ${ticket.key} to ${status}.`, { ...ticketCard(ticket), detail: status });
 });
 
 server.registerTool("comment_on_ticket", {
@@ -376,7 +438,7 @@ server.registerTool("comment_on_ticket", {
     method: "POST",
     body: { body, actor: agentId },
   });
-  return ok(`Commented on ${ticket.key}.`);
+  return ok(`Commented on ${ticket.key}.`, ticketCard(ticket));
 });
 
 server.registerTool("create_sub_ticket", {
@@ -395,7 +457,7 @@ server.registerTool("create_sub_ticket", {
       actor: agentId,
     },
   });
-  return ok(`Created ${created.ticket.key} under ${ticket.key}.`);
+  return ok(`Created ${created.ticket.key} under ${ticket.key}.`, ticketCard(created.ticket));
 });
 
 server.registerTool("handoff_ticket", {
@@ -412,7 +474,7 @@ server.registerTool("handoff_ticket", {
     method: "POST",
     body: { agentId: next.id, actor: current.handle },
   });
-  return ok(`Handed ${ticket.key} to @${next.handle} in Todo.`);
+  return ok(`Handed ${ticket.key} to @${next.handle} in Todo.`, { ...ticketCard(ticket), detail: "Todo" });
 });
 
 await server.connect(new StdioServerTransport());

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Bot, Plus, Settings2, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Bot, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -13,16 +13,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -38,30 +30,31 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { EditableName } from "@/components/EditableName";
 import { ModelPickerButton, REMY_DEFAULT } from "@/components/ModelPicker";
 import { apiError } from "@/lib/api-error";
-import type { ModelChoice } from "@/lib/providers";
 import { TINT_IDS, tintOf } from "@/lib/tints";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/state/store";
 import type { Agent } from "@/state/types";
 
-/// The roster, as a list and a detail rather than a dialog.
+/// Everything about one agent, opened from its conversation in the inbox.
 ///
-/// An agent has more to say than a modal has room for — instructions alone want
-/// a real textarea — and picking one is a place you can be, so it lives in the
-/// URL and a reload lands back on it.
+/// The roster lives in the inbox rather than in Settings: an agent is somebody
+/// you talk to, and what it is called and how it thinks belongs next to the
+/// conversation rather than three panes away.
 ///
-/// Everything saves as you go, the way the rest of Settings does. Menus and
-/// switches save on change; text saves when you leave the field, because saving
-/// a paragraph on every keystroke is a write per character.
+/// Everything saves as you go. Menus and switches save on change; text saves
+/// when you leave the field, because saving a paragraph on every keystroke is a
+/// write per character.
 
+/// Two, because an agent that stops for permission on every edit is an agent
+/// you have to sit with, which is not what one is for.
 const PERMISSIONS = [
-  { value: "plan", label: "Plan only", detail: "Reads and proposes. Changes nothing." },
-  { value: "default", label: "Ask first", detail: "Stops for every edit and command." },
-  { value: "acceptEdits", label: "Edit freely", detail: "Writes files without asking." },
-  { value: "bypassPermissions", label: "No prompts", detail: "Never stops to ask." },
+  { value: "auto", label: "Auto", detail: "Reads and writes on its own. Stops for anything it cannot undo." },
+  { value: "bypassPermissions", label: "Bypass", detail: "Never stops to ask, including for commands that destroy work." },
 ];
 
-const IDENTITIES = [
+/// Who an agent's commits credit. Shared with Settings, where the machine's
+/// own default for this is set.
+export const IDENTITIES = [
   { value: "off", label: "You", detail: "Commits carry your name." },
   { value: "author", label: "Agent", detail: "The agent is the author; you remain the committer." },
 ];
@@ -71,226 +64,7 @@ const AGENT_IDENTITIES = [
   ...IDENTITIES,
 ];
 
-export function AgentsPane({
-  selected,
-  onSelect,
-  defaultGitIdentity,
-  defaultProvider,
-  defaultModel,
-  onSaveDefaultIdentity,
-  onSaveDefault,
-}: {
-  /// The handle in the URL, if one is there.
-  selected?: string;
-  onSelect: (handle?: string) => void;
-  defaultGitIdentity: string;
-  defaultProvider: string;
-  defaultModel: string;
-  onSaveDefaultIdentity: (value: string) => void;
-  onSaveDefault: (choice: ModelChoice) => void;
-}) {
-  const agents = useStore((s) => s.agents);
-  const loadBoard = useStore((s) => s.loadBoard);
-  const saveAgent = useStore((s) => s.saveAgent);
-  const [creating, setCreating] = useState(false);
-
-  useEffect(() => {
-    void loadBoard().catch(() => {
-      // An unreachable machine already says so elsewhere.
-    });
-  }, [loadBoard]);
-
-  const agent = useMemo(
-    () => agents.find((entry) => entry.handle === selected),
-    [agents, selected],
-  );
-
-  const create = async () => {
-    setCreating(true);
-    try {
-      // Created straight away rather than behind a form: the pane it lands in
-      // is the form, and the server makes the handle unique.
-      const made = await saveAgent(undefined, {
-        name: "New agent",
-      });
-      onSelect(made.handle);
-    } catch (error) {
-      toast.error("Couldn't create that agent", { description: apiError(error) });
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  return (
-    <div className="flex min-h-0 flex-1">
-      <nav
-        aria-label="Agents"
-        className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar/40"
-      >
-        <ScrollArea className="min-h-0 flex-1">
-          <ul className="flex flex-col gap-0.5 p-2">
-            <li>
-              <Button
-                type="button"
-                variant="ghost"
-                aria-current={!selected ? "page" : undefined}
-                onClick={() => onSelect(undefined)}
-                className={cn(
-                  "h-auto w-full justify-start gap-2.5 px-2 py-1.5 font-normal",
-                  !selected ? "bg-sidebar-row-selected" : "hover:bg-sidebar-row-hover",
-                )}
-              >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <Settings2 className="size-3.5" />
-                </span>
-                <span className="text-sm leading-5">General</span>
-              </Button>
-            </li>
-            <li aria-hidden="true" className="my-1 border-t border-border" />
-            {agents.map((entry) => {
-              const colors = tintOf(entry.tint);
-              const active = entry.handle === selected;
-              return (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    aria-current={active ? "page" : undefined}
-                    onClick={() => onSelect(entry.handle)}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                      active ? "bg-sidebar-row-selected" : "hover:bg-sidebar-row-hover",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex size-6 shrink-0 items-center justify-center rounded-md",
-                        colors.well,
-                        colors.fg,
-                      )}
-                    >
-                      <Bot className="size-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm leading-5">{entry.name}</span>
-                      <span className="block truncate font-mono text-[10px] leading-4 text-muted-foreground">
-                        @{entry.handle}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </ScrollArea>
-        <div className="border-t border-border p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start"
-            disabled={creating}
-            onClick={() => void create()}
-          >
-            <Plus />
-            New agent
-          </Button>
-        </div>
-      </nav>
-
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex w-full max-w-2xl flex-col gap-6 px-6 py-6">
-          {!selected ? (
-            <AgentDefaults
-              defaultGitIdentity={defaultGitIdentity}
-              defaultProvider={defaultProvider}
-              defaultModel={defaultModel}
-              onSaveDefaultIdentity={onSaveDefaultIdentity}
-              onSaveDefault={onSaveDefault}
-            />
-          ) : agent ? (
-            <AgentDetail
-              key={agent.id}
-              agent={agent}
-              defaultGitIdentity={defaultGitIdentity}
-              defaultProvider={defaultProvider}
-              defaultModel={defaultModel}
-              onDeleted={() => onSelect(undefined)}
-            />
-          ) : (
-            <Empty className="flex-1">
-              <EmptyHeader>
-                <EmptyMedia variant="icon"><Bot /></EmptyMedia>
-                <EmptyTitle>No agent called @{selected}</EmptyTitle>
-                <EmptyDescription>Pick an agent from the list.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </div>
-      </ScrollArea>
-    </div>
-  );
-}
-
-function AgentDefaults({
-  defaultGitIdentity,
-  defaultProvider,
-  defaultModel,
-  onSaveDefaultIdentity,
-  onSaveDefault,
-}: {
-  defaultGitIdentity: string;
-  defaultProvider: string;
-  defaultModel: string;
-  onSaveDefaultIdentity: (value: string) => void;
-  onSaveDefault: (choice: ModelChoice) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-6">
-      <header>
-        <h2 className="text-lg leading-tight font-semibold">General</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Defaults that inherited agents follow.</p>
-      </header>
-
-      <Field orientation="horizontal" className="items-center">
-        <FieldContent>
-          <FieldLabel htmlFor="default-model">Model</FieldLabel>
-          <FieldDescription className="text-xs">
-            New threads and agents set to Remy default follow this choice.
-          </FieldDescription>
-        </FieldContent>
-        <ModelPickerButton
-          id="default-model"
-          value={{ provider: defaultProvider, model: defaultModel }}
-          onPick={onSaveDefault}
-        />
-      </Field>
-
-      <Field orientation="horizontal" className="items-center">
-        <FieldContent>
-          <FieldLabel htmlFor="default-git-identity">Commit attribution</FieldLabel>
-          <FieldDescription className="text-xs">
-            Agents set to Remy default follow this choice.
-          </FieldDescription>
-        </FieldContent>
-        <Select value={defaultGitIdentity} onValueChange={onSaveDefaultIdentity}>
-          <SelectTrigger id="default-git-identity" size="sm" className="w-56 shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectGroup>
-              {IDENTITIES.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </Field>
-    </div>
-  );
-}
-
-function AgentDetail({
+export function AgentSettings({
   agent,
   defaultGitIdentity,
   defaultProvider,
@@ -337,6 +111,10 @@ function AgentDetail({
   const colors = tintOf(agent.tint);
   const identity = agent.gitIdentity;
   const resolvedIdentity = identity === REMY_DEFAULT ? defaultGitIdentity : identity;
+  // Remy answers for the app itself, so who it is comes with the version you
+  // are running. What is left is what a preference actually is: what it thinks
+  // with, what it may do unasked, and its colour.
+  const locked = agent.builtIn === true;
 
   return (
     <div className="flex flex-col gap-6">
@@ -347,14 +125,24 @@ function AgentDetail({
           <Bot className="size-5" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <EditableName
-            value={agent.name}
-            label="agent name"
-            className="text-lg leading-tight font-semibold"
-            onCommit={(name) => void save({ name }, "the name")}
-          />
+          {locked ? (
+            <span className="text-lg leading-tight font-semibold">{agent.name}</span>
+          ) : (
+            <EditableName
+              value={agent.name}
+              label="agent name"
+              className="text-lg leading-tight font-semibold"
+              onCommit={(name) => void save({ name }, "the name")}
+            />
+          )}
           <span className="font-mono text-xs text-muted-foreground">@{agent.handle}</span>
+          {locked && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Remy comes with the app. Pick what it thinks with; the rest is ours.
+            </p>
+          )}
         </div>
+        {!locked && (
         <AlertDialog>
           {/* Both triggers are `asChild`, so they have to collapse onto the one
               button — a Tooltip root in between would swallow the dialog's
@@ -390,8 +178,10 @@ function AgentDetail({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        )}
       </header>
 
+      {!locked && (
       <Field>
         <FieldLabel htmlFor="agent-role">Role</FieldLabel>
         <FieldDescription className="text-xs">One line, shown under the name.</FieldDescription>
@@ -403,7 +193,9 @@ function AgentDetail({
           onBlur={commit("role", "the role")}
         />
       </Field>
+      )}
 
+      {!locked && (
       <Field>
         <FieldLabel htmlFor="agent-handle">Handle</FieldLabel>
         <FieldDescription className="text-xs">
@@ -417,7 +209,9 @@ function AgentDetail({
           onBlur={commit("handle", "the handle")}
         />
       </Field>
+      )}
 
+      {!locked && (
       <Field>
         <FieldLabel htmlFor="agent-instructions">Instructions</FieldLabel>
         <FieldDescription className="text-xs">
@@ -433,6 +227,7 @@ function AgentDetail({
           onBlur={commit("instructions", "the instructions")}
         />
       </Field>
+      )}
 
       <Field>
         <FieldLabel>Colour</FieldLabel>
@@ -469,7 +264,7 @@ function AgentDetail({
           />
         </Field>
         <Field>
-          <FieldLabel htmlFor="agent-permission">May do unasked</FieldLabel>
+          <FieldLabel htmlFor="agent-permission">Permission mode</FieldLabel>
           <Select
             value={agent.permissionMode}
             onValueChange={(next) => void save({ permissionMode: next }, "what it may do unasked")}
@@ -493,6 +288,8 @@ function AgentDetail({
         {PERMISSIONS.find((option) => option.value === agent.permissionMode)?.detail}
       </FieldDescription>
 
+      {!locked && (
+      <>
       <Separator />
 
       <Field>
@@ -539,7 +336,7 @@ function AgentDetail({
 
       <Separator />
 
-      {agents.length > 1 && (
+      {agents.filter((other) => other.id !== agent.id && !other.builtIn).length > 0 && (
         <Field>
           <FieldLabel>May hand a ticket to</FieldLabel>
           <FieldDescription className="text-xs">
@@ -547,7 +344,7 @@ function AgentDetail({
           </FieldDescription>
           <div className="flex flex-wrap gap-1.5">
             {agents
-              .filter((other) => other.id !== agent.id)
+              .filter((other) => other.id !== agent.id && !other.builtIn)
               .map((other) => {
                 const on = agent.handoffTo.includes(other.handle);
                 return (
@@ -589,6 +386,8 @@ function AgentDetail({
           onCheckedChange={(next) => void save({ autoStart: next }, "whether it starts unattended")}
         />
       </Field>
+      </>
+      )}
     </div>
   );
 }

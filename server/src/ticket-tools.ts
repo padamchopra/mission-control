@@ -3,7 +3,8 @@ import { basename } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
 import { agentByHandle, getAgent, listAgents } from "./agents.js";
-import { listProjects } from "./projects.js";
+import { listProjects, projectForWorkspace } from "./projects.js";
+import { artifactMarker, type ConvArtifact } from "./remy-artifacts.js";
 import { REMY_TOOL_INSTRUCTIONS } from "./ticket-tool-contract.js";
 import { addWorkspace, listWorkspaces } from "./workspaces.js";
 import {
@@ -101,8 +102,14 @@ export function ticketPromptContext(chatId: string): string | undefined {
   return `<remy_ticket_context>\n${describe(ticket)}\n\nThis thread is linked to this ticket. Use the Remy ticket tools to keep the ticket accurate as the work changes.\n</remy_ticket_context>`;
 }
 
-function ok(text: string) {
-  return { content: [{ type: "text" as const, text }] };
+/// A tool's answer, and the card the feed draws under it. The marker rides in
+/// the text because that is the one thing every provider's transcript keeps.
+function ok(text: string, artifact?: ConvArtifact) {
+  return { content: [{ type: "text" as const, text: artifact ? text + artifactMarker(artifact) : text }] };
+}
+
+function ticketCard(ticket: TicketView): ConvArtifact {
+  return { kind: "ticket", key: ticket.key, title: ticket.title, detail: ticket.status };
 }
 
 function workspaceName(path: string): string {
@@ -169,7 +176,12 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
         },
         async ({ path, name }) => {
           const workspace = await addWorkspace(name?.trim() || workspaceName(path), path);
-          return ok(`Registered ${workspace.name} at ${workspace.path}.`);
+          return ok(`Registered ${workspace.name} at ${workspace.path}.`, {
+            kind: "workspace",
+            id: workspace.id,
+            title: workspace.name,
+            detail: workspace.path,
+          });
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
@@ -245,7 +257,12 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
             ...(provider ? { provider } : {}),
             ...(model ? { model } : {}),
           });
-          return ok(`Started ${thread.title} as thread ${thread.id}.`);
+          return ok(`Started ${thread.title} as thread ${thread.id}.`, {
+            kind: "thread",
+            id: thread.id,
+            title: thread.title,
+            detail: selected ? `@${selected.handle}` : "Workspace agent",
+          });
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
       ),
@@ -275,6 +292,32 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
         { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } },
       ),
       tool(
+        "create_ticket",
+        "Write a new ticket on a workspace's board.",
+        {
+          title: z.string().min(1).max(200),
+          body: z.string().max(20000).optional().describe("The description in markdown"),
+          workspace: z.string().optional().describe("Registered workspace name, id, path, or origin. Omit it to use this thread's folder."),
+          status: z.enum(TICKET_STATUSES as [TicketStatus, ...TicketStatus[]]).optional().describe("Defaults to Backlog."),
+        },
+        async ({ title, body, workspace, status }) => {
+          const path = await workspacePath(workspace, threads.currentCwd);
+          const held = (await listWorkspaces()).find((entry) =>
+            entry.path === path || entry.worktrees.some((worktree) => worktree.path === path));
+          const project = held ? projectForWorkspace(held.id) : undefined;
+          if (!project) throw new Error("That folder has no board yet. Register it as a workspace first.");
+          const actor = agentId ? getAgent(agentId)?.handle ?? "remy" : "remy";
+          const ticket = createTicket({
+            projectId: project.id,
+            title,
+            ...(body ? { body } : {}),
+            ...(status ? { status } : {}),
+          }, actor);
+          return ok(`Created ${ticket.key} in ${project.name}.`, ticketCard(ticket));
+        },
+        { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
+      ),
+      tool(
         "read_ticket",
         "Read a ticket's current scope, status, sub-tickets, and recent activity.",
         { key },
@@ -291,7 +334,7 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
           if (existing && existing.id !== ticket.id) throw new Error(`This thread is already linked to ${existing.key}.`);
           const linked = existing ?? linkThread(ticket.id, { chatId, agentId, linkedBy: "runner" });
           syncTicketFromThread(chatId, "working");
-          return ok(`Linked this thread to ${linked.key}.`);
+          return ok(`Linked this thread to ${linked.key}.`, ticketCard(linked));
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
@@ -309,7 +352,8 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
           if (title !== undefined) patch.title = title;
           if (body !== undefined) patch.body = body;
           if (Object.keys(patch).length === 0) throw new Error("Give a title or description to update.");
-          return ok(`Updated ${updateTicket(ticket.id, patch).key}.`);
+          const updated = updateTicket(ticket.id, patch);
+          return ok(`Updated ${updated.key}.`, ticketCard(updated));
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
@@ -324,7 +368,8 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
         async ({ key: asked, status, note }) => {
           const ticket = ticketFor(asked, chatId);
           const actor = agentId ? getAgent(agentId)?.handle ?? "remy" : "remy";
-          return ok(`Moved ${setTicketStatus(ticket.id, status, { actor, note }).key} to ${status}.`);
+          const moved = setTicketStatus(ticket.id, status, { actor, note });
+          return ok(`Moved ${moved.key} to ${status}.`, ticketCard(moved));
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),
@@ -335,7 +380,8 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
         async ({ key: asked, body }) => {
           const ticket = ticketFor(asked, chatId);
           const actor = agentId ? getAgent(agentId)?.handle ?? "remy" : "remy";
-          return ok(`Commented on ${commentOnTicket(ticket.id, body, actor).key}.`);
+          const commented = commentOnTicket(ticket.id, body, actor);
+          return ok(`Commented on ${commented.key}.`, ticketCard(commented));
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
       ),
@@ -355,7 +401,7 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
             title,
             ...(body ? { body } : {}),
           });
-          return ok(`Created ${child.key} under ${parent.key}.`);
+          return ok(`Created ${child.key} under ${parent.key}.`, ticketCard(child));
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
       ),
@@ -371,7 +417,7 @@ export function claudeTicketMcpServer(chatId: string, agentId: string | undefine
           if (!current?.handoffTo.includes(next.handle)) throw new Error(`@${current?.handle ?? "workspace"} cannot hand tickets to @${next.handle}.`);
           const handed = handoffTicket(ticket.id, next.id, current.handle);
           setTicketStatus(handed.id, "todo", { actor: current.handle });
-          return ok(`Handed ${handed.key} to @${next.handle} in Todo.`);
+          return ok(`Handed ${handed.key} to @${next.handle} in Todo.`, ticketCard(handed));
         },
         { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       ),

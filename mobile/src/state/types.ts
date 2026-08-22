@@ -42,6 +42,13 @@ export interface Chat {
   preview?: string;
   updatedAt: number;
   workingSince?: number;
+  /// True when this is an agent's inbox conversation rather than work in a
+  /// repository. One per agent, and never listed with the threads.
+  dm?: boolean;
+  /// The agent has said something since you last opened this.
+  unread?: boolean;
+  /// The named persona running this conversation, when it has one.
+  agentId?: string;
 }
 
 export interface GitWorktree {
@@ -206,6 +213,9 @@ export interface Agent {
   gitName?: string;
   gitEmail?: string;
   preset?: string;
+  /// Remy's own agent. Its name, role and instructions come from the copy of
+  /// Remy that is running, and it cannot be deleted.
+  builtIn?: boolean;
 }
 
 export interface Project {

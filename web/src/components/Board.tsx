@@ -398,7 +398,7 @@ function DoneTicketsDialog({
               const DeviceIcon = deviceIcon(device?.icon);
               return (
                 <Item key={ticket.id} asChild variant="outline" size="sm">
-                  <button type="button" className="w-full text-left" onClick={() => openTicket(ticket.key)}>
+                  <button type="button" data-link className="w-full text-left" onClick={() => openTicket(ticket.key)}>
                     <ItemMedia>
                       <StatusIcon status="done" decorative />
                     </ItemMedia>
@@ -572,7 +572,7 @@ function TicketCard({
             onOpen();
           }}
           className={cn(
-            "cursor-pointer rounded-lg hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+            "rounded-lg hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             isDragging && "opacity-40",
           )}
         >

@@ -3,6 +3,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentKind } from "./agent.js";
 import type { PendingMessage } from "./registry.js";
+import { takeArtifacts, type ConvArtifact } from "./remy-artifacts.js";
+
+export type { ConvArtifact };
 
 // A single rendered item in the conversation feed. `kind` picks the renderer on
 // the client; the other fields are populated per kind.
@@ -21,6 +24,18 @@ export interface ConvEntry {
   adds?: number;
   dels?: number;
   questions?: ConvQuestion[];
+  /// What a Remy tool made on this call — a ticket, a thread, a workspace —
+  /// shown as a card under the tool row rather than left in its output.
+  artifacts?: ConvArtifact[];
+}
+
+/// Records a tool's result on its feed entry, lifting out anything a Remy tool
+/// said it made. Every provider's transcript goes through here, so a card looks
+/// the same whichever one wrote it.
+export function applyToolOutput(entry: ConvEntry, output: string, max: number): void {
+  const { text, artifacts } = takeArtifacts(output);
+  if (artifacts.length) entry.artifacts = artifacts;
+  if (text) entry.output = clip(text, max);
 }
 
 export interface ConvDiffLine {
@@ -258,7 +273,7 @@ export function readConversation(path: string | undefined, limit = 120): Convers
               applyNotes(entry.questions, result?.annotations);
             } else {
               const out = resultText(tr.content) ?? resultText(o.toolUseResult);
-              if (out) entry.output = clip(out, MAX_OUTPUT);
+              if (out) applyToolOutput(entry, out, MAX_OUTPUT);
             }
           }
           continue;
@@ -354,7 +369,7 @@ function readCodexConversation(lines: any[], limit: number): Conversation {
       const entry = entries[index];
       entry.status = "ok";
       const output = resultText(payload.output) ?? codexOutputText(payload.output);
-      if (output) entry.output = clip(output, MAX_OUTPUT);
+      if (output) applyToolOutput(entry, output, MAX_OUTPUT);
     }
   }
 

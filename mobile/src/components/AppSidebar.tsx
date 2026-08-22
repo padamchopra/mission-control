@@ -31,9 +31,15 @@ export function AppSidebar({
   onNewThread: () => void;
 }) {
   const chats = useStore((s) => s.chats);
+  const dms = useStore((s) => s.dms);
+  const agents = useStore((s) => s.agents);
   const workspaces = useStore((s) => s.workspaces);
   const servers = useStore((s) => s.servers);
   const needsYou = chats.filter((chat) => chat.state === "needs_input").length;
+  // Only what the roster lists: a conversation whose agent is not on this board
+  // has nothing here to open, so counting it would be a badge you cannot clear.
+  const unread = dms.filter((chat) =>
+    chat.unread && agents.some((agent) => agent.id === chat.agentId)).length;
   const many = servers.length > 1;
 
   return (
@@ -51,7 +57,8 @@ export function AppSidebar({
               <Text style={[type.callout, { flex: 1, color: on ? color.foreground : color.mutedForeground }]}>
                 {label}
               </Text>
-              {id === "inbox" && needsYou > 0 ? <Text style={styles.badge}>{needsYou}</Text> : null}
+              {id === "inbox" && unread > 0 ? <Text style={styles.badge}>{unread}</Text> : null}
+              {id === "threads" && needsYou > 0 ? <Text style={styles.badge}>{needsYou}</Text> : null}
             </Pressable>
           );
         })}

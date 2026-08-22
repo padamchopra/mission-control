@@ -35,6 +35,9 @@ interface RawChat {
   preview?: string;
   updatedAt?: number;
   workingSince?: number | null;
+  dm?: boolean;
+  unread?: boolean;
+  agentId?: string;
 }
 
 interface RawWorkspace {
@@ -53,6 +56,8 @@ interface RawWorkspace {
 interface State {
   servers: Server[];
   chats: Chat[];
+  /// The inbox: one conversation per agent, across every paired machine.
+  dms: Chat[];
   workspaces: Workspace[];
   openId?: string;
   detail?: ChatDetail;
@@ -87,6 +92,11 @@ interface State {
     permissionMode?: string;
   }): Promise<{ id: string; serverId: string }>;
   openChat(id: string): Promise<void>;
+  /// Opens an agent's conversation, making it if this is the first time. The
+  /// Mac holding the agent is the one that holds the conversation.
+  openDm(agent: Agent): Promise<Chat>;
+  /// Clears an inbox conversation's unread mark.
+  readChat(id: string): Promise<void>;
   closeChat(): void;
   sendMessage(text: string): Promise<void>;
   answerApproval(requestId: string, decision: "allow" | "allowAlways" | "deny"): Promise<void>;
@@ -109,6 +119,7 @@ const POLL_DISCONNECTED_MS = 4_000;
 export const useStore = create<State>((set, get) => ({
   servers: [],
   chats: [],
+  dms: [],
   workspaces: [],
   agents: [],
   projects: [],
@@ -182,7 +193,7 @@ export const useStore = create<State>((set, get) => ({
     if (get().servers.length === 0) set({ loading: true });
     const servers = await transport.servers();
     if (servers.length === 0) {
-      set({ servers: [], chats: [], workspaces: [], loading: false, error: undefined, connected: false });
+      set({ servers: [], chats: [], dms: [], workspaces: [], loading: false, error: undefined, connected: false });
       return;
     }
 
@@ -190,9 +201,9 @@ export const useStore = create<State>((set, get) => ({
     const results = await Promise.all(
       servers.map(async (server) => {
         try {
-          let chats: { chats?: RawChat[] };
+          let chats: { chats?: RawChat[]; dms?: RawChat[] };
           try {
-            chats = await transport.request<{ chats?: RawChat[] }>(server.id, "/chats");
+            chats = await transport.request<{ chats?: RawChat[]; dms?: RawChat[] }>(server.id, "/chats");
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (!/\b404\b/.test(message)) throw error;
@@ -208,11 +219,17 @@ export const useStore = create<State>((set, get) => ({
           return {
             server: { ...server, online: server.cloud ? server.online : true },
             chats: (chats.chats ?? []).map((raw) => toChat(raw, server.id)),
+            dms: (chats.dms ?? []).map((raw) => toChat(raw, server.id)),
             workspaces,
           };
         } catch (error) {
           failures.push(`${server.name}: ${error instanceof Error ? error.message : String(error)}`);
-          return { server: { ...server, online: false }, chats: [] as Chat[], workspaces: [] as Workspace[] };
+          return {
+            server: { ...server, online: false },
+            chats: [] as Chat[],
+            dms: [] as Chat[],
+            workspaces: [] as Workspace[],
+          };
         }
       }),
     );
@@ -220,6 +237,7 @@ export const useStore = create<State>((set, get) => ({
     set({
       servers: results.map((r) => r.server),
       chats: results.flatMap((r) => r.chats).sort(byAttention),
+      dms: results.flatMap((r) => r.dms),
       workspaces: results.flatMap((r) => r.workspaces),
       loading: false,
       error: failures.length === servers.length ? failures.join("; ") : undefined,
@@ -454,7 +472,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openChat(id) {
-    const chat = get().chats.find((entry) => entry.id === id);
+    // Both lists: an inbox conversation opens the same way a thread does.
+    const chat = get().chats.find((entry) => entry.id === id)
+      ?? get().dms.find((entry) => entry.id === id);
     if (!chat) return;
     const same = get().detail?.id === id;
     set({ openId: id, detailLoading: !same, ...(same ? {} : { detail: undefined }) });
@@ -471,6 +491,33 @@ export const useStore = create<State>((set, get) => ({
 
   closeChat() {
     set({ openId: undefined, detail: undefined, detailLoading: false });
+  },
+
+  async openDm(agent) {
+    const existing = get().dms.find((chat) => chat.agentId === agent.id && chat.serverId === agent.serverId);
+    if (existing) return existing;
+    const body = await transport.request<{ chat: RawChat }>(
+      agent.serverId,
+      `/agents/${encodeURIComponent(agent.id)}/dm`,
+      { method: "POST" },
+    );
+    const chat = toChat(body.chat, agent.serverId);
+    set((current) => ({ dms: [chat, ...current.dms.filter((entry) => entry.id !== chat.id)] }));
+    return chat;
+  },
+
+  async readChat(id) {
+    const chat = get().dms.find((entry) => entry.id === id);
+    if (!chat?.unread) return;
+    // Cleared here first: the row should stop being bold the moment you open
+    // it, not when the Mac gets back to us.
+    set((current) => ({
+      dms: current.dms.map((entry) => (entry.id === id ? { ...entry, unread: false } : entry)),
+    }));
+    await transport.request(chat.serverId, `/chats/${encodeURIComponent(id)}/read`, { method: "POST" })
+      .catch(() => {
+        // A mark that did not save comes back on the next refresh.
+      });
   },
 
   async sendMessage(text) {
@@ -592,6 +639,7 @@ export const useStore = create<State>((set, get) => ({
 interface ChatFrame {
   type?: string;
   chatId?: string;
+  unread?: boolean;
   entries?: ConvEntry[];
   removed?: string[];
   state?: ChatState;
@@ -640,21 +688,25 @@ function toDetail(raw: RawChatDetail, serverId: string): ChatDetail {
   };
 }
 
+function patchRow(chat: Chat, frame: ChatFrame): Chat {
+  if (chat.id !== frame.chatId) return chat;
+  return {
+    ...chat,
+    state: frame.state ?? chat.state,
+    title: frame.title ?? chat.title,
+    updatedAt: frame.updatedAt ?? chat.updatedAt,
+    workingSince: frame.workingSince === undefined ? chat.workingSince : (frame.workingSince ?? undefined),
+    ...(frame.unread === undefined ? {} : { unread: frame.unread }),
+  };
+}
+
 function applyChatFrame(current: State, frame: ChatFrame): Partial<State> {
-  const chats = current.chats.map((chat) =>
-    chat.id === frame.chatId
-      ? {
-          ...chat,
-          state: frame.state ?? chat.state,
-          title: frame.title ?? chat.title,
-          updatedAt: frame.updatedAt ?? chat.updatedAt,
-          workingSince: frame.workingSince === undefined ? chat.workingSince : (frame.workingSince ?? undefined),
-        }
-      : chat,
-  );
+  // A frame does not say which list its conversation is in, so both are asked.
+  const chats = current.chats.map((chat) => patchRow(chat, frame));
+  const dms = current.dms.map((chat) => patchRow(chat, frame));
   const detail =
     current.detail && current.detail.id === frame.chatId ? mergeDetail(current.detail, frame) : current.detail;
-  return { chats, detail };
+  return { chats, dms, detail };
 }
 
 function mergeDetail(detail: ChatDetail, frame: ChatFrame): ChatDetail {
@@ -699,6 +751,9 @@ function toChat(raw: RawChat, serverId: string): Chat {
     preview: raw.preview,
     updatedAt: raw.updatedAt ?? 0,
     workingSince: raw.workingSince ?? undefined,
+    ...(raw.dm ? { dm: true } : {}),
+    ...(raw.unread ? { unread: true } : {}),
+    ...(raw.agentId ? { agentId: raw.agentId } : {}),
   };
 }
 

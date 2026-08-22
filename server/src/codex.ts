@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { codexSandbox } from "./providers.js";
-import { clip, MAX_ARG, MAX_OUTPUT, MAX_TEXT, MAX_THINK, type ConvEntry, type ConvTodo } from "./transcript.js";
+import { applyToolOutput, clip, MAX_ARG, MAX_OUTPUT, MAX_TEXT, MAX_THINK, type ConvEntry, type ConvTodo } from "./transcript.js";
 
 /// The app-server shapes Remy renders. They stay deliberately smaller than the
 /// generated protocol: the installed Codex CLI is the schema authority, while
@@ -606,7 +606,7 @@ export function codexEntry(item: CodexItem, turn = ""): ConvEntry | undefined {
       const entry: ConvEntry = { id, kind: "tool", tool: "Bash", verb: "Ran", arg: clip(item.command ?? "", MAX_ARG) };
       if (item.status !== "in_progress") entry.status = item.status === "failed" || item.exit_code ? "error" : "ok";
       const output = item.aggregated_output?.trim();
-      if (output) entry.output = clip(output, MAX_OUTPUT);
+      if (output) applyToolOutput(entry, output, MAX_OUTPUT);
       return entry;
     }
     case "file_change": {

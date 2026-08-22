@@ -4,6 +4,14 @@ import type { ChatPermissionMode } from "./chat.js";
 import { config } from "./config.js";
 import { db, runTransaction } from "./db.js";
 import { providerId, providerModel, type ProviderId } from "./providers.js";
+import {
+  REMY_AGENT_HANDLE,
+  REMY_AGENT_ID,
+  REMY_AGENT_INSTRUCTIONS,
+  REMY_AGENT_NAME,
+  REMY_AGENT_PRESET,
+  REMY_AGENT_ROLE,
+} from "./remy-agent.js";
 
 // An agent is a thread with a character on the front: the same Claude, the same
 // worktree, the same feed, started with its instructions appended to the preset
@@ -44,6 +52,10 @@ export interface Agent {
   gitEmail?: string;
   /// The preset this was seeded from, so seeding runs once and never again.
   preset?: string;
+  /// Read-only: Remy's own agent. Its name, handle, role and instructions come
+  /// from the running copy of Remy rather than from you, and it cannot be
+  /// deleted — there would be nobody left to ask about Remy.
+  builtIn?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -72,6 +84,11 @@ const EDITABLE = [
   "gitIdentity",
   "gitName",
 ] as const;
+
+/// What a built-in agent will not take from a client. Everything left over —
+/// its provider, its model, what it may do without asking, its face — is the
+/// part that is a preference rather than an identity.
+const LOCKED = ["name", "handle", "role", "instructions", "handoffTo", "gitIdentity", "gitName"] as const;
 
 /// A handle lives in a tool call and a commit trailer, so it is held to
 /// something short that needs no quoting.
@@ -160,6 +177,7 @@ function fold(id: string): Agent | undefined {
     ...agent,
     gitIdentity: gitIdentity(agent.gitIdentity, REMY_DEFAULT),
     gitEmail: agentGitEmail(agent.handle),
+    ...(id === REMY_AGENT_ID ? { builtIn: true } : {}),
   };
 }
 
@@ -245,6 +263,7 @@ function toAgent(row: Record<string, unknown>): Agent {
     // to `gh` does not outlive the fact.
     gitEmail: agentGitEmail(String(row.handle)),
     ...(row.preset ? { preset: String(row.preset) } : {}),
+    ...(String(row.id) === REMY_AGENT_ID ? { builtIn: true } : {}),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
@@ -298,7 +317,7 @@ export function workspaceAgent(): Agent {
     instructions: "",
     provider: config.defaultProvider,
     ...(config.defaultModel ? { model: config.defaultModel } : {}),
-    permissionMode: "default",
+    permissionMode: "auto",
     autoStart: true,
     handoffTo: [],
     // Its commits are yours: there is no persona here to credit.
@@ -391,7 +410,9 @@ function validate(input: Record<string, unknown>, existing?: Agent): Record<stri
   if (input.autoStart !== undefined) patch.autoStart = input.autoStart !== false;
   if (input.handoffTo !== undefined) {
     const list = Array.isArray(input.handoffTo) ? input.handoffTo : [];
-    patch.handoffTo = [...new Set(list.map(agentHandle).filter((h): h is string => Boolean(h)))];
+    patch.handoffTo = [...new Set(list.map(agentHandle).filter((h): h is string => Boolean(h)))]
+      // Remy is not a step in a chain of work; it is the app.
+      .filter((handle) => handle !== REMY_AGENT_HANDLE);
   }
   if (input.gitIdentity !== undefined) {
     patch.gitIdentity = gitIdentity(input.gitIdentity, existing?.gitIdentity ?? REMY_DEFAULT);
@@ -414,7 +435,7 @@ function createAgentWithId(id: string, input: Record<string, unknown>): Agent {
     // Store inheritance rather than today's answer, so a later settings change
     // reaches this agent without rewriting it.
     provider: REMY_DEFAULT,
-    permissionMode: "default",
+    permissionMode: "auto",
     autoStart: true,
     handoffTo: [],
     gitIdentity: REMY_DEFAULT,
@@ -432,6 +453,9 @@ export function updateAgent(id: string, input: Record<string, unknown>): Agent {
   const existing = getAgent(id);
   if (!existing) throw new Error("no such agent");
   const patch = validate(input, existing);
+  // Remy's own agent answers for the copy of Remy that is running, so who it is
+  // comes from this build. What it thinks with is still yours to choose.
+  if (existing.builtIn) for (const field of LOCKED) delete patch[field];
   if (Object.keys(patch).length === 0) return existing;
   append("agent", id, "field", patch);
   const agent = reproject(id);
@@ -446,7 +470,9 @@ export function resetAgentsUsingProvider(provider: ProviderId): void {
 }
 
 export function deleteAgent(id: string): void {
-  if (!getAgent(id)) throw new Error("no such agent");
+  const existing = getAgent(id);
+  if (!existing) throw new Error("no such agent");
+  if (existing.builtIn) throw new Error("Remy cannot be deleted");
   append("agent", id, "tombstone", {});
   reproject(id);
 }
@@ -474,6 +500,52 @@ export function gitIdentityEnv(agent: Agent | undefined): NodeJS.ProcessEnv {
   };
 }
 
+// ── Remy's own agent ────────────────────────────────────────────────────────
+
+/// Who Remy is, as this build tells it. Held apart from the row so an upgrade
+/// that teaches Remy something new reaches an install that already has it.
+const REMY_IDENTITY = {
+  name: REMY_AGENT_NAME,
+  handle: REMY_AGENT_HANDLE,
+  role: REMY_AGENT_ROLE,
+  instructions: REMY_AGENT_INSTRUCTIONS,
+} as const;
+
+/// Seeds Remy's own agent, then keeps it in step on every boot.
+///
+/// The identity above is written straight to the log rather than through
+/// `updateAgent`, which refuses these fields on a built-in agent: they come
+/// from this build, not from a client. Only the fields that actually differ are
+/// written, so a boot that changes nothing appends nothing.
+///
+/// Its provider stays `default`, which is what the person asked for: Remy
+/// thinks with whatever Settings says until they pick something else for it.
+export function seedRemyAgent(): Agent {
+  const existing = getAgent(REMY_AGENT_ID);
+  if (!existing) {
+    return createAgentWithId(REMY_AGENT_ID, {
+      ...REMY_IDENTITY,
+      preset: REMY_AGENT_PRESET,
+      // A colour so its mark reads as somebody rather than as a blank. Yours to
+      // change: what Remy looks like is a preference, not an identity.
+      tint: "green",
+      // It edits Remy's own board rather than a repository, and being asked
+      // before each ticket it was told to write is the wrong conversation.
+      permissionMode: "auto",
+      // There is no persona to credit on a commit it will never make.
+      gitIdentity: "off",
+      // Remy answers you; it is not something the board starts on a ticket.
+      autoStart: false,
+    });
+  }
+  const drifted = Object.entries(REMY_IDENTITY).filter(
+    ([field, value]) => existing[field as keyof typeof REMY_IDENTITY] !== value,
+  );
+  if (drifted.length === 0) return existing;
+  append("agent", REMY_AGENT_ID, "field", Object.fromEntries(drifted));
+  return reproject(REMY_AGENT_ID) ?? existing;
+}
+
 // ── presets ─────────────────────────────────────────────────────────────────
 
 interface Preset {
@@ -497,7 +569,7 @@ const PRESETS: Preset[] = [
     role: "Turns a rough ticket into clear product scope",
     tint: "violet",
     model: "",
-    permissionMode: "plan",
+    permissionMode: "auto",
     gitIdentity: REMY_DEFAULT,
     handoffTo: ["builder"],
     instructions: [
@@ -517,7 +589,7 @@ const PRESETS: Preset[] = [
     role: "Implements the ticket in its own worktree",
     tint: "blue",
     model: "",
-    permissionMode: "acceptEdits",
+    permissionMode: "auto",
     gitIdentity: REMY_DEFAULT,
     handoffTo: ["qa"],
     instructions: [
@@ -539,7 +611,7 @@ const PRESETS: Preset[] = [
     role: "Tests the finished behavior against the ticket",
     tint: "amber",
     model: "",
-    permissionMode: "acceptEdits",
+    permissionMode: "auto",
     gitIdentity: REMY_DEFAULT,
     handoffTo: ["builder"],
     instructions: [

@@ -312,6 +312,7 @@ export function TicketView({
                     <li key={child.id}>
                       <button
                         type="button"
+                        data-link
                         onClick={() => onOpenTicket(child.key)}
                         className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                       >
@@ -372,6 +373,7 @@ export function TicketView({
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                data-link
                                 aria-label="Open thread"
                                 onClick={() => onOpenThread(link.chatId)}
                               >
@@ -549,6 +551,7 @@ export function TicketView({
             {workspace ? (
               <button
                 type="button"
+                data-link
                 className="flex w-full items-center gap-1.5 rounded text-left text-sm hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 onClick={() => onOpenWorkspace(workspace.id)}
               >

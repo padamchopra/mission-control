@@ -29,8 +29,8 @@ detail: "Start a thread on a connected device and it shows up here."
 
 GOOD
 ```
-title: "Inbox is clear"
-detail: "Nothing is waiting on you."
+title: "No agents yet"
+detail: "Write one to hand work to, then talk to it here."
 ```
 
 Never: "shows up here", "this page", "this list", "get started", "simply", "just".

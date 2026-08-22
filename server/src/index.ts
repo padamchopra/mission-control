@@ -4,7 +4,8 @@ import { WebSocketServer } from "ws";
 import { answerMentions } from "./mentions.js";
 import { config, patchSettings, publicSettings } from "./config.js";
 import { AgentStartupError, AgentUnavailableError, agentKind, inferAgent, type AgentKind } from "./agent.js";
-import { createAgent, deleteAgent, getAgent, listAgents, seedPresetAgents, updateAgent } from "./agents.js";
+import { createAgent, deleteAgent, getAgent, listAgents, seedPresetAgents, seedRemyAgent, updateAgent } from "./agents.js";
+import { deliverAnnouncements } from "./announcements.js";
 import { archiveChat, deleteArchivedChat, listArchivedChats } from "./archives.js";
 import { deviceId, onLocalAppend, onRemoteMerge, type LogEvent } from "./board-log.js";
 import {
@@ -34,9 +35,16 @@ import {
   chatsUnavailable,
   createChat,
   deleteChat,
+  dmChatFor,
   getChat,
   interruptChat,
+  listAllChats,
   listChats,
+  listDms,
+  markChatRead,
+  pruneOrphanDms,
+  syncAgentDm,
+  syncAgentDms,
   respondToApproval,
   respondToQuestion,
   runChatEnvironmentCommand,
@@ -405,6 +413,9 @@ const server = createServer(async (req, res) => {
       syncSleepAssertion();
       // Turning the schedule off has to stop the timer now, not at its next tick.
       syncRepoUpdateSchedule();
+      // Agents that follow the machine default follow it here too, so an inbox
+      // conversation is never left on the model the machine used to be on.
+      if (body.defaultProvider !== undefined || body.defaultModel !== undefined) syncAgentDms();
       return json(res, 200, { ...settings, preventSleepSupported: sleepSupported() });
     }
 
@@ -841,8 +852,19 @@ const server = createServer(async (req, res) => {
           broadcast({ type: "board" });
           return json(res, 200, { ok: true });
         } catch (error) {
-          return json(res, 404, { error: (error as Error).message || "no such agent" });
+          const message = (error as Error).message || "no such agent";
+          return json(res, /no such agent/.test(message) ? 404 : 400, { error: message });
         }
+      }
+    }
+    // Opening an agent in the inbox. The conversation is made on the first
+    // open rather than with the agent, so a roster nobody has spoken to holds
+    // no empty threads.
+    if (req.method === "POST" && parts[0] === "agents" && parts[1] && parts[2] === "dm" && parts.length === 3) {
+      try {
+        return json(res, 200, { chat: dmChatFor(decodeURIComponent(parts[1])) });
+      } catch (error) {
+        return json(res, 404, { error: (error as Error).message || "no such agent" });
       }
     }
 
@@ -1148,7 +1170,9 @@ const server = createServer(async (req, res) => {
       // `unavailable` explains an empty list on a server that cannot store
       // chats — an older Node, or a database it could not open.
       const unavailable = chatsUnavailable();
-      return json(res, 200, { chats: listChats(), ...(unavailable ? { unavailable } : {}) });
+      // The inbox rides along rather than taking a route of its own: a client
+      // that shows both would otherwise ask twice on every refresh.
+      return json(res, 200, { chats: listChats(), dms: listDms(), ...(unavailable ? { unavailable } : {}) });
     }
     if (req.method === "POST" && url.pathname === "/chats") {
       const body = await readJson(req);
@@ -1185,6 +1209,12 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && parts.length === 2) {
         const chat = getChat(id);
         return chat ? json(res, 200, chat) : json(res, 404, { error: "no such chat" });
+      }
+      // Reading is a write, so it is a POST — and it is the client that knows
+      // when a conversation is actually on screen.
+      if (req.method === "POST" && parts[2] === "read" && parts.length === 3) {
+        markChatRead(id);
+        return json(res, 200, { ok: true });
       }
       if (req.method === "PATCH" && parts.length === 2) {
         const body = await readJson(req);
@@ -1878,7 +1908,7 @@ server.listen(config.port, "127.0.0.1", () => {
   console.log(`remy server listening on 127.0.0.1:${config.port}`);
 });
 setSleepBusyCheck(() =>
-  listChats().some((chat) => chat.state === "working" || chat.state === "needs_input"),
+  listAllChats().some((chat) => chat.state === "working" || chat.state === "needs_input"),
 );
 syncSleepAssertion();
 syncRepoUpdateSchedule();
@@ -1886,13 +1916,25 @@ syncRepoUpdateSchedule();
 // The built-in agents are ordinary rows once seeded. The seeder also upgrades
 // untouched legacy defaults while preserving anything the user edited.
 seedPresetAgents();
+// Remy's own agent is seeded separately: its name and instructions come from
+// this build rather than from the row, so they are re-synced on every boot.
+seedRemyAgent();
+// Then whatever this release gave Remy to say, said once.
+deliverAnnouncements();
+// An agent deleted while this machine was shut leaves its conversation behind.
+pruneOrphanDms();
 
 // Board changes can originate outside an HTTP handler: a thread changes its
 // ticket status, a recurrence runs, or an agent uses a ticket tool. Keep every
 // open window live without making each writer remember to send its own frame.
 function reconcileBoardEvent(event: LogEvent): void {
   if (event.entity === "ticket") void reconcileTicket(event.entityId);
-  if (event.entity === "agent") void reconcileAgentTickets(event.entityId);
+  if (event.entity === "agent") {
+    void reconcileAgentTickets(event.entityId);
+    // What an agent thinks with is what its inbox conversation thinks with,
+    // including when the change was made on another machine.
+    syncAgentDm(event.entityId);
+  }
 }
 
 onLocalAppend((event) => {

@@ -57,6 +57,7 @@ export function AppSidebar({
   scoped,
   workspaces,
   needsYou,
+  unread,
   sections,
   onSection,
   onSelectChat,
@@ -74,6 +75,7 @@ export function AppSidebar({
   scoped: Chat[];
   workspaces: Workspace[];
   needsYou: number;
+  unread: number;
   sections: { id: string; label: string; icon: ComponentType<{ className?: string }> }[];
   onSection: (id: string) => void;
   onSelectChat: (id: string) => void;
@@ -109,7 +111,7 @@ export function AppSidebar({
                 <SidebarMenu>
                   {SETTINGS_SECTIONS.map(({ id, label, icon: Icon }) => (
                     <SidebarMenuItem key={id}>
-                      <SidebarMenuButton isActive={settingsTab === id} onClick={() => openSettings(id)}>
+                      <SidebarMenuButton data-link isActive={settingsTab === id} onClick={() => openSettings(id)}>
                         <Icon />
                         <span>{label}</span>
                       </SidebarMenuButton>
@@ -128,11 +130,12 @@ export function AppSidebar({
               <SidebarMenu>
                 {sections.map(({ id, label, icon: Icon }) => (
                   <SidebarMenuItem key={id}>
-                    <SidebarMenuButton isActive={section === id} onClick={() => onSection(id)}>
+                    <SidebarMenuButton data-link isActive={section === id} onClick={() => onSection(id)}>
                       <Icon />
                       <span>{label}</span>
                     </SidebarMenuButton>
-                    {id === "inbox" && needsYou > 0 && <SidebarMenuBadge>{needsYou}</SidebarMenuBadge>}
+                    {id === "inbox" && unread > 0 && <SidebarMenuBadge>{unread}</SidebarMenuBadge>}
+                    {id === "chats" && needsYou > 0 && <SidebarMenuBadge>{needsYou}</SidebarMenuBadge>}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -140,6 +143,8 @@ export function AppSidebar({
           </SidebarGroup>
 
           <SidebarContent>
+            {/* Threads, in every section. They are the work; whatever else you
+                are looking at, one is always a click away. */}
             <SidebarGroup className="min-h-0 flex-1">
               <SidebarGroupLabel>
                 Threads
@@ -184,7 +189,7 @@ export function AppSidebar({
         <SidebarMenu>
           {view !== "settings" && updateAvailable && (
             <SidebarMenuItem>
-              <SidebarMenuButton onClick={() => openSettings("general")}>
+              <SidebarMenuButton data-link onClick={() => openSettings("general")}>
                 <ArrowUpCircle />
                 <span>Update available</span>
               </SidebarMenuButton>
@@ -192,6 +197,7 @@ export function AppSidebar({
           )}
           <SidebarMenuItem>
             <SidebarMenuButton
+              data-link
               isActive={view === "settings"}
               onClick={() => openSettings(view === "settings" ? settingsTab : "general")}
             >
@@ -331,6 +337,7 @@ function ThreadRow({
   const row = (
     <SidebarMenuButton
       {...trigger}
+      data-link
       isActive={active}
       className="h-auto flex-col items-stretch gap-1 py-2"
       onClick={onSelect}
@@ -448,6 +455,7 @@ function ThreadContext({
         {workspace ? (
           <button
             type="button"
+            data-link
             className="flex items-center gap-1.5 rounded text-left hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             onClick={() => onOpenWorkspace(workspace.id)}
           >
@@ -470,6 +478,7 @@ function ThreadContext({
       {ticket && (
         <button
           type="button"
+          data-link
           className="flex flex-col gap-0.5 rounded border-t border-border pt-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={() => onOpenTicket(ticket.key)}
         >
